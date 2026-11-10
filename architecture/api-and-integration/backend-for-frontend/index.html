@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backend for Frontend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Architecture</a> / API and integration</div>
+    <h1>Backend for Frontend</h1>
+    <p class="aka">Usually shortened to <strong>BFF</strong>. Described by Sam Newman in 2015, based on work at SoundCloud.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A small backend built for one frontend only. The web app gets its own BFF, and the mobile app gets another. Each BFF calls the services behind it, combines the replies and returns data in the exact shape its screens need.</p>
+    <p>The team that builds the frontend usually owns its BFF. When a screen needs a new field, that team adds it to the BFF without waiting for another team.</p>
+    <p>A BFF is often used with <a href="../../system-topology/microservices/">microservices</a>. An API gateway gives every client the same entry point. A BFF gives each kind of client its own.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Frontend</span></td><td>The app the user sees and touches.</td><td>Web app, mobile app</td></tr>
+          <tr><td><span class="chip tone-blue">BFF</span></td><td>A backend for one frontend. It shapes data for that frontend's screens.</td><td>Web BFF, Mobile BFF</td></tr>
+          <tr><td><span class="chip tone-teal">Downstream service</span></td><td>A service the BFF calls to get data.</td><td>Order, User, Payment services</td></tr>
+          <tr><td><span class="chip tone-blue">Aggregation</span></td><td>Combining replies from several services into one reply.</td><td>Order + customer + payment in one JSON</td></tr>
+          <tr><td><span class="chip tone-neutral">Over-fetching</span></td><td>Downloading data the screen does not use.</td><td>Warehouse IDs sent to a phone</td></tr>
+          <tr><td><span class="chip tone-neutral">Chatty client</span></td><td>A client that needs many requests to draw one screen.</td><td>Mobile app calling 3 services</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>The one rule:</strong> a BFF shapes data for its frontend. Business rules stay in the services, so the web and mobile apps never disagree.</div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 70 920 310" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The web app calls the web BFF, which calls the order, user, payment and recommendation services. The mobile app calls the mobile BFF, which calls only the order and payment services.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <text class="t-side" x="82" y="88">FRONTENDS</text>
+        <g class="node" id="n-web" tabindex="0" role="button" aria-label="Show code for the web app" data-title="Web app" data-node="web">
+          <rect class="shape tone-neutral" x="12" y="130" width="140" height="50" rx="6"/>
+          <text class="t-name" x="82" y="152">Web app</text>
+          <text class="t-kind" x="82" y="169">browser</text>
+        </g>
+        <g class="node" id="n-mobile" tabindex="0" role="button" aria-label="Show code for the mobile app" data-title="Mobile app" data-node="mobile">
+          <rect class="shape tone-neutral" x="12" y="300" width="140" height="50" rx="6"/>
+          <text class="t-name" x="82" y="322">Mobile app</text>
+          <text class="t-kind" x="82" y="339">iOS and Android</text>
+        </g>
+
+        <text class="t-side" x="380" y="88">BFFS</text>
+        <g class="node" id="n-webbff" tabindex="0" role="button" aria-label="Show code for the web BFF" data-title="Web BFF" data-node="webbff">
+          <rect class="shape tone-blue" x="300" y="125" width="160" height="60" rx="6"/>
+          <text class="t-name" x="380" y="151">Web BFF</text>
+          <text class="t-kind" x="380" y="168">owned by the web team</text>
+        </g>
+        <g class="node" id="n-mobilebff" tabindex="0" role="button" aria-label="Show code for the mobile BFF" data-title="Mobile BFF" data-node="mobilebff">
+          <rect class="shape tone-blue" x="300" y="295" width="160" height="60" rx="6"/>
+          <text class="t-name" x="380" y="321">Mobile BFF</text>
+          <text class="t-kind" x="380" y="338">owned by the mobile team</text>
+        </g>
+
+        <text class="t-side" x="720" y="88">SERVICES</text>
+        <g class="node" id="n-orders" tabindex="0" role="button" aria-label="Show what the order service returns" data-title="Order service reply" data-node="orders">
+          <rect class="shape tone-teal" x="630" y="100" width="180" height="44" rx="6"/>
+          <text class="t-name" x="720" y="127">Order service</text>
+        </g>
+        <g class="node" id="n-users" tabindex="0" role="button" aria-label="Show what the user service returns" data-title="User service reply" data-node="users">
+          <rect class="shape tone-teal" x="630" y="170" width="180" height="44" rx="6"/>
+          <text class="t-name" x="720" y="197">User service</text>
+        </g>
+        <g class="node" id="n-payments" tabindex="0" role="button" aria-label="Show what the payment service returns" data-title="Payment service reply" data-node="payments">
+          <rect class="shape tone-teal" x="630" y="240" width="180" height="44" rx="6"/>
+          <text class="t-name" x="720" y="267">Payment service</text>
+        </g>
+        <g class="node" id="n-recommendations" tabindex="0" role="button" aria-label="Show what the recommendation service returns" data-title="Recommendation service reply" data-node="recommendations">
+          <rect class="shape tone-teal" x="630" y="310" width="180" height="44" rx="6"/>
+          <text class="t-name" x="720" y="337" style="font-size: 13px">Recommendation service</text>
+        </g>
+
+        <path class="flow" id="a-web-webbff" d="M152,150 L298,150" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-webbff-web" d="M298,164 L154,164" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-mobile-mobilebff" d="M152,320 L298,320" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-mobilebff-mobile" d="M298,334 L154,334" marker-end="url(#arrow)"/>
+
+        <path class="flow" id="a-webbff-orders" d="M460,140 L628,122" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-webbff-users" d="M460,155 L628,192" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-webbff-payments" d="M460,168 L628,256" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-webbff-recommendations" d="M460,180 L628,326" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-mobilebff-orders" d="M460,305 L628,134" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-mobilebff-payments" d="M460,315 L628,270" marker-end="url(#arrow)"/>
+
+        <path class="flow ghost" id="g-mobile-orders" d="M152,308 L628,118" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="g-mobile-users" d="M152,318 L628,198" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="g-mobile-payments" d="M152,342 L628,276" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="web" aria-pressed="true">Web order page</button>
+        <button type="button" data-flow="mobile" aria-pressed="false">Mobile order card</button>
+        <button type="button" data-flow="without" aria-pressed="false">Without a BFF</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="web" hidden>
+        <li data-highlight="n-web a-web-webbff n-webbff">The web app sends one request, <code>GET /bff/orders/42</code>, to the web BFF.</li>
+        <li data-highlight="n-webbff a-webbff-orders n-orders">The web BFF asks the order service for the order. It needs the order first, because it holds the customer ID.</li>
+        <li data-highlight="n-webbff a-webbff-users n-users a-webbff-payments n-payments a-webbff-recommendations n-recommendations">It then calls the user, payment and recommendation services at the same time.</li>
+        <li data-highlight="n-webbff">It picks the fields the order page shows and combines them into one reply. If recommendations fail, it leaves them out and the page still loads.</li>
+        <li data-highlight="n-webbff r-webbff-web n-web">The web app gets one JSON reply in the exact shape the page uses.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="mobile" hidden>
+        <li data-highlight="n-mobile a-mobile-mobilebff n-mobilebff">The mobile app sends one request, <code>GET /bff/orders/42</code>, to the mobile BFF.</li>
+        <li data-highlight="n-mobilebff a-mobilebff-orders n-orders a-mobilebff-payments n-payments">The mobile BFF calls only the order and payment services, at the same time. The small order card does not show the customer or recommendations.</li>
+        <li data-highlight="n-mobilebff">It keeps 5 small fields and turns the payment status <code>succeeded</code> into the display text <code>Paid</code>.</li>
+        <li data-highlight="n-mobilebff r-mobilebff-mobile n-mobile">The app gets a reply of a few hundred bytes instead of several kilobytes, which matters on a slow mobile network.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="without" hidden>
+        <li data-highlight="n-mobile g-mobile-orders n-orders g-mobile-users n-users g-mobile-payments n-payments">Without a BFF, the mobile app calls each service itself: 3 requests over a slow mobile network. Each service must also be open to the internet.</li>
+        <li data-highlight="n-mobile n-orders n-users n-payments">Each service returns all its data. The app downloads fields it never shows, such as warehouse IDs and card expiry dates.</li>
+        <li data-highlight="n-mobile">The app holds the code that combines the data. A change needs a new app release, and old app versions stay in use for months.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Frontend</span>
+      <span class="chip tone-blue">BFF</span>
+      <span class="chip tone-teal">Service</span>
+      <span>Click a frontend or BFF to see its code. Click a service to see the full reply it sends.</span>
+    </div>
+    <p class="caption">Each service returns all its data. Open a service reply, then open a BFF, to compare what the service sends with what the BFF keeps.</p>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="web-app/src/OrderPage.tsx"><span class="path">├─ web-app/src/OrderPage.tsx</span><span class="chip tone-neutral">Frontend</span></button>
+      <button type="button" class="tree-row" data-file="mobile-app/src/OrderCard.tsx"><span class="path">├─ mobile-app/src/OrderCard.tsx</span><span class="chip tone-neutral">Frontend</span></button>
+      <button type="button" class="tree-row" data-file="web-bff/src/orderPageRoute.ts"><span class="path">├─ web-bff/src/orderPageRoute.ts</span><span class="chip tone-blue">BFF</span></button>
+      <button type="button" class="tree-row" data-file="mobile-bff/src/orderCardRoute.ts"><span class="path">├─ mobile-bff/src/orderCardRoute.ts</span><span class="chip tone-blue">BFF</span></button>
+      <button type="button" class="tree-row" data-file="responses/order-service.json"><span class="path">├─ responses/order-service.json</span><span class="chip tone-teal">Service reply</span></button>
+      <button type="button" class="tree-row" data-file="responses/user-service.json"><span class="path">├─ responses/user-service.json</span><span class="chip tone-teal">Service reply</span></button>
+      <button type="button" class="tree-row" data-file="responses/payment-service.json"><span class="path">├─ responses/payment-service.json</span><span class="chip tone-teal">Service reply</span></button>
+      <button type="button" class="tree-row" data-file="responses/recommendation-service.json"><span class="path">└─ responses/recommendation-service.json</span><span class="chip tone-teal">Service reply</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="web-app/src/OrderPage.tsx"><span class="path">├─ web-app/src/OrderPage.tsx</span><span class="chip tone-neutral">Frontend</span></button>
+      <button type="button" class="tree-row" data-file="mobile-app/src/OrderCard.tsx"><span class="path">├─ mobile-app/src/OrderCard.tsx</span><span class="chip tone-neutral">Frontend</span></button>
+      <button type="button" class="tree-row" data-file="web-bff/OrderPageEndpoint.cs"><span class="path">├─ web-bff/OrderPageEndpoint.cs</span><span class="chip tone-blue">BFF</span></button>
+      <button type="button" class="tree-row" data-file="mobile-bff/OrderCardEndpoint.cs"><span class="path">├─ mobile-bff/OrderCardEndpoint.cs</span><span class="chip tone-blue">BFF</span></button>
+      <button type="button" class="tree-row" data-file="responses/order-service.json"><span class="path">├─ responses/order-service.json</span><span class="chip tone-teal">Service reply</span></button>
+      <button type="button" class="tree-row" data-file="responses/user-service.json"><span class="path">├─ responses/user-service.json</span><span class="chip tone-teal">Service reply</span></button>
+      <button type="button" class="tree-row" data-file="responses/payment-service.json"><span class="path">├─ responses/payment-service.json</span><span class="chip tone-teal">Service reply</span></button>
+      <button type="button" class="tree-row" data-file="responses/recommendation-service.json"><span class="path">└─ responses/recommendation-service.json</span><span class="chip tone-teal">Service reply</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Chatty clients</strong><span>One request per screen instead of one per service. This matters most on mobile networks.</span></li>
+        <li><strong>Over-fetching</strong><span>Each frontend gets only the fields it shows. Smaller replies load faster and use less mobile data.</span></li>
+        <li><strong>Display logic tied to app releases</strong><span>Combining and formatting data happens in the BFF. Changing it does not need a new app store release.</span></li>
+        <li><strong>One API that suits no one well</strong><span>Web and mobile need different data. Each BFF serves its own frontend, so neither has to compromise.</span></li>
+        <li><strong>Services open to the internet</strong><span>Only the BFFs are public. The services stay on the private network.</span></li>
+        <li><strong>Frontend teams waiting on backend teams</strong><span>The frontend team owns its BFF and adds fields when a screen needs them.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>More apps to run</strong><span>Each frontend adds a backend to build, deploy and monitor.</span></li>
+        <li><strong>Duplicated code</strong><span>Each BFF repeats the same HTTP helpers, timeouts, error handling and login checks.</span></li>
+        <li><strong>Business rules move into the BFF</strong><span>If a discount rule is coded in the web BFF only, the web and mobile apps show different prices.</span></li>
+        <li><strong>Extra network hop</strong><span>Every request goes client, then BFF, then service. The slowest service call sets the reply time.</span></li>
+        <li><strong>Partial failures</strong><span>The BFF must decide what to return when one of its services fails or is slow.</span></li>
+        <li><strong>How many BFFs</strong><span>One per platform, or one per app? Too many BFFs repeat the same work.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-tsx">
+    <div class="file" data-lang="any" data-node="web">
+      <div class="file-head"><span class="chip tone-neutral">Frontend</span><span class="name">web-app/src/OrderPage.tsx</span><span class="why">A React page. It makes one request and uses the reply as it is, with no combining or reshaping.</span></div>
+<pre><code>import { useEffect, useState } from "react";
+
+type OrderPageData = {
+  orderNumber: string;
+  placedAt: string;
+  items: { name: string; quantity: number; price: number }[];
+  total: number;
+  customer: { name: string; email: string };
+  payment: { status: string; cardLast4: string };
+  recommendations: { productId: string; name: string; imageUrl: string }[];
+};
+
+export function OrderPage({ orderId }: { orderId: string }) {
+  const [page, setPage] = useState&lt;OrderPageData | null&gt;(null);
+
+  useEffect(() =&gt; {
+    fetch(`/bff/orders/${orderId}`, { credentials: "include" })
+      .then((response) =&gt; response.json())
+      .then(setPage);
+  }, [orderId]);
+
+  if (!page) return &lt;p&gt;Loading order...&lt;/p&gt;;
+
+  return (
+    &lt;article&gt;
+      &lt;h1&gt;Order {page.orderNumber}&lt;/h1&gt;
+      &lt;ul&gt;
+        {page.items.map((item) =&gt; (
+          &lt;li key={item.name}&gt;{item.quantity} x {item.name}: {item.price} EUR&lt;/li&gt;
+        ))}
+      &lt;/ul&gt;
+      &lt;p&gt;Total {page.total} EUR, paid with card ending {page.payment.cardLast4}&lt;/p&gt;
+      &lt;p&gt;Shipping to {page.customer.name}&lt;/p&gt;
+    &lt;/article&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="mobile">
+      <div class="file-head"><span class="chip tone-neutral">Frontend</span><span class="name">mobile-app/src/OrderCard.tsx</span><span class="why">A React Native card. It calls the mobile BFF's own address, and the reply has only the fields the card shows.</span></div>
+<pre><code>import { useEffect, useState } from "react";
+import { Image, Text, View } from "react-native";
+
+type OrderCardData = {
+  orderNumber: string;
+  status: string;
+  total: number;
+  itemCount: number;
+  thumbnailUrl?: string;
+};
+
+export function OrderCard({ orderId }: { orderId: string }) {
+  const [card, setCard] = useState&lt;OrderCardData | null&gt;(null);
+
+  useEffect(() =&gt; {
+    fetch(`https://mobile-api.shop.example.com/bff/orders/${orderId}`)
+      .then((response) =&gt; response.json())
+      .then(setCard);
+  }, [orderId]);
+
+  if (!card) return &lt;Text&gt;Loading...&lt;/Text&gt;;
+
+  return (
+    &lt;View&gt;
+      {card.thumbnailUrl &amp;&amp; &lt;Image source={{ uri: card.thumbnailUrl }} /&gt;}
+      &lt;Text&gt;{card.orderNumber}: {card.status}&lt;/Text&gt;
+      &lt;Text&gt;{card.itemCount} items, {card.total} EUR&lt;/Text&gt;
+    &lt;/View&gt;
+  );
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="orders">
+      <div class="file-head"><span class="chip tone-teal">Service reply</span><span class="name">responses/order-service.json</span><span class="why">What <code>GET /orders/42</code> returns. Both BFFs read this, but each keeps only some fields.</span></div>
+<pre><code>{
+  "id": "42",
+  "number": "SHOP-1042",
+  "userId": "7",
+  "createdAt": "2026-11-09T14:12:00Z",
+  "status": "placed",
+  "items": [
+    { "productId": "p-19", "name": "Desk lamp", "quantity": 1, "price": 39.00,
+      "imageUrl": "https://cdn.example.com/p-19.jpg", "weightGrams": 1200, "warehouseId": "w-3" },
+    { "productId": "p-77", "name": "LED bulb", "quantity": 2, "price": 6.50,
+      "imageUrl": "https://cdn.example.com/p-77.jpg", "weightGrams": 80, "warehouseId": "w-3" }
+  ],
+  "total": 52.00,
+  "currency": "EUR",
+  "shippingAddress": { "line1": "Storgata 1", "city": "Oslo", "postcode": "0155", "country": "NO" },
+  "internalNotes": [],
+  "updatedAt": "2026-11-09T14:12:03Z"
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="users">
+      <div class="file-head"><span class="chip tone-teal">Service reply</span><span class="name">responses/user-service.json</span><span class="why">What <code>GET /users/7</code> returns. The web BFF keeps the name and email.</span></div>
+<pre><code>{
+  "id": "7",
+  "fullName": "Kari Nordmann",
+  "email": "kari@example.com",
+  "phone": "+47 400 00 000",
+  "marketingOptIn": false,
+  "createdAt": "2024-02-01T09:00:00Z"
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="payments">
+      <div class="file-head"><span class="chip tone-teal">Service reply</span><span class="name">responses/payment-service.json</span><span class="why">What <code>GET /payments?orderId=42</code> returns. The web BFF keeps the status and last 4 card digits. The mobile BFF keeps only the status.</span></div>
+<pre><code>{
+  "id": "pay-88",
+  "orderId": "42",
+  "status": "succeeded",
+  "amount": 52.00,
+  "currency": "EUR",
+  "card": { "brand": "visa", "last4": "4242", "expMonth": 12, "expYear": 2028 },
+  "providerId": "pi_3Nx8Kd2eZvKYlo2C",
+  "createdAt": "2026-11-09T14:11:58Z"
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="recommendations">
+      <div class="file-head"><span class="chip tone-teal">Service reply</span><span class="name">responses/recommendation-service.json</span><span class="why">What <code>GET /recommendations?orderId=42</code> returns. Only the web page shows recommendations.</span></div>
+<pre><code>[
+  { "productId": "p-31", "name": "Lamp shade", "imageUrl": "https://cdn.example.com/p-31.jpg", "score": 0.91 },
+  { "productId": "p-52", "name": "Desk mat", "imageUrl": "https://cdn.example.com/p-52.jpg", "score": 0.84 },
+  { "productId": "p-08", "name": "Cable tidy", "imageUrl": "https://cdn.example.com/p-08.jpg", "score": 0.77 }
+]</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="webbff">
+      <div class="file-head"><span class="chip tone-blue">BFF</span><span class="name">web-bff/src/orderPageRoute.ts</span><span class="why">One request from the browser becomes 4 service calls. Three of them run at the same time. If recommendations fail, the page still loads without them.</span></div>
+<pre><code>import { Router } from "express";
+
+async function getJson(url: string) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
+  if (!response.ok) throw new Error(`${url} replied ${response.status}.`);
+  return response.json();
+}
+
+export const orderPageRoute = Router();
+
+orderPageRoute.get("/bff/orders/:id", async (req, res) =&gt; {
+  const order = await getJson(`${process.env.ORDER_SERVICE_URL}/orders/${req.params.id}`);
+
+  const [customer, payment, recommendations] = await Promise.all([
+    getJson(`${process.env.USER_SERVICE_URL}/users/${order.userId}`),
+    getJson(`${process.env.PAYMENT_SERVICE_URL}/payments?orderId=${order.id}`),
+    getJson(`${process.env.RECOMMENDATION_SERVICE_URL}/recommendations?orderId=${order.id}`).catch(() =&gt; []),
+  ]);
+
+  res.json({
+    orderNumber: order.number,
+    placedAt: order.createdAt,
+    items: order.items.map((item: any) =&gt; ({ name: item.name, quantity: item.quantity, price: item.price })),
+    total: order.total,
+    customer: { name: customer.fullName, email: customer.email },
+    payment: { status: payment.status, cardLast4: payment.card.last4 },
+    recommendations: recommendations.slice(0, 4),
+  });
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="mobilebff">
+      <div class="file-head"><span class="chip tone-blue">BFF</span><span class="name">mobile-bff/src/orderCardRoute.ts</span><span class="why">Calls only 2 services and returns 5 small fields. The display text for the status is decided here, not in the app.</span></div>
+<pre><code>import { Router } from "express";
+
+async function getJson(url: string) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
+  if (!response.ok) throw new Error(`${url} replied ${response.status}.`);
+  return response.json();
+}
+
+export const orderCardRoute = Router();
+
+orderCardRoute.get("/bff/orders/:id", async (req, res) =&gt; {
+  const [order, payment] = await Promise.all([
+    getJson(`${process.env.ORDER_SERVICE_URL}/orders/${req.params.id}`),
+    getJson(`${process.env.PAYMENT_SERVICE_URL}/payments?orderId=${req.params.id}`),
+  ]);
+
+  res.json({
+    orderNumber: order.number,
+    status: payment.status === "succeeded" ? "Paid" : "Payment pending",
+    total: order.total,
+    itemCount: order.items.length,
+    thumbnailUrl: order.items[0]?.imageUrl,
+  });
+});</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="webbff">
+      <div class="file-head"><span class="chip tone-blue">BFF</span><span class="name">web-bff/OrderPageEndpoint.cs</span><span class="why">One request from the browser becomes 4 service calls. Three of them run at the same time. The records declare only the fields this BFF reads.</span></div>
+<pre><code>namespace WebBff;
+
+public record OrderItem(string Name, int Quantity, decimal Price);
+public record Order(string Id, string Number, string UserId, DateTime CreatedAt, List&lt;OrderItem&gt; Items, decimal Total);
+public record Customer(string FullName, string Email);
+public record Card(string Last4);
+public record Payment(string Status, Card Card);
+public record Recommendation(string ProductId, string Name, string ImageUrl);
+
+public static class OrderPageEndpoint
+{
+    public static void MapOrderPage(this WebApplication app)
+    {
+        app.MapGet("/bff/orders/{id}", async (string id, IHttpClientFactory http) =&gt;
+        {
+            var order = (await http.CreateClient("order-service").GetFromJsonAsync&lt;Order&gt;($"/orders/{id}"))!;
+
+            var customerTask = http.CreateClient("user-service").GetFromJsonAsync&lt;Customer&gt;($"/users/{order.UserId}");
+            var paymentTask = http.CreateClient("payment-service").GetFromJsonAsync&lt;Payment&gt;($"/payments?orderId={order.Id}");
+            var recommendationsTask = GetRecommendationsOrEmpty(http, order.Id);
+            await Task.WhenAll(customerTask, paymentTask, recommendationsTask);
+
+            var customer = (await customerTask)!;
+            var payment = (await paymentTask)!;
+
+            return Results.Ok(new
+            {
+                orderNumber = order.Number,
+                placedAt = order.CreatedAt,
+                items = order.Items,
+                total = order.Total,
+                customer = new { name = customer.FullName, email = customer.Email },
+                payment = new { status = payment.Status, cardLast4 = payment.Card.Last4 },
+                recommendations = (await recommendationsTask).Take(4),
+            });
+        });
+    }
+
+    private static async Task&lt;List&lt;Recommendation&gt;&gt; GetRecommendationsOrEmpty(IHttpClientFactory http, string orderId)
+    {
+        try
+        {
+            return await http.CreateClient("recommendation-service")
+                .GetFromJsonAsync&lt;List&lt;Recommendation&gt;&gt;($"/recommendations?orderId={orderId}") ?? [];
+        }
+        catch (HttpRequestException)
+        {
+            return [];
+        }
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="mobilebff">
+      <div class="file-head"><span class="chip tone-blue">BFF</span><span class="name">mobile-bff/OrderCardEndpoint.cs</span><span class="why">Calls only 2 services and returns 5 small fields. The <code>Order</code> record declares only what the card needs, and System.Text.Json skips the rest of the reply.</span></div>
+<pre><code>namespace MobileBff;
+
+public record OrderItem(string ImageUrl);
+public record Order(string Number, List&lt;OrderItem&gt; Items, decimal Total);
+public record Payment(string Status);
+
+public static class OrderCardEndpoint
+{
+    public static void MapOrderCard(this WebApplication app)
+    {
+        app.MapGet("/bff/orders/{id}", async (string id, IHttpClientFactory http) =&gt;
+        {
+            var orderTask = http.CreateClient("order-service").GetFromJsonAsync&lt;Order&gt;($"/orders/{id}");
+            var paymentTask = http.CreateClient("payment-service").GetFromJsonAsync&lt;Payment&gt;($"/payments?orderId={id}");
+            await Task.WhenAll(orderTask, paymentTask);
+
+            var order = (await orderTask)!;
+            var payment = (await paymentTask)!;
+
+            return Results.Ok(new
+            {
+                orderNumber = order.Number,
+                status = payment.Status == "succeeded" ? "Paid" : "Payment pending",
+                total = order.Total,
+                itemCount = order.Items.Count,
+                thumbnailUrl = order.Items.FirstOrDefault()?.ImageUrl,
+            });
+        });
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
