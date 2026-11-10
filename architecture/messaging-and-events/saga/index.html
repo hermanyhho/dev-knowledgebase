@@ -207,7 +207,7 @@
       <span class="chip tone-blue">Orchestrator</span>
       <span class="chip tone-teal">Service</span>
       <span class="chip tone-amber">State table</span>
-      <span>Dotted arrows are commands. Replies show during a flow. Commands and replies go through Kafka topics and the outbox. Click a box to see its code.</span>
+      <span>Dotted arrows are commands. Replies show during a flow. Commands and replies go through a message broker and the outbox: Kafka topics in the TypeScript code, RabbitMQ queues through MassTransit in the C# code. Click a box to see its code.</span>
     </div>
 
     <h3>Files</h3>
