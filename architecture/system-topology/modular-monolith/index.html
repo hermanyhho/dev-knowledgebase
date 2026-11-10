@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modular Monolith</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Architecture</a> / System topology</div>
+    <h1>Modular Monolith</h1>
+    <p class="aka">Also called a <strong>modulith</strong>. One deployable app, split into modules with boundaries the build checks.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A <a href="../monolith/">monolith</a> where each module has a public API and private internal code. Other modules may only use the public API. The compiler, a lint rule or a test fails the build when code breaks that rule.</p>
+    <p>It is still one app, built and deployed as one unit, with one database. Each module keeps its tables in its own database schema.</p>
+    <p>Modules talk through function calls to public APIs, and through an event bus that runs in the same process. Because the boundaries already exist, a module can later move out into its own service, as on the <a href="../microservices/">microservices</a> page. The modules often match the bounded contexts of <a href="../../domain-modeling/domain-driven-design/">domain-driven design</a>.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Module</span></td><td>One business area inside the app, with its own code and its own tables.</td><td>Orders, Users, Payments, Notifications</td></tr>
+          <tr><td><span class="chip tone-blue">Public API</span></td><td>The functions and types a module lets other modules use.</td><td><code>UsersApi.getCustomer</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Internal code</span></td><td>Everything else in the module. Other modules cannot import it.</td><td><code>UserRepository</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Boundary check</span></td><td>A rule the build enforces, so a shortcut into another module's internal code fails.</td><td>Lint rule in TypeScript, <code>internal</code> in C#</td></tr>
+          <tr><td><span class="chip tone-amber">Schema per module</span></td><td>One database, but each module's tables live in their own schema, with no foreign keys between schemas.</td><td><code>orders.orders</code>, <code>users.users</code></td></tr>
+          <tr><td><span class="chip tone-blue">In-process event bus</span></td><td>Passes events from one module to another by calling handlers directly, in the same process.</td><td><code>OrderPlaced</code> to Notifications</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> a module uses another module only through its public API or its events. It never imports another module's internal code or reads its tables.</div>
+  </section>
+
+  <section>
+    <h2>How it compares with a monolith and microservices</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Monolith</th><th>Modular monolith</th><th>Microservices</th></tr></thead>
+        <tbody>
+          <tr><td>Deployable units</td><td>1</td><td>1</td><td>1 per service</td></tr>
+          <tr><td>Calls between parts</td><td>Function calls to any code</td><td>Function calls to public APIs only</td><td>Network calls</td></tr>
+          <tr><td>Boundaries enforced by</td><td>Team discipline</td><td>Compiler, lint rules or tests</td><td>The network</td></tr>
+          <tr><td>Data</td><td>Shared tables</td><td>One database, one schema per module</td><td>One database per service</td></tr>
+          <tr><td>Scale one part alone</td><td>No</td><td>No</td><td>Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 400" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">One shop app contains HTTP routes, an event bus and four modules: Orders, Users, Payments and Notifications. Each module has a public API and internal code. Orders calls the public APIs of Users and Payments and publishes an event on the bus, which Notifications handles. All modules use one Postgres database with one schema per module.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="180" y="90" width="580" height="310" rx="10"/>
+        <rect class="frame copy" x="360" y="125" width="180" height="130" rx="8"/>
+        <text class="t-label" x="450" y="143">ORDERS</text>
+        <rect class="frame copy" x="570" y="125" width="180" height="130" rx="8"/>
+        <text class="t-label" x="660" y="143">USERS</text>
+        <rect class="frame copy" x="570" y="270" width="180" height="120" rx="8"/>
+        <text class="t-label" x="660" y="288">PAYMENTS</text>
+        <rect class="frame copy" x="360" y="270" width="180" height="120" rx="8"/>
+        <text class="t-label" x="450" y="288">NOTIFICATIONS</text>
+
+        <g class="node" id="n-wiring" tabindex="0" role="button" aria-label="Show code that starts the shop app" data-title="Shop app: startup" data-node="wiring">
+          <rect class="hit" x="390" y="94" width="160" height="26"/>
+          <text class="t-title" x="470" y="113">SHOP APP</text>
+        </g>
+
+        <text class="t-side" x="77" y="148">CLIENTS</text>
+        <g id="c-client">
+          <rect class="shape tone-neutral" x="12" y="160" width="130" height="44" rx="6"/>
+          <text class="t-name" x="77" y="187">Web or mobile</text>
+        </g>
+
+        <g class="node" id="n-routes" tabindex="0" role="button" aria-label="Show code for the HTTP routes" data-title="HTTP routes" data-node="routes">
+          <rect class="shape tone-blue" x="200" y="160" width="130" height="44" rx="6"/>
+          <text class="t-name" x="265" y="187">HTTP routes</text>
+        </g>
+        <g class="node" id="n-bus" tabindex="0" role="button" aria-label="Show code for the event bus" data-title="In-process event bus" data-node="bus">
+          <rect class="shape tone-blue" x="200" y="310" width="130" height="50" rx="6"/>
+          <text class="t-name" x="265" y="332">Event bus</text>
+          <text class="t-kind" x="265" y="349">in-process</text>
+        </g>
+
+        <g class="node" id="n-orders-api" tabindex="0" role="button" aria-label="Show the Orders public API" data-title="Orders: public API" data-node="orders-api">
+          <rect class="shape tone-blue" x="372" y="153" width="156" height="36" rx="6"/>
+          <text class="t-name" x="450" y="176">OrdersApi</text>
+        </g>
+        <g class="node" id="n-orders-internal" tabindex="0" role="button" aria-label="Show Orders internal code" data-title="Orders: internal code" data-node="orders-internal">
+          <rect class="shape tone-teal" x="372" y="199" width="156" height="44" rx="6"/>
+          <text class="t-name" x="450" y="218">internal</text>
+          <text class="t-kind" x="450" y="235">OrderService</text>
+        </g>
+
+        <g class="node" id="n-users-api" tabindex="0" role="button" aria-label="Show the Users public API" data-title="Users: public API" data-node="users-api">
+          <rect class="shape tone-blue" x="582" y="153" width="156" height="36" rx="6"/>
+          <text class="t-name" x="660" y="176">UsersApi</text>
+        </g>
+        <g class="node" id="n-users-internal" tabindex="0" role="button" aria-label="Show Users internal code" data-title="Users: internal code" data-node="users-internal">
+          <rect class="shape tone-teal" x="582" y="199" width="156" height="44" rx="6"/>
+          <text class="t-name" x="660" y="218">internal</text>
+          <text class="t-kind" x="660" y="235">UserRepository</text>
+        </g>
+
+        <g class="node" id="n-payments-api" tabindex="0" role="button" aria-label="Show the Payments public API" data-title="Payments: public API" data-node="payments-api">
+          <rect class="shape tone-blue" x="582" y="298" width="156" height="36" rx="6"/>
+          <text class="t-name" x="660" y="321">PaymentsApi</text>
+        </g>
+        <g class="node" id="n-payments-internal" tabindex="0" role="button" aria-label="Show Payments internal code" data-title="Payments: internal code" data-node="payments-internal">
+          <rect class="shape tone-teal" x="582" y="342" width="156" height="40" rx="6"/>
+          <text class="t-name" x="660" y="359">internal</text>
+          <text class="t-kind" x="660" y="375">PaymentService</text>
+        </g>
+
+        <g class="node" id="n-notifications" tabindex="0" role="button" aria-label="Show the Notifications event handler" data-title="Notifications: event handler" data-node="notifications">
+          <rect class="shape tone-teal" x="372" y="300" width="156" height="60" rx="6"/>
+          <text class="t-name" x="450" y="326">OrderPlaced handler</text>
+          <text class="t-kind" x="450" y="344">sends email</text>
+        </g>
+
+        <g class="node" id="n-db" tabindex="0" role="button" aria-label="Show the database schemas" data-title="Postgres: one schema per module" data-node="db">
+          <rect class="shape tone-amber" x="380" y="420" width="360" height="50" rx="6"/>
+          <text class="t-name" x="560" y="441">Postgres</text>
+          <text class="t-kind" x="560" y="458">one database, one schema per module: orders, users, payments</text>
+        </g>
+
+        <path class="flow" id="a-client-routes" d="M142,182 L198,182" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-routes-orders" d="M330,171 L370,171" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-users" d="M528,210 L580,176" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-payments" d="M528,236 L580,314" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-orders-bus" d="M372,236 L332,318" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-bus-notifications" d="M330,335 L370,333" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-db" d="M560,400 L560,418" marker-end="url(#arrow)"/>
+        <path class="flow ghost blocked" id="g-orders-users-internal" d="M528,223 L580,223" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-blocked" x="554" y="252">BLOCKED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="place" aria-pressed="true">Place an order</button>
+        <button type="button" data-flow="blocked" aria-pressed="false">A shortcut is blocked</button>
+        <button type="button" data-flow="extract" aria-pressed="false">Move a module out</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="place" hidden>
+        <li data-highlight="c-client a-client-routes n-routes a-routes-orders n-orders-api">The HTTP route calls <code>placeOrder</code> on the Orders public API.</li>
+        <li data-highlight="n-orders-api n-orders-internal">The public API passes the call to <code>OrderService</code>, which is internal to the Orders module.</li>
+        <li data-highlight="n-orders-internal a-orders-users n-users-api n-users-internal"><code>OrderService</code> calls <code>users.getCustomer</code>. It is a function call in the same process, but it goes through the Users public API.</li>
+        <li data-highlight="n-orders-internal a-orders-payments n-payments-api n-payments-internal">It calls <code>payments.charge</code> the same way. Payments charges the card through Stripe and saves the payment in its own schema.</li>
+        <li data-highlight="n-orders-internal a-app-db n-db"><code>OrderService</code> saves the order in the <code>orders</code> schema. Each module writes only to its own schema.</li>
+        <li data-highlight="n-orders-internal a-orders-bus n-bus a-bus-notifications n-notifications">It publishes <code>OrderPlaced</code> on the event bus. The bus calls the Notifications handler directly, in the same process, and the handler sends the email.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="blocked" hidden>
+        <li data-highlight="n-orders-internal g-orders-users-internal t-blocked n-users-internal">A developer adds a shortcut: <code>OrderService</code> imports <code>UserRepository</code> from the Users module's internal code to run its own query.</li>
+        <li data-highlight="n-orders-internal g-orders-users-internal t-blocked">The build fails. In TypeScript, a lint rule rejects imports from another module's <code>internal</code> folder. In C#, <code>UserRepository</code> is <code>internal</code>, so code in the Orders project cannot see it.</li>
+        <li data-highlight="n-orders-internal a-orders-users n-users-api">The fix is to call the Users public API, or to add a method to it. The Users module decides what it shares.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="extract" hidden>
+        <li data-highlight="n-notifications">Notifications now needs to scale on its own. It already gets its data only from <code>OrderPlaced</code>, and calls no other module.</li>
+        <li data-highlight="n-orders-internal a-orders-bus n-bus">Replace the in-process event bus with one that sends <code>OrderPlaced</code> to a message broker such as RabbitMQ. <code>OrderService</code> does not change: it still calls <code>bus.publish</code>.</li>
+        <li data-highlight="n-bus a-bus-notifications n-notifications">Deploy Notifications as its own service that reads <code>OrderPlaced</code> from a queue. The rest of the app stays one deploy.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-blue">Public API or shared part</span>
+      <span class="chip tone-teal">Internal code</span>
+      <span class="chip tone-amber">Database</span>
+      <span>The large box is the one app. Dashed boxes are modules. Dotted arrows are events. Click a box or the app title to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="eslint.config.js"><span class="path">├─ eslint.config.js</span><span class="chip tone-neutral">Boundary check</span></button>
+      <button type="button" class="tree-row" data-file="db/schema.sql"><span class="path">├─ db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="src/main.ts"><span class="path">├─ src/main.ts</span><span class="chip tone-neutral">Startup</span></button>
+      <button type="button" class="tree-row" data-file="src/http/routes.ts"><span class="path">├─ src/http/routes.ts</span><span class="chip tone-blue">HTTP routes</span></button>
+      <button type="button" class="tree-row" data-file="src/shared/eventBus.ts"><span class="path">├─ src/shared/eventBus.ts</span><span class="chip tone-blue">Event bus</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/orders/index.ts"><span class="path">├─ src/modules/orders/index.ts</span><span class="chip tone-blue">Public API</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/orders/internal/OrderService.ts"><span class="path">├─ src/modules/orders/internal/OrderService.ts</span><span class="chip tone-teal">Internal</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/users/index.ts"><span class="path">├─ src/modules/users/index.ts</span><span class="chip tone-blue">Public API</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/users/internal/UserRepository.ts"><span class="path">├─ src/modules/users/internal/UserRepository.ts</span><span class="chip tone-teal">Internal</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/payments/index.ts"><span class="path">├─ src/modules/payments/index.ts</span><span class="chip tone-blue">Public API</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/payments/internal/PaymentService.ts"><span class="path">├─ src/modules/payments/internal/PaymentService.ts</span><span class="chip tone-teal">Internal</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/notifications/index.ts"><span class="path">└─ src/modules/notifications/index.ts</span><span class="chip tone-teal">Event handler</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="src/Shop.Orders/Shop.Orders.csproj"><span class="path">├─ src/Shop.Orders/Shop.Orders.csproj</span><span class="chip tone-neutral">Boundary check</span></button>
+      <button type="button" class="tree-row" data-file="db/schema.sql"><span class="path">├─ db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Api/Program.cs"><span class="path">├─ src/Shop.Api/Program.cs</span><span class="chip tone-neutral">Startup</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Api/OrderEndpoints.cs"><span class="path">├─ src/Shop.Api/OrderEndpoints.cs</span><span class="chip tone-blue">HTTP routes</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.SharedKernel/EventBus.cs"><span class="path">├─ src/Shop.SharedKernel/EventBus.cs</span><span class="chip tone-blue">Event bus</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Orders/IOrdersModule.cs"><span class="path">├─ src/Shop.Orders/IOrdersModule.cs</span><span class="chip tone-blue">Public API</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Orders/Internal/OrderService.cs"><span class="path">├─ src/Shop.Orders/Internal/OrderService.cs</span><span class="chip tone-teal">Internal</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Users/IUsersModule.cs"><span class="path">├─ src/Shop.Users/IUsersModule.cs</span><span class="chip tone-blue">Public API</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Users/Internal/UserRepository.cs"><span class="path">├─ src/Shop.Users/Internal/UserRepository.cs</span><span class="chip tone-teal">Internal</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Payments/IPaymentsModule.cs"><span class="path">├─ src/Shop.Payments/IPaymentsModule.cs</span><span class="chip tone-blue">Public API</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Payments/Internal/PaymentService.cs"><span class="path">├─ src/Shop.Payments/Internal/PaymentService.cs</span><span class="chip tone-teal">Internal</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Notifications/SendOrderConfirmation.cs"><span class="path">└─ src/Shop.Notifications/SendOrderConfirmation.cs</span><span class="chip tone-teal">Event handler</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Modules mixed together over time</strong><span>A shortcut into another module's internal code fails the build, so boundaries stay in place.</span></li>
+        <li><strong>The cost of microservices too early</strong><span>One deploy, no network calls between modules, no message broker to run.</span></li>
+        <li><strong>Not knowing what a module offers</strong><span>Its public API file lists everything other modules may use.</span></li>
+        <li><strong>A later split being too hard</strong><span>A module with its own schema, a public API and events can move into its own service with few changes.</span></li>
+        <li><strong>Teams changing each other's code</strong><span>Each team owns its modules. Changes to a public API are visible and reviewed.</span></li>
+        <li><strong>Hard debugging across modules</strong><span>It is still one process, so one stack trace shows the whole request.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Still one deploy</strong><span>A change in any module redeploys the whole app, and you cannot scale one module on its own.</span></li>
+        <li><strong>One fault can still stop everything</strong><span>All modules run in the same process, so a crash in one stops all of them.</span></li>
+        <li><strong>Boundary checks need upkeep</strong><span>Lint rules and project references must be kept up to date. A <code>shared</code> folder can slowly fill with code that belongs in a module.</span></li>
+        <li><strong>More code than a plain monolith</strong><span>Public API types, module setup code and an event bus, for calls that could be direct.</span></li>
+        <li><strong>No joins across modules</strong><span>A report that needs orders and customers must call both public APIs, or keep a read copy of the data.</span></li>
+        <li><strong>In-process events are not stored</strong><span>If the app stops after the order is saved but before the handler runs, the email is never sent. A slow handler also slows the request.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="db">
+      <div class="file-head"><span class="chip tone-amber">Database</span><span class="name">db/schema.sql</span><span class="why">One database, one schema per module. There are no foreign keys between schemas, so a module's tables can later move to their own database.</span></div>
+<pre><code>CREATE SCHEMA users;
+CREATE SCHEMA orders;
+CREATE SCHEMA payments;
+
+CREATE TABLE users.users (
+  id         UUID PRIMARY KEY,
+  full_name  TEXT NOT NULL,
+  email      TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE orders.orders (
+  id           UUID PRIMARY KEY,
+  customer_id  UUID NOT NULL,
+  total        NUMERIC(10, 2) NOT NULL
+);
+
+CREATE TABLE payments.payments (
+  id           UUID PRIMARY KEY,
+  order_id     UUID NOT NULL,
+  amount       NUMERIC(10, 2) NOT NULL,
+  provider_id  TEXT NOT NULL
+);</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="ts" data-node="boundary">
+      <div class="file-head"><span class="chip tone-neutral">Boundary check</span><span class="name">eslint.config.js</span><span class="why">Code may import another module only through its <code>index.ts</code>. An import from another module's <code>internal</code> folder fails the lint step, and the build with it.</span></div>
+<pre><code>export default [
+  {
+    files: ["src/modules/**/*.ts"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          group: ["../*/internal/**", "../../*/internal/**", "**/modules/*/internal/**"],
+          message: "Use the other module's public API in its index.ts.",
+        }],
+      }],
+    },
+  },
+];</code></pre>
+    </div>
+  </div>
+
+  <div class="language-markup">
+    <div class="file" data-lang="cs" data-node="boundary">
+      <div class="file-head"><span class="chip tone-neutral">Boundary check</span><span class="name">src/Shop.Orders/Shop.Orders.csproj</span><span class="why">Each module is its own project. Orders may reference Users and Payments, but everything in those projects except the public interface is <code>internal</code>, so the compiler blocks any shortcut.</span></div>
+<pre><code>&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+  &lt;PropertyGroup&gt;
+    &lt;TargetFramework&gt;net9.0&lt;/TargetFramework&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;ProjectReference Include="..\Shop.SharedKernel\Shop.SharedKernel.csproj" /&gt;
+    &lt;ProjectReference Include="..\Shop.Users\Shop.Users.csproj" /&gt;
+    &lt;ProjectReference Include="..\Shop.Payments\Shop.Payments.csproj" /&gt;
+  &lt;/ItemGroup&gt;
+&lt;/Project&gt;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="wiring">
+      <div class="file-head"><span class="chip tone-neutral">Startup</span><span class="name">src/main.ts</span><span class="why">Creates each module and passes it only the public APIs it needs. Everything runs in one process.</span></div>
+<pre><code>import express from "express";
+import { Pool } from "pg";
+import Stripe from "stripe";
+import nodemailer from "nodemailer";
+import { EventBus } from "./shared/eventBus";
+import { createUsersModule } from "./modules/users";
+import { createPaymentsModule } from "./modules/payments";
+import { createOrdersModule } from "./modules/orders";
+import { registerNotificationsModule } from "./modules/notifications";
+import { routes } from "./http/routes";
+
+const db = new Pool();
+const bus = new EventBus();
+
+const users = createUsersModule(db);
+const payments = createPaymentsModule(db, new Stripe(process.env.STRIPE_KEY!));
+const orders = createOrdersModule(db, bus, users, payments);
+registerNotificationsModule(bus, nodemailer.createTransport(process.env.SMTP_URL));
+
+express()
+  .use(express.json())
+  .use(routes(orders))
+  .listen(3000);</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="routes">
+      <div class="file-head"><span class="chip tone-blue">HTTP routes</span><span class="name">src/http/routes.ts</span><span class="why">Knows only the Orders public API, not how Orders works inside.</span></div>
+<pre><code>import { Router } from "express";
+import { OrdersApi } from "../modules/orders";
+
+export function routes(orders: OrdersApi): Router {
+  const router = Router();
+
+  router.post("/orders", async (req, res) =&gt; {
+    const { customerId, items, paymentMethodId } = req.body;
+    const orderId = await orders.placeOrder(customerId, items, paymentMethodId);
+    res.status(201).json({ orderId });
+  });
+
+  return router;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="bus">
+      <div class="file-head"><span class="chip tone-blue">Event bus</span><span class="name">src/shared/eventBus.ts</span><span class="why"><code>publish</code> calls each handler directly, in the same process, before it returns. To move a module out later, you replace this class with one that sends events to a message broker.</span></div>
+<pre><code>type EventHandler = (event: any) =&gt; Promise&lt;void&gt;;
+
+export class EventBus {
+  private readonly handlersByType = new Map&lt;string, EventHandler[]&gt;();
+
+  subscribe(eventType: string, handler: EventHandler): void {
+    const handlers = this.handlersByType.get(eventType) ?? [];
+    this.handlersByType.set(eventType, [...handlers, handler]);
+  }
+
+  async publish(event: { type: string }): Promise&lt;void&gt; {
+    for (const handler of this.handlersByType.get(event.type) ?? []) {
+      await handler(event);
+    }
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="orders-api">
+      <div class="file-head"><span class="chip tone-blue">Public API</span><span class="name">src/modules/orders/index.ts</span><span class="why">The only file other code may import from the Orders module. It exports the API type, the event type and a function that creates the module.</span></div>
+<pre><code>import { Pool } from "pg";
+import { EventBus } from "../../shared/eventBus";
+import { UsersApi } from "../users";
+import { PaymentsApi } from "../payments";
+import { OrderItem, OrderService } from "./internal/OrderService";
+
+export type { OrderItem };
+
+export type OrderPlaced = { type: "OrderPlaced"; orderId: string; customerEmail: string; total: number };
+
+export type OrdersApi = {
+  placeOrder(customerId: string, items: OrderItem[], paymentMethodId: string): Promise&lt;string&gt;;
+};
+
+export function createOrdersModule(db: Pool, bus: EventBus, users: UsersApi, payments: PaymentsApi): OrdersApi {
+  const orderService = new OrderService(db, bus, users, payments);
+  return {
+    placeOrder: (customerId, items, paymentMethodId) =&gt; orderService.placeOrder(customerId, items, paymentMethodId),
+  };
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="orders-internal">
+      <div class="file-head"><span class="chip tone-teal">Internal</span><span class="name">src/modules/orders/internal/OrderService.ts</span><span class="why">Imports Users and Payments only through their <code>index.ts</code>, which the lint rule allows. Writes only to the <code>orders</code> schema, and tells other modules what happened through the event bus.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import { EventBus } from "../../../shared/eventBus";
+import { UsersApi } from "../../users";
+import { PaymentsApi } from "../../payments";
+import type { OrderPlaced } from "..";
+
+export type OrderItem = { productId: string; price: number; quantity: number };
+
+export class OrderService {
+  constructor(
+    private readonly db: Pool,
+    private readonly bus: EventBus,
+    private readonly users: UsersApi,
+    private readonly payments: PaymentsApi,
+  ) {}
+
+  async placeOrder(customerId: string, items: OrderItem[], paymentMethodId: string): Promise&lt;string&gt; {
+    const customer = await this.users.getCustomer(customerId);
+    if (!customer) throw new Error("The customer does not exist.");
+
+    const orderId = randomUUID();
+    const total = items.reduce((sum, item) =&gt; sum + item.price * item.quantity, 0);
+    await this.payments.charge(orderId, Math.round(total * 100), paymentMethodId);
+
+    await this.db.query(
+      "INSERT INTO orders.orders (id, customer_id, total) VALUES ($1, $2, $3)",
+      [orderId, customerId, total],
+    );
+
+    const event: OrderPlaced = { type: "OrderPlaced", orderId, customerEmail: customer.email, total };
+    await this.bus.publish(event);
+    return orderId;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="users-api">
+      <div class="file-head"><span class="chip tone-blue">Public API</span><span class="name">src/modules/users/index.ts</span><span class="why">Users shares one type and one function. <code>UserRepository</code> stays inside the module.</span></div>
+<pre><code>import { Pool } from "pg";
+import { UserRepository } from "./internal/UserRepository";
+
+export type Customer = { id: string; name: string; email: string };
+
+export type UsersApi = {
+  getCustomer(customerId: string): Promise&lt;Customer | null&gt;;
+};
+
+export function createUsersModule(db: Pool): UsersApi {
+  const userRepository = new UserRepository(db);
+  return {
+    getCustomer: (customerId) =&gt; userRepository.findById(customerId),
+  };
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="users-internal">
+      <div class="file-head"><span class="chip tone-teal">Internal</span><span class="name">src/modules/users/internal/UserRepository.ts</span><span class="why">Reads only the <code>users</code> schema. Other modules cannot import this file, so they cannot depend on the table layout.</span></div>
+<pre><code>import { Pool } from "pg";
+import type { Customer } from "..";
+
+export class UserRepository {
+  constructor(private readonly db: Pool) {}
+
+  async findById(customerId: string): Promise&lt;Customer | null&gt; {
+    const result = await this.db.query(
+      "SELECT id, full_name AS name, email FROM users.users WHERE id = $1",
+      [customerId],
+    );
+    return result.rows[0] ?? null;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="payments-api">
+      <div class="file-head"><span class="chip tone-blue">Public API</span><span class="name">src/modules/payments/index.ts</span><span class="why">Payments shares one function. Other modules do not know that Stripe is used.</span></div>
+<pre><code>import { Pool } from "pg";
+import Stripe from "stripe";
+import { PaymentService } from "./internal/PaymentService";
+
+export type PaymentsApi = {
+  charge(orderId: string, amountCents: number, paymentMethodId: string): Promise&lt;string&gt;;
+};
+
+export function createPaymentsModule(db: Pool, stripe: Stripe): PaymentsApi {
+  const paymentService = new PaymentService(db, stripe);
+  return {
+    charge: (orderId, amountCents, paymentMethodId) =&gt; paymentService.charge(orderId, amountCents, paymentMethodId),
+  };
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="payments-internal">
+      <div class="file-head"><span class="chip tone-teal">Internal</span><span class="name">src/modules/payments/internal/PaymentService.ts</span><span class="why">Calls Stripe and writes only to the <code>payments</code> schema.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import Stripe from "stripe";
+
+export class PaymentService {
+  constructor(
+    private readonly db: Pool,
+    private readonly stripe: Stripe,
+  ) {}
+
+  async charge(orderId: string, amountCents: number, paymentMethodId: string): Promise&lt;string&gt; {
+    const paymentIntent = await this.stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: "eur",
+      payment_method: paymentMethodId,
+      confirm: true,
+    });
+
+    await this.db.query(
+      "INSERT INTO payments.payments (id, order_id, amount, provider_id) VALUES ($1, $2, $3, $4)",
+      [randomUUID(), orderId, amountCents / 100, paymentIntent.id],
+    );
+    return paymentIntent.id;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="notifications">
+      <div class="file-head"><span class="chip tone-teal">Event handler</span><span class="name">src/modules/notifications/index.ts</span><span class="why">Notifications has no public API that others call. It only listens for <code>OrderPlaced</code>, so it can move out into its own service with few changes.</span></div>
+<pre><code>import { Transporter } from "nodemailer";
+import { EventBus } from "../../shared/eventBus";
+import type { OrderPlaced } from "../orders";
+
+export function registerNotificationsModule(bus: EventBus, mailer: Transporter): void {
+  bus.subscribe("OrderPlaced", async (event: OrderPlaced) =&gt; {
+    await mailer.sendMail({
+      from: "shop@example.com",
+      to: event.customerEmail,
+      subject: "Order received",
+      text: `Your order ${event.orderId} has been received.`,
+    });
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="wiring">
+      <div class="file-head"><span class="chip tone-neutral">Startup</span><span class="name">src/Shop.Api/Program.cs</span><span class="why">Each module registers itself with one call. Program.cs never sees a module's internal classes.</span></div>
+<pre><code>using Npgsql;
+using Shop.Api;
+using Shop.Notifications;
+using Shop.Orders;
+using Shop.Payments;
+using Shop.SharedKernel;
+using Shop.Users;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Shop")!));
+builder.Services.AddScoped&lt;EventBus&gt;();
+
+builder.Services.AddUsersModule();
+builder.Services.AddPaymentsModule(builder.Configuration["Stripe:Key"]!);
+builder.Services.AddOrdersModule();
+builder.Services.AddNotificationsModule(builder.Configuration["Smtp:Host"]!);
+
+var app = builder.Build();
+app.MapOrderEndpoints();
+app.Run();</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="routes">
+      <div class="file-head"><span class="chip tone-blue">HTTP routes</span><span class="name">src/Shop.Api/OrderEndpoints.cs</span><span class="why">Knows only <code>IOrdersModule</code>, not how Orders works inside.</span></div>
+<pre><code>using Shop.Orders;
+
+namespace Shop.Api;
+
+public record PlaceOrderRequest(Guid CustomerId, List&lt;OrderItem&gt; Items, string PaymentMethodId);
+
+public static class OrderEndpoints
+{
+    public static void MapOrderEndpoints(this WebApplication app)
+    {
+        app.MapPost("/orders", async (PlaceOrderRequest request, IOrdersModule orders) =&gt;
+        {
+            var orderId = await orders.PlaceOrderAsync(request.CustomerId, request.Items, request.PaymentMethodId);
+            return Results.Created($"/orders/{orderId}", new { orderId });
+        });
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="bus">
+      <div class="file-head"><span class="chip tone-blue">Event bus</span><span class="name">src/Shop.SharedKernel/EventBus.cs</span><span class="why"><code>PublishAsync</code> finds every registered handler for the event type and calls it directly, in the same process. To move a module out later, you replace this with a publisher that sends to a message broker.</span></div>
+<pre><code>using Microsoft.Extensions.DependencyInjection;
+
+namespace Shop.SharedKernel;
+
+public interface IEventHandler&lt;in TEvent&gt;
+{
+    Task HandleAsync(TEvent publishedEvent);
+}
+
+public class EventBus(IServiceProvider services)
+{
+    public async Task PublishAsync&lt;TEvent&gt;(TEvent publishedEvent)
+    {
+        foreach (var handler in services.GetServices&lt;IEventHandler&lt;TEvent&gt;&gt;())
+            await handler.HandleAsync(publishedEvent);
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="orders-api">
+      <div class="file-head"><span class="chip tone-blue">Public API</span><span class="name">src/Shop.Orders/IOrdersModule.cs</span><span class="why">The public types of the Orders project. <code>OrderService</code>, which does the work, is <code>internal</code>.</span></div>
+<pre><code>using Microsoft.Extensions.DependencyInjection;
+using Shop.Orders.Internal;
+
+namespace Shop.Orders;
+
+public record OrderItem(string ProductId, decimal Price, int Quantity);
+public record OrderPlaced(Guid OrderId, string CustomerEmail, decimal Total);
+
+public interface IOrdersModule
+{
+    Task&lt;Guid&gt; PlaceOrderAsync(Guid customerId, IReadOnlyList&lt;OrderItem&gt; items, string paymentMethodId);
+}
+
+public static class OrdersModuleSetup
+{
+    public static IServiceCollection AddOrdersModule(this IServiceCollection services) =&gt;
+        services.AddScoped&lt;IOrdersModule, OrderService&gt;();
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="orders-internal">
+      <div class="file-head"><span class="chip tone-teal">Internal</span><span class="name">src/Shop.Orders/Internal/OrderService.cs</span><span class="why">Uses Users and Payments only through <code>IUsersModule</code> and <code>IPaymentsModule</code>. Writes only to the <code>orders</code> schema, and tells other modules what happened through the event bus.</span></div>
+<pre><code>using Dapper;
+using Npgsql;
+using Shop.Payments;
+using Shop.SharedKernel;
+using Shop.Users;
+
+namespace Shop.Orders.Internal;
+
+internal sealed class OrderService(
+    NpgsqlDataSource db,
+    EventBus bus,
+    IUsersModule users,
+    IPaymentsModule payments) : IOrdersModule
+{
+    public async Task&lt;Guid&gt; PlaceOrderAsync(Guid customerId, IReadOnlyList&lt;OrderItem&gt; items, string paymentMethodId)
+    {
+        var customer = await users.GetCustomerAsync(customerId)
+            ?? throw new InvalidOperationException("The customer does not exist.");
+
+        var orderId = Guid.NewGuid();
+        var total = items.Sum(item =&gt; item.Price * item.Quantity);
+        await payments.ChargeAsync(orderId, (long)Math.Round(total * 100), paymentMethodId);
+
+        await using var connection = await db.OpenConnectionAsync();
+        await connection.ExecuteAsync(
+            "INSERT INTO orders.orders (id, customer_id, total) VALUES (@orderId, @customerId, @total)",
+            new { orderId, customerId, total });
+
+        await bus.PublishAsync(new OrderPlaced(orderId, customer.Email, total));
+        return orderId;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="users-api">
+      <div class="file-head"><span class="chip tone-blue">Public API</span><span class="name">src/Shop.Users/IUsersModule.cs</span><span class="why">Users shares one record and one method. The class that runs the query is <code>internal</code>.</span></div>
+<pre><code>using Microsoft.Extensions.DependencyInjection;
+using Shop.Users.Internal;
+
+namespace Shop.Users;
+
+public record Customer(Guid Id, string Name, string Email);
+
+public interface IUsersModule
+{
+    Task&lt;Customer?&gt; GetCustomerAsync(Guid customerId);
+}
+
+public static class UsersModuleSetup
+{
+    public static IServiceCollection AddUsersModule(this IServiceCollection services) =&gt;
+        services.AddScoped&lt;IUsersModule, UserRepository&gt;();
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="users-internal">
+      <div class="file-head"><span class="chip tone-teal">Internal</span><span class="name">src/Shop.Users/Internal/UserRepository.cs</span><span class="why"><code>internal</code> means code outside the Shop.Users project cannot use this class. Reads only the <code>users</code> schema.</span></div>
+<pre><code>using Dapper;
+using Npgsql;
+
+namespace Shop.Users.Internal;
+
+internal sealed class UserRepository(NpgsqlDataSource db) : IUsersModule
+{
+    public async Task&lt;Customer?&gt; GetCustomerAsync(Guid customerId)
+    {
+        await using var connection = await db.OpenConnectionAsync();
+        return await connection.QuerySingleOrDefaultAsync&lt;Customer&gt;(
+            "SELECT id, full_name AS name, email FROM users.users WHERE id = @customerId",
+            new { customerId });
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="payments-api">
+      <div class="file-head"><span class="chip tone-blue">Public API</span><span class="name">src/Shop.Payments/IPaymentsModule.cs</span><span class="why">Payments shares one method. Other modules do not know that Stripe is used.</span></div>
+<pre><code>using Microsoft.Extensions.DependencyInjection;
+using Shop.Payments.Internal;
+using Stripe;
+
+namespace Shop.Payments;
+
+public interface IPaymentsModule
+{
+    Task&lt;string&gt; ChargeAsync(Guid orderId, long amountCents, string paymentMethodId);
+}
+
+public static class PaymentsModuleSetup
+{
+    public static IServiceCollection AddPaymentsModule(this IServiceCollection services, string stripeKey) =&gt;
+        services
+            .AddSingleton(new PaymentIntentService(new StripeClient(stripeKey)))
+            .AddScoped&lt;IPaymentsModule, PaymentService&gt;();
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="payments-internal">
+      <div class="file-head"><span class="chip tone-teal">Internal</span><span class="name">src/Shop.Payments/Internal/PaymentService.cs</span><span class="why">Calls Stripe and writes only to the <code>payments</code> schema.</span></div>
+<pre><code>using Dapper;
+using Npgsql;
+using Stripe;
+
+namespace Shop.Payments.Internal;
+
+internal sealed class PaymentService(PaymentIntentService stripePayments, NpgsqlDataSource db) : IPaymentsModule
+{
+    public async Task&lt;string&gt; ChargeAsync(Guid orderId, long amountCents, string paymentMethodId)
+    {
+        var paymentIntent = await stripePayments.CreateAsync(new PaymentIntentCreateOptions
+        {
+            Amount = amountCents,
+            Currency = "eur",
+            PaymentMethod = paymentMethodId,
+            Confirm = true,
+        });
+
+        await using var connection = await db.OpenConnectionAsync();
+        await connection.ExecuteAsync(
+            "INSERT INTO payments.payments (id, order_id, amount, provider_id) VALUES (@id, @orderId, @amount, @providerId)",
+            new { id = Guid.NewGuid(), orderId, amount = amountCents / 100m, providerId = paymentIntent.Id });
+
+        return paymentIntent.Id;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="notifications">
+      <div class="file-head"><span class="chip tone-teal">Event handler</span><span class="name">src/Shop.Notifications/SendOrderConfirmation.cs</span><span class="why">Notifications has no public API that others call. It only handles <code>OrderPlaced</code>, so it can move out into its own service with few changes.</span></div>
+<pre><code>using System.Net.Mail;
+using Microsoft.Extensions.DependencyInjection;
+using Shop.Orders;
+using Shop.SharedKernel;
+
+namespace Shop.Notifications;
+
+internal sealed class SendOrderConfirmation(SmtpClient smtp) : IEventHandler&lt;OrderPlaced&gt;
+{
+    public Task HandleAsync(OrderPlaced orderPlaced) =&gt;
+        smtp.SendMailAsync(new MailMessage(
+            from: "shop@example.com",
+            to: orderPlaced.CustomerEmail,
+            subject: "Order received",
+            body: $"Your order {orderPlaced.OrderId} has been received."));
+}
+
+public static class NotificationsModuleSetup
+{
+    public static IServiceCollection AddNotificationsModule(this IServiceCollection services, string smtpHost) =&gt;
+        services
+            .AddScoped(_ =&gt; new SmtpClient(smtpHost))
+            .AddScoped&lt;IEventHandler&lt;OrderPlaced&gt;, SendOrderConfirmation&gt;();
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
