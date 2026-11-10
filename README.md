@@ -19,3 +19,11 @@ What each category covers: [architecture/README.md](architecture/README.md)
 | Event-Driven Architecture | Messaging and events | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/messaging-and-events/event-driven/) | [index.html](architecture/messaging-and-events/event-driven/index.html) |
 | Transactional Outbox | Messaging and events | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/messaging-and-events/outbox/) | [index.html](architecture/messaging-and-events/outbox/index.html) |
 | Saga | Messaging and events | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/messaging-and-events/saga/) | [index.html](architecture/messaging-and-events/saga/index.html) |
+
+## Security
+
+What each category covers: [security/README.md](security/README.md)
+
+| Topic | Category | Page | Source |
+|---|---|---|---|
+| Sessions and Tokens | Authentication | [open](https://hermanyhho.github.io/dev-knowledgebase/security/authentication/sessions-and-tokens/) | [index.html](security/authentication/sessions-and-tokens/index.html) |

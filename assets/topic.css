@@ -113,6 +113,7 @@ header { display: grid; gap: 12px; }
 .diagram .flow.async { stroke-dasharray: 2 5; }
 .diagram svg > :is(.flow.reply, .flow.ghost, .ghost-label):not(.is-lit):not(.was-lit) { opacity: 0; }
 .diagram .ghost-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; fill: var(--bad); }
+.diagram g.ghost-label .t-kind { font-weight: 400; letter-spacing: 0; }
 .diagram .flow.blocked.is-lit, .diagram .flow.blocked.was-lit { stroke: var(--bad); marker-end: url(#arrow); }
 .diagram .t-pill { font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; fill: var(--blue); }
 .diagram .flow.was-lit { stroke: var(--ink); }

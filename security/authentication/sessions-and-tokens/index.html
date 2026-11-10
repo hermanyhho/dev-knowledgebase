@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sessions and Tokens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Security</a> / Authentication</div>
+    <h1>Sessions and Tokens</h1>
+    <p class="aka">The two main ways a server remembers that a user has logged in.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>HTTP keeps nothing between requests. After a user logs in, every later request must carry something that proves who is calling. There are two common ways to do this.</p>
+    <p>With a <strong>session</strong>, the server saves the login in a session store, such as Redis, under a long random ID. The browser keeps only that ID, usually in a cookie, and sends it with each request. The server looks the ID up.</p>
+    <p>With a <strong>token</strong>, the server puts the user ID and an expiry time inside the token and signs it with a secret key. The client sends the token with each request. The server checks the signature with its key, without looking anything up. The most common token format is the <a href="../jwt/">JWT</a>.</p>
+    <p>Both answer one question: who is calling? That is <strong>authentication</strong>. Deciding what that caller is allowed to do is a separate step, called <strong>authorization</strong>.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Authentication</span></td><td>Finding out who is calling.</td><td>Checking the password, then the session or token</td></tr>
+          <tr><td><span class="chip tone-neutral">Authorization</span></td><td>Deciding what the caller may do.</td><td>Not covered on this page</td></tr>
+          <tr><td><span class="chip tone-amber">Session</span></td><td>A login record saved on the server.</td><td><code>session:Xq3v...</code> in Redis</td></tr>
+          <tr><td><span class="chip tone-amber">Session ID</span></td><td>A long random value that points to the session. It means nothing on its own.</td><td>32 random bytes</td></tr>
+          <tr><td><span class="chip tone-blue">Cookie</span></td><td>A value the browser stores for a site and sends back with every request to that site.</td><td><code>sid</code></td></tr>
+          <tr><td><span class="chip tone-blue">Bearer token</span></td><td>A token sent in the <code>Authorization</code> header. Whoever holds it is treated as the user.</td><td><code>Authorization: Bearer &lt;token&gt;</code></td></tr>
+          <tr><td><span class="chip tone-blue">Signature</span></td><td>A value computed from the token's content and a secret key. Changing the content breaks it.</td><td>HMAC-SHA256 with the signing key</td></tr>
+          <tr><td><span class="chip tone-neutral">Revocation</span></td><td>Ending a login before it expires.</td><td>Logout, or "log out all devices"</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> the server must be able to check every request on its own, because HTTP keeps nothing between requests. Whatever proves the login, a session ID or a token, is a secret: keep it away from page scripts and out of logs.</div>
+  </section>
+
+  <section>
+    <h2>How sessions and tokens compare</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Session</th><th>Token</th></tr></thead>
+        <tbody>
+          <tr><td>Where the login is saved</td><td>On the server, in a session store</td><td>Inside the token, which the client holds</td></tr>
+          <tr><td>What the client holds</td><td>A random session ID</td><td>A signed token with the user ID and expiry</td></tr>
+          <tr><td>How the server checks a request</td><td>Looks up the ID in the store</td><td>Checks the signature and expiry with its key</td></tr>
+          <tr><td>Logging out</td><td>Delete the session. Works at once.</td><td>The token stays valid until it expires, unless the server keeps a list of blocked tokens</td></tr>
+          <tr><td>Several server copies</td><td>All copies must reach the same store</td><td>Any copy with the key can check it</td></tr>
+          <tr><td>Calling other services</td><td>Each service must reach the store</td><td>The token can be passed on and checked by any service with the key</td></tr>
+          <tr><td>Typical clients</td><td>Web pages served from the same site</td><td>Mobile apps, apps on other domains, service-to-service calls</td></tr>
+          <tr><td>Main risk</td><td>Cross-site request forgery (CSRF): another site makes the browser send a request, and the browser adds the cookie</td><td>Theft: anyone who copies the token can use it until it expires</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where the client keeps the session ID or token</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Place</th><th>Can page scripts read it?</th><th>Sent automatically?</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Cookie with <code>HttpOnly</code></td><td>No</td><td>Yes, to its own site</td><td>Safe from scripts injected into the page (XSS). Needs <code>SameSite</code> and CSRF protection.</td></tr>
+          <tr><td><code>localStorage</code></td><td>Yes</td><td>No</td><td>Any script injected into the page can read and send it elsewhere. Avoid for tokens.</td></tr>
+          <tr><td>A JavaScript variable</td><td>Yes, while the page is open</td><td>No</td><td>Lost on reload. Often paired with a refresh token in an <code>HttpOnly</code> cookie.</td></tr>
+          <tr><td>Phone's secure storage (Keychain, Keystore)</td><td>Only the app</td><td>No</td><td>The right place in a mobile app.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two choices are mixed up often. A session ID or a token can each be stored in a cookie or elsewhere. "Cookie or header" is about how it travels. "Session or token" is about where the login is saved.</p>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Login succeeded</td><td>User ID, IP address, user agent, how they logged in</td><td>info</td></tr>
+          <tr><td>Login failed</td><td>IP address, user agent. Log "unknown user" and "wrong password" the same way, so the log does not reveal which accounts exist.</td><td>warn</td></tr>
+          <tr><td>Logout or session ended by an admin</td><td>User ID, who ended it</td><td>info</td></tr>
+          <tr><td>Request rejected with 401</td><td>Path, reason: missing, expired or bad signature</td><td>info</td></tr>
+          <tr><td>Metric: failed logins per IP and per account</td><td>A sudden rise means someone is guessing passwords</td><td>Alert on a spike</td></tr>
+          <tr><td>Never log</td><td>Passwords, session IDs, tokens, and the <code>Cookie</code> and <code>Authorization</code> headers. Many logging tools record all headers by default, so remove these two.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 290" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A web browser and a mobile app call the API server. The server checks passwords against the users table. For sessions it uses a Redis session store. For tokens it uses a signing key.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-browser" tabindex="0" role="button" aria-label="Show the HTTP requests for a session" data-title="Web browser: session requests" data-node="browser">
+          <rect class="shape tone-neutral" x="12" y="105" width="160" height="56" rx="6"/>
+          <text class="t-name" x="92" y="129">Web browser</text>
+          <text class="t-kind" x="92" y="147">keeps a session cookie</text>
+        </g>
+        <g class="ghost-label" id="c-attacker">
+          <rect class="shape tone-neutral" x="12" y="194" width="160" height="50" rx="6"/>
+          <text class="t-name" x="92" y="215">Attacker</text>
+          <text class="t-kind" x="92" y="232">has a copied token</text>
+        </g>
+        <g class="node" id="n-mobile" tabindex="0" role="button" aria-label="Show the HTTP requests for a token" data-title="Mobile app: token requests" data-node="mobile">
+          <rect class="shape tone-neutral" x="12" y="277" width="160" height="56" rx="6"/>
+          <text class="t-name" x="92" y="301">Mobile app</text>
+          <text class="t-kind" x="92" y="319">keeps an access token</text>
+        </g>
+
+        <g class="node" id="n-api" tabindex="0" role="button" aria-label="Show the login and request check code" data-title="API server: login and request checks" data-node="api">
+          <rect class="shape tone-teal" x="330" y="170" width="190" height="120" rx="6"/>
+          <text class="t-name" x="425" y="225">API server</text>
+          <text class="t-kind" x="425" y="243">any of its copies</text>
+        </g>
+
+        <g class="node" id="n-users-db" tabindex="0" role="button" aria-label="Show the password check code" data-title="Users table: password check" data-node="users">
+          <rect class="shape tone-amber" x="700" y="100" width="200" height="50" rx="6"/>
+          <text class="t-name" x="800" y="121">Users table</text>
+          <text class="t-kind" x="800" y="138">password hashes</text>
+        </g>
+        <g class="node" id="n-sessions" tabindex="0" role="button" aria-label="Show what a session looks like in Redis" data-title="Session store" data-node="sessions">
+          <rect class="shape tone-amber" x="700" y="200" width="200" height="50" rx="6"/>
+          <text class="t-name" x="800" y="221">Session store</text>
+          <text class="t-kind" x="800" y="238">Redis: session ID to user</text>
+        </g>
+        <g class="node" id="n-key" tabindex="0" role="button" aria-label="Show how the signing key is created" data-title="Signing key" data-node="key">
+          <rect class="shape tone-blue" x="700" y="300" width="200" height="50" rx="6"/>
+          <text class="t-name" x="800" y="321">Signing key</text>
+          <text class="t-kind" x="800" y="338">secret, held only by servers</text>
+        </g>
+
+        <path class="flow" id="a-browser-api" d="M172,128 L328,195" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-api-browser" d="M328,212 L174,146" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-mobile-api" d="M172,300 L328,262" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-api-mobile" d="M328,278 L174,318" marker-end="url(#arrow)"/>
+        <path class="flow ghost blocked" id="g-attacker-api" d="M172,219 L328,230" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-api-users" d="M520,190 L698,128" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-api-sessions" d="M520,225 L698,225" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-api-key" d="M520,262 L698,322" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="session-login" aria-pressed="true">Log in with a session</button>
+        <button type="button" data-flow="session-request" aria-pressed="false">Requests and logout with a session</button>
+        <button type="button" data-flow="token-login" aria-pressed="false">Log in with a token</button>
+        <button type="button" data-flow="token-request" aria-pressed="false">Requests with a token</button>
+        <button type="button" data-flow="stolen" aria-pressed="false">A token is copied</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="session-login" hidden>
+        <li data-highlight="n-browser a-browser-api n-api">The browser sends <code>POST /login</code> with the email and password, over HTTPS.</li>
+        <li data-highlight="n-api a-api-users n-users-db">The server loads the user and checks the password against the stored hash.</li>
+        <li data-highlight="n-api a-api-sessions n-sessions">It creates a random session ID and saves <code>session:&lt;ID&gt;</code> with user 7 in Redis, set to expire after 8 hours.</li>
+        <li data-highlight="n-api r-api-browser n-browser">It replies with <code>Set-Cookie: sid=&lt;ID&gt;; HttpOnly; Secure; SameSite=Lax</code>. Page scripts cannot read an <code>HttpOnly</code> cookie.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="session-request" hidden>
+        <li data-highlight="n-browser a-browser-api n-api">On every later request to the same site, the browser sends the cookie automatically.</li>
+        <li data-highlight="n-api a-api-sessions n-sessions">Whichever server copy gets the request looks up the session ID in Redis and finds user 7.</li>
+        <li data-highlight="n-api r-api-browser n-browser">The server handles the request as user 7. If the ID is missing or expired, it replies <code>401</code>.</li>
+        <li data-highlight="n-browser a-browser-api n-api a-api-sessions n-sessions">To log out, the server deletes the session from Redis. The next request with that cookie fails at once, on every server copy.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="token-login" hidden>
+        <li data-highlight="n-mobile a-mobile-api n-api">The mobile app sends <code>POST /token</code> with the email and password.</li>
+        <li data-highlight="n-api a-api-users n-users-db">The server checks the password the same way.</li>
+        <li data-highlight="n-api a-api-key n-key">It builds a token holding the user ID and an expiry 15 minutes ahead, and signs it with its secret key. Nothing is saved on the server.</li>
+        <li data-highlight="n-api r-api-mobile n-mobile">It returns the token in the response body. The app keeps it in the phone's secure storage.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="token-request" hidden>
+        <li data-highlight="n-mobile a-mobile-api n-api">On every request, the app sends <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+        <li data-highlight="n-api a-api-key n-key">The server checks the signature with its key and checks that the token has not expired. It does not call the session store or the database.</li>
+        <li data-highlight="n-api r-api-mobile n-mobile">Any server copy with the key can do this check, so adding copies needs nothing shared.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="stolen" hidden>
+        <li data-highlight="c-attacker g-attacker-api n-api">An attacker copies a token, for example from a log file that recorded request headers.</li>
+        <li data-highlight="n-api a-api-key n-key">The signature is correct and the token has not expired, so the server accepts it. The server cannot tell the attacker from the user.</li>
+        <li data-highlight="n-api">The server has no saved record to delete, so it cannot cancel the token. The token works until it expires, which is why access tokens should last minutes, not days. The <a href="../access-and-refresh-tokens/">access and refresh tokens</a> page shows how users stay logged in anyway.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Client</span>
+      <span class="chip tone-teal">Server</span>
+      <span class="chip tone-amber">Stored data</span>
+      <span class="chip tone-blue">Key</span>
+      <span>Replies show during a flow. Click a box to see its code or the HTTP requests.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="examples/session-requests.http"><span class="path">├─ examples/session-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/token-requests.http"><span class="path">├─ examples/token-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/redis-session.txt"><span class="path">├─ examples/redis-session.txt</span><span class="chip tone-amber">Stored session</span></button>
+      <button type="button" class="tree-row" data-file="deploy/create-signing-key.sh"><span class="path">├─ deploy/create-signing-key.sh</span><span class="chip tone-blue">Signing key</span></button>
+      <button type="button" class="tree-row" data-file="api/src/users.ts"><span class="path">├─ api/src/users.ts</span><span class="chip tone-amber">Password check</span></button>
+      <button type="button" class="tree-row" data-file="api/src/sessionAuth.ts"><span class="path">├─ api/src/sessionAuth.ts</span><span class="chip tone-teal">Sessions</span></button>
+      <button type="button" class="tree-row" data-file="api/src/tokenAuth.ts"><span class="path">└─ api/src/tokenAuth.ts</span><span class="chip tone-teal">Tokens</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="examples/session-requests.http"><span class="path">├─ examples/session-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/token-requests.http"><span class="path">├─ examples/token-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/redis-session.txt"><span class="path">├─ examples/redis-session.txt</span><span class="chip tone-amber">Stored session</span></button>
+      <button type="button" class="tree-row" data-file="deploy/create-signing-key.sh"><span class="path">├─ deploy/create-signing-key.sh</span><span class="chip tone-blue">Signing key</span></button>
+      <button type="button" class="tree-row" data-file="src/Api/Auth/Users.cs"><span class="path">├─ src/Api/Auth/Users.cs</span><span class="chip tone-amber">Password check</span></button>
+      <button type="button" class="tree-row" data-file="src/Api/Auth/SessionAuth.cs"><span class="path">├─ src/Api/Auth/SessionAuth.cs</span><span class="chip tone-teal">Sessions</span></button>
+      <button type="button" class="tree-row" data-file="src/Api/Auth/TokenAuth.cs"><span class="path">└─ src/Api/Auth/TokenAuth.cs</span><span class="chip tone-teal">Tokens</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Sending the password with every request</strong><span>The client sends a session ID or token instead. It expires, and it is not the password.</span></li>
+        <li><strong>Logging a user out at once (sessions)</strong><span>Deleting the session ends the login on every server copy, on the next request.</span></li>
+        <li><strong>A shared store on every request (tokens)</strong><span>The server checks the signature with its key. There is no lookup, so adding server copies is easy.</span></li>
+        <li><strong>Passing the login to other services (tokens)</strong><span>The token can travel with a call to another service, which checks it with the same key.</span></li>
+        <li><strong>Scripts in the page reading the secret (HttpOnly cookie)</strong><span>The browser sends the cookie but never shows it to page scripts.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>A shared store to run (sessions)</strong><span>Redis must stay up and be reachable from every server copy. If it is down, nobody is logged in.</span></li>
+        <li><strong>Requests sent from other sites (cookies)</strong><span>The browser adds cookies automatically, so another site can trigger requests. <code>SameSite</code> and CSRF tokens prevent this.</span></li>
+        <li><strong>Tokens cannot be cancelled early</strong><span>A copied token works until it expires. Short lifetimes or a list of blocked tokens limit the damage.</span></li>
+        <li><strong>Bigger requests (tokens)</strong><span>A token holds data and a signature, so it is much larger than a session ID, and it is sent with every request.</span></li>
+        <li><strong>Key handling (tokens)</strong><span>Anyone with the signing key can create valid tokens for any user. The key must be secret and changed from time to time.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-http">
+    <div class="file" data-lang="any" data-node="browser">
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/session-requests.http</span><span class="why">The login reply sets the cookie. After that, the browser adds the <code>Cookie</code> header to every request to the site without any page code.</span></div>
+<pre><code>POST /login HTTP/1.1
+Host: shop.example.com
+Content-Type: application/json
+
+{ "email": "kari@example.com", "password": "correct horse battery staple" }
+
+HTTP/1.1 204 No Content
+Set-Cookie: sid=&lt;random session ID&gt;; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=Lax
+
+
+GET /orders HTTP/1.1
+Host: shop.example.com
+Cookie: sid=&lt;random session ID&gt;
+
+HTTP/1.1 200 OK</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="mobile">
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/token-requests.http</span><span class="why">The token comes back in the response body. The app must add the <code>Authorization</code> header to each request itself. A real token is about 200 characters, made of three parts separated by dots; the <a href="../jwt/">JWT</a> page takes one apart.</span></div>
+<pre><code>POST /token HTTP/1.1
+Host: api.shop.example.com
+Content-Type: application/json
+
+{ "email": "kari@example.com", "password": "correct horse battery staple" }
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{ "accessToken": "&lt;signed token&gt;", "expiresIn": 900 }
+
+
+GET /orders HTTP/1.1
+Host: api.shop.example.com
+Authorization: Bearer &lt;signed token&gt;
+
+HTTP/1.1 200 OK</code></pre>
+    </div>
+  </div>
+
+  <div class="language-plaintext">
+    <div class="file" data-lang="any" data-node="sessions">
+      <div class="file-head"><span class="chip tone-amber">Stored session</span><span class="name">examples/redis-session.txt</span><span class="why">What the session store holds, seen with <code>redis-cli</code>. The key contains the session ID, and Redis deletes the entry by itself when its time to live (TTL) runs out.</span></div>
+<pre><code>127.0.0.1:6379&gt; GET session:&lt;random session ID&gt;
+"{\"userId\":\"7\",\"createdAt\":\"2026-11-10T09:00:00Z\"}"
+
+127.0.0.1:6379&gt; TTL session:&lt;random session ID&gt;
+(integer) 28740</code></pre>
+    </div>
+  </div>
+
+  <div class="language-bash">
+    <div class="file" data-lang="any" data-node="key">
+      <div class="file-head"><span class="chip tone-blue">Signing key</span><span class="name">deploy/create-signing-key.sh</span><span class="why">48 random bytes, more than the 32 bytes HMAC-SHA256 needs. The key goes into the platform's secret store, here a Docker secret, and never into the repository. Anyone with this key can create a valid token for any user.</span></div>
+<pre><code>openssl rand -base64 48 | docker secret create auth_token_key -</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="users">
+      <div class="file-head"><span class="chip tone-amber">Password check</span><span class="name">api/src/users.ts</span><span class="why">Passwords are stored only as hashes made with Argon2, a hash built to be slow so guessing is expensive. The server never stores or logs the password itself.</span></div>
+<pre><code>import argon2 from "argon2";
+import { Pool } from "pg";
+
+export type User = { id: string; email: string; password_hash: string };
+
+const db = new Pool();
+
+export async function findUserByEmail(email: string): Promise&lt;User | null&gt; {
+  const result = await db.query&lt;User&gt;(
+    "SELECT id, email, password_hash FROM users WHERE email = $1",
+    [email],
+  );
+  return result.rows[0] ?? null;
+}
+
+export function isPasswordCorrect(user: User, password: string): Promise&lt;boolean&gt; {
+  return argon2.verify(user.password_hash, password);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="api">
+      <div class="file-head"><span class="chip tone-teal">Sessions</span><span class="name">api/src/sessionAuth.ts</span><span class="why">Written out by hand to show each step. In a real app, <code>express-session</code> with a Redis store does the same. The login error is the same for an unknown email and a wrong password, so it does not reveal which accounts exist. Needs the <code>cookie-parser</code> middleware.</span></div>
+<pre><code>import { randomBytes } from "node:crypto";
+import { NextFunction, Request, Response, Router } from "express";
+import { Redis } from "ioredis";
+import { Logger } from "pino";
+import { findUserByEmail, isPasswordCorrect } from "./users";
+
+const cookieName = "sid";
+const sessionLifetimeSeconds = 8 * 60 * 60;
+
+export function sessionRoutes(redis: Redis, logger: Logger): Router {
+  const router = Router();
+
+  router.post("/login", async (req, res) =&gt; {
+    const user = await findUserByEmail(req.body.email);
+    if (!user || !(await isPasswordCorrect(user, req.body.password))) {
+      logger.warn({ ip: req.ip, userAgent: req.get("user-agent") }, "login failed");
+      return res.status(401).json({ error: "The email or password is wrong." });
+    }
+
+    const sessionId = randomBytes(32).toString("base64url");
+    await redis.set(
+      `session:${sessionId}`,
+      JSON.stringify({ userId: user.id, createdAt: new Date().toISOString() }),
+      "EX",
+      sessionLifetimeSeconds,
+    );
+
+    res.cookie(cookieName, sessionId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      maxAge: sessionLifetimeSeconds * 1000,
+    });
+    logger.info({ userId: user.id, ip: req.ip, method: "session" }, "login succeeded");
+    res.status(204).end();
+  });
+
+  router.post("/logout", async (req, res) =&gt; {
+    const sessionId = req.cookies[cookieName];
+    if (sessionId) await redis.del(`session:${sessionId}`);
+    res.clearCookie(cookieName);
+    res.status(204).end();
+  });
+
+  return router;
+}
+
+export function requireSession(redis: Redis) {
+  return async (req: Request, res: Response, next: NextFunction) =&gt; {
+    const sessionId = req.cookies[cookieName];
+    const storedSession = sessionId ? await redis.get(`session:${sessionId}`) : null;
+    if (!storedSession) {
+      return res.status(401).json({ error: "You are not logged in." });
+    }
+
+    res.locals.userId = JSON.parse(storedSession).userId;
+    next();
+  };
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="api">
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking a token needs only the key: no store, no database. The token cannot be cancelled before it expires, so it lives 15 minutes. Issuer and audience checks are covered on the <a href="../jwt/">JWT</a> page.</span></div>
+<pre><code>import { NextFunction, Request, Response, Router } from "express";
+import { SignJWT, jwtVerify } from "jose";
+import { Logger } from "pino";
+import { findUserByEmail, isPasswordCorrect } from "./users";
+
+const signingKey = new TextEncoder().encode(process.env.AUTH_TOKEN_KEY);
+const tokenLifetimeSeconds = 15 * 60;
+
+export function tokenRoutes(logger: Logger): Router {
+  const router = Router();
+
+  router.post("/token", async (req, res) =&gt; {
+    const user = await findUserByEmail(req.body.email);
+    if (!user || !(await isPasswordCorrect(user, req.body.password))) {
+      logger.warn({ ip: req.ip, userAgent: req.get("user-agent") }, "login failed");
+      return res.status(401).json({ error: "The email or password is wrong." });
+    }
+
+    const accessToken = await new SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(user.id)
+      .setIssuedAt()
+      .setExpirationTime(`${tokenLifetimeSeconds}s`)
+      .sign(signingKey);
+
+    logger.info({ userId: user.id, ip: req.ip, method: "token" }, "login succeeded");
+    res.json({ accessToken, expiresIn: tokenLifetimeSeconds });
+  });
+
+  return router;
+}
+
+export async function requireToken(req: Request, res: Response, next: NextFunction) {
+  const header = req.get("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
+
+  try {
+    if (!token) throw new Error("missing token");
+    const { payload } = await jwtVerify(token, signingKey, { algorithms: ["HS256"] });
+    res.locals.userId = payload.sub;
+    next();
+  } catch {
+    res.status(401).json({ error: "The token is missing, expired or not valid." });
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="users">
+      <div class="file-head"><span class="chip tone-amber">Password check</span><span class="name">src/Api/Auth/Users.cs</span><span class="why">Uses <code>PasswordHasher</code> from ASP.NET Core Identity, which hashes with PBKDF2 and many rounds so guessing is expensive. The server never stores or logs the password itself.</span></div>
+<pre><code>using Dapper;
+using Microsoft.AspNetCore.Identity;
+using Npgsql;
+
+namespace Api.Auth;
+
+public record User(Guid Id, string Email, string PasswordHash);
+
+public class Users(NpgsqlDataSource db)
+{
+    private static readonly PasswordHasher&lt;User&gt; Hasher = new();
+
+    public async Task&lt;User?&gt; FindByEmailAsync(string email)
+    {
+        await using var connection = await db.OpenConnectionAsync();
+        return await connection.QuerySingleOrDefaultAsync&lt;User&gt;(
+            "SELECT id, email, password_hash AS PasswordHash FROM users WHERE email = @email",
+            new { email });
+    }
+
+    public static bool IsPasswordCorrect(User user, string password) =&gt;
+        Hasher.VerifyHashedPassword(user, user.PasswordHash, password) != PasswordVerificationResult.Failed;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="api">
+      <div class="file-head"><span class="chip tone-teal">Sessions</span><span class="name">src/Api/Auth/SessionAuth.cs</span><span class="why">Written out by hand to show each step. ASP.NET Core's cookie authentication with a Redis <code>SessionStore</code> does the same in a real app. The login error is the same for an unknown email and a wrong password, so it does not reveal which accounts exist.</span></div>
+<pre><code>using System.Security.Cryptography;
+using System.Text.Json;
+using Microsoft.AspNetCore.WebUtilities;
+using StackExchange.Redis;
+
+namespace Api.Auth;
+
+public record LoginRequest(string Email, string Password);
+record StoredSession(Guid UserId, DateTimeOffset CreatedAt);
+
+public static class SessionAuth
+{
+    private const string CookieName = "sid";
+    private static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(8);
+
+    public static void MapSessionEndpoints(this WebApplication app)
+    {
+        app.MapPost("/login", async (LoginRequest request, Users users, IConnectionMultiplexer redis, HttpContext http, ILogger&lt;Users&gt; logger) =&gt;
+        {
+            var user = await users.FindByEmailAsync(request.Email);
+            if (user is null || !Users.IsPasswordCorrect(user, request.Password))
+            {
+                logger.LogWarning("Login failed from {Ip}, user agent {UserAgent}",
+                    http.Connection.RemoteIpAddress, http.Request.Headers.UserAgent.ToString());
+                return Results.Json(new { error = "The email or password is wrong." }, statusCode: 401);
+            }
+
+            var sessionId = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+            await redis.GetDatabase().StringSetAsync(
+                $"session:{sessionId}",
+                JsonSerializer.Serialize(new StoredSession(user.Id, DateTimeOffset.UtcNow)),
+                SessionLifetime);
+
+            http.Response.Cookies.Append(CookieName, sessionId, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Lax,
+                MaxAge = SessionLifetime,
+            });
+            logger.LogInformation("Login succeeded for user {UserId} with a session", user.Id);
+            return Results.NoContent();
+        });
+
+        app.MapPost("/logout", async (IConnectionMultiplexer redis, HttpContext http) =&gt;
+        {
+            if (http.Request.Cookies.TryGetValue(CookieName, out var sessionId))
+                await redis.GetDatabase().KeyDeleteAsync($"session:{sessionId}");
+
+            http.Response.Cookies.Delete(CookieName);
+            return Results.NoContent();
+        });
+    }
+
+    public static RouteHandlerBuilder RequireSession(this RouteHandlerBuilder endpoint) =&gt;
+        endpoint.AddEndpointFilter(async (context, next) =&gt;
+        {
+            var http = context.HttpContext;
+            var redis = http.RequestServices.GetRequiredService&lt;IConnectionMultiplexer&gt;();
+            var storedSession = http.Request.Cookies.TryGetValue(CookieName, out var sessionId)
+                ? await redis.GetDatabase().StringGetAsync($"session:{sessionId}")
+                : RedisValue.Null;
+
+            if (storedSession.IsNullOrEmpty)
+                return Results.Json(new { error = "You are not logged in." }, statusCode: 401);
+
+            http.Items["UserId"] = JsonSerializer.Deserialize&lt;StoredSession&gt;(storedSession.ToString())!.UserId;
+            return await next(context);
+        });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="api">
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Checking needs only the key. The token cannot be cancelled before it expires, so it lives 15 minutes. Issuer and audience checks are covered on the <a href="../jwt/">JWT</a> page.</span></div>
+<pre><code>using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+
+namespace Api.Auth;
+
+public static class TokenAuth
+{
+    private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(15);
+
+    private static SymmetricSecurityKey SigningKey(IConfiguration configuration) =&gt;
+        new(Encoding.UTF8.GetBytes(configuration["AUTH_TOKEN_KEY"]!));
+
+    public static void AddTokenAuthentication(this IServiceCollection services, IConfiguration configuration) =&gt;
+        services
+            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =&gt; options.TokenValidationParameters = new TokenValidationParameters
+            {
+                IssuerSigningKey = SigningKey(configuration),
+                ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+                ValidateIssuer = false,
+                ValidateAudience = false,
+                ClockSkew = TimeSpan.FromSeconds(30),
+            });
+
+    public static void MapTokenEndpoint(this WebApplication app) =&gt;
+        app.MapPost("/token", async (LoginRequest request, Users users, IConfiguration configuration, HttpContext http, ILogger&lt;Users&gt; logger) =&gt;
+        {
+            var user = await users.FindByEmailAsync(request.Email);
+            if (user is null || !Users.IsPasswordCorrect(user, request.Password))
+            {
+                logger.LogWarning("Login failed from {Ip}, user agent {UserAgent}",
+                    http.Connection.RemoteIpAddress, http.Request.Headers.UserAgent.ToString());
+                return Results.Json(new { error = "The email or password is wrong." }, statusCode: 401);
+            }
+
+            var accessToken = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+            {
+                Subject = new ClaimsIdentity([new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString())]),
+                Expires = DateTime.UtcNow.Add(TokenLifetime),
+                SigningCredentials = new SigningCredentials(SigningKey(configuration), SecurityAlgorithms.HmacSha256),
+            });
+
+            logger.LogInformation("Login succeeded for user {UserId} with a token", user.Id);
+            return Results.Ok(new { accessToken, expiresIn = (int)TokenLifetime.TotalSeconds });
+        });
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-http.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
