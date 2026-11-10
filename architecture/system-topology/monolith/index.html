@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monolith</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Architecture</a> / System topology</div>
+    <h1>Monolith</h1>
+    <p class="aka">Also called a <strong>single-deployment application</strong>. The default way most applications start.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>An application that is built, tested and deployed as one unit. All features live in one codebase and run in one process. In most cases they also share one database.</p>
+    <p>"Monolith" describes how the app is deployed and run. It does not say how good the code is. The code inside can be well organised, for example with <a href="../../code-organization/hexagonal/">hexagonal architecture</a>, or it can be hard to follow.</p>
+    <p>A monolith can still run on many servers. You start several identical copies behind a load balancer. Every copy contains every feature.</p>
+    <p>The opposite is microservices: each feature is a separate app with its own deploy and usually its own database.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Deployable unit</span></td><td>The thing you build and ship to a server.</td><td>One Docker image of the shop app</td></tr>
+          <tr><td><span class="chip tone-teal">Module</span></td><td>A folder or namespace for one business area.</td><td>Orders, Users, Payments, Notifications</td></tr>
+          <tr><td><span class="chip tone-teal">In-process call</span></td><td>A plain function call inside the same running program. No network.</td><td><code>users.getById(...)</code></td></tr>
+          <tr><td><span class="chip tone-amber">Shared database</span></td><td>One database that every module reads and writes.</td><td>Postgres with all tables</td></tr>
+          <tr><td><span class="chip tone-amber">Transaction</span></td><td>A group of database writes that all succeed or all fail.</td><td>Insert order and payment together</td></tr>
+          <tr><td><span class="chip tone-neutral">Horizontal scaling</span></td><td>Running more copies of the app behind a load balancer.</td><td>3 copies behind nginx</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>The one rule:</strong> everything ships together. A change to any module means you build, test and deploy the whole application.</div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 60 920 430" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">Clients send requests through a load balancer to one of three identical copies of the shop app. Inside the app, HTTP routes call the Orders module, which calls Users, Payments and Notifications as function calls. All modules use one shared Postgres database. Payments calls Stripe and Notifications sends email.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <text class="t-side" x="77" y="108">CLIENTS</text>
+        <g id="c-browser"><rect class="shape tone-neutral" x="12" y="120" width="130" height="44" rx="6"/>
+        <text class="t-name" x="77" y="147">Web browser</text></g>
+        <rect class="shape tone-neutral" x="12" y="212" width="130" height="44" rx="6"/>
+        <text class="t-name" x="77" y="239">Mobile app</text>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show the load balancer config" data-title="Load balancer" data-node="load-balancer" id="n-load-balancer">
+          <rect class="shape tone-neutral" x="172" y="163" width="120" height="50" rx="6"/>
+          <text class="t-name" x="232" y="185">Load balancer</text>
+          <text class="t-kind" x="232" y="202">nginx</text>
+        </g>
+
+        <text class="t-label" x="556" y="84">3 IDENTICAL COPIES</text>
+        <rect class="frame copy" x="356" y="94" width="400" height="280" rx="10"/>
+        <rect class="frame copy" x="348" y="102" width="400" height="280" rx="10"/>
+        <rect class="frame" x="340" y="110" width="400" height="280" rx="10"/>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show code that starts the shop app" data-title="Shop app: startup" data-node="wiring" id="n-wiring">
+          <rect class="hit" x="340" y="110" width="400" height="56"/>
+          <text class="t-title" x="540" y="136">SHOP APP</text>
+          <text class="t-kind" x="540" y="154">one codebase, one process, one deploy</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the HTTP routes" data-title="HTTP routes" data-node="http" id="n-http">
+          <rect class="shape tone-blue" x="360" y="170" width="360" height="36" rx="6"/>
+          <text class="t-name" x="540" y="193">HTTP routes</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the Orders module" data-title="Module: Orders" data-node="orders" id="n-orders">
+          <rect class="shape tone-teal" x="360" y="240" width="160" height="130" rx="6"/>
+          <text class="t-name" x="440" y="300">Orders</text>
+          <text class="t-kind" x="440" y="318">OrderService</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the Users module" data-title="Module: Users" data-node="users" id="n-users">
+          <rect class="shape tone-teal" x="580" y="230" width="140" height="40" rx="6"/>
+          <text class="t-name" x="650" y="255">Users</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the Payments module" data-title="Module: Payments" data-node="payments" id="n-payments">
+          <rect class="shape tone-teal" x="580" y="280" width="140" height="40" rx="6"/>
+          <text class="t-name" x="650" y="305">Payments</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the Notifications module" data-title="Module: Notifications" data-node="notifications" id="n-notifications">
+          <rect class="shape tone-teal" x="580" y="330" width="140" height="40" rx="6"/>
+          <text class="t-name" x="650" y="355">Notifications</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show the database schema" data-title="Shared database" data-node="database" id="n-database">
+          <rect class="shape tone-amber" x="440" y="420" width="200" height="50" rx="6"/>
+          <text class="t-name" x="540" y="442">Postgres</text>
+          <text class="t-kind" x="540" y="459">one shared database</text>
+        </g>
+
+        <text class="t-side" x="844" y="266">OUTSIDE SERVICES</text>
+        <g id="c-stripe"><rect class="shape tone-neutral" x="780" y="280" width="128" height="40" rx="6"/>
+        <text class="t-name" x="844" y="305">Stripe</text></g>
+        <g id="c-email"><rect class="shape tone-neutral" x="780" y="330" width="128" height="40" rx="6"/>
+        <text class="t-name" x="844" y="355">Email (SMTP)</text></g>
+
+        <path class="flow" id="a-browser-lb" d="M142,142 L170,180" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-mobile-lb" d="M142,234 L170,196" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-lb-http" d="M292,188 L358,188" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-http-orders" d="M440,206 L440,238" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-users" d="M520,250 L578,250" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-payments" d="M520,300 L578,300" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-notifications" d="M520,350 L578,350" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-payments-stripe" d="M720,300 L778,300" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-notifications-email" d="M720,350 L778,350" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-database" d="M540,390 L540,418" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-controls">
+        <span class="flow-title">Example flow: <code>POST /orders</code></span>
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Press Play to follow one request through the diagram, step by step.</p>
+      <ol class="flow-steps" hidden>
+        <li data-highlight="c-browser a-browser-lb n-load-balancer a-lb-http n-http">The load balancer sends the request to one of the 3 copies.</li>
+        <li data-highlight="n-http a-http-orders n-orders">The HTTP route calls <code>OrderService</code>.</li>
+        <li data-highlight="n-orders a-orders-users n-users a-app-database n-database"><code>OrderService</code> calls <code>UserService</code> to load the customer from the database. This is a function call in the same process.</li>
+        <li data-highlight="n-orders a-orders-payments n-payments a-payments-stripe c-stripe"><code>PaymentService</code> charges the card through Stripe. This is the first network call.</li>
+        <li data-highlight="n-orders n-payments a-app-database n-database">One database transaction saves the order row and the payment row. Both are saved, or neither is.</li>
+        <li data-highlight="n-orders a-orders-notifications n-notifications a-notifications-email c-email n-http"><code>NotificationService</code> sends the confirmation email, and the route returns <code>201</code>.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-blue">Entry point</span>
+      <span class="chip tone-teal">Module</span>
+      <span class="chip tone-amber">Database</span>
+      <span class="chip tone-neutral">Outside the app</span>
+      <span>Arrows show the order of calls when a request runs. Click a box or the app title to see its code.</span>
+    </div>
+    <p class="caption">The arrows from Orders to Users, Payments and Notifications are plain function calls inside one process. Only the arrows to Stripe and email go over the network.</p>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="deploy/nginx.conf"><span class="path">├─ deploy/nginx.conf</span><span class="chip tone-neutral">Load balancer</span></button>
+      <button type="button" class="tree-row" data-file="db/schema.sql"><span class="path">├─ db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="src/main.ts"><span class="path">├─ src/main.ts</span><span class="chip tone-neutral">Startup</span></button>
+      <button type="button" class="tree-row" data-file="src/http/routes.ts"><span class="path">├─ src/http/routes.ts</span><span class="chip tone-blue">Entry point</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/orders/OrderService.ts"><span class="path">├─ src/modules/orders/OrderService.ts</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/users/UserService.ts"><span class="path">├─ src/modules/users/UserService.ts</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/payments/PaymentService.ts"><span class="path">├─ src/modules/payments/PaymentService.ts</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/modules/notifications/NotificationService.ts"><span class="path">└─ src/modules/notifications/NotificationService.ts</span><span class="chip tone-teal">Module</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="deploy/nginx.conf"><span class="path">├─ deploy/nginx.conf</span><span class="chip tone-neutral">Load balancer</span></button>
+      <button type="button" class="tree-row" data-file="db/schema.sql"><span class="path">├─ db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop/Program.cs"><span class="path">├─ src/Shop/Program.cs</span><span class="chip tone-neutral">Startup</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop/Http/OrderEndpoints.cs"><span class="path">├─ src/Shop/Http/OrderEndpoints.cs</span><span class="chip tone-blue">Entry point</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop/Modules/Orders/OrderService.cs"><span class="path">├─ src/Shop/Modules/Orders/OrderService.cs</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop/Modules/Users/UserService.cs"><span class="path">├─ src/Shop/Modules/Users/UserService.cs</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop/Modules/Payments/PaymentService.cs"><span class="path">├─ src/Shop/Modules/Payments/PaymentService.cs</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop/Modules/Notifications/NotificationService.cs"><span class="path">└─ src/Shop/Modules/Notifications/NotificationService.cs</span><span class="chip tone-teal">Module</span></button>
+    </div>
+
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Slow start on a new project</strong><span>One repo, one build, one deploy. You run the whole app on your laptop with one command.</span></li>
+        <li><strong>Network failures between features</strong><span>Modules call each other as functions. No timeouts, retries or API versions between them.</span></li>
+        <li><strong>Keeping data consistent</strong><span>One database transaction covers the order and the payment. Both are saved, or neither is.</span></li>
+        <li><strong>Hard debugging</strong><span>One stack trace and one log stream show the full request from route to database.</span></li>
+        <li><strong>Risky changes across features</strong><span>Renaming a method updates every caller in the IDE. The compiler finds every place that breaks.</span></li>
+        <li><strong>High running cost</strong><span>One kind of server to run and monitor. No service discovery or message broker needed.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Every change redeploys everything</strong><span>A one-line fix in Notifications means building and deploying Payments and Orders too.</span></li>
+        <li><strong>Scaling is all or nothing</strong><span>If only Orders is busy, you still start more copies of every module.</span></li>
+        <li><strong>One fault can stop every feature</strong><span>A memory leak or crash in one module stops the process, so all features go down with it.</span></li>
+        <li><strong>Module boundaries wear away</strong><span>Nothing stops <code>OrderService</code> from reading the users table directly. Cross-module foreign keys make a later split harder.</span></li>
+        <li><strong>One tech stack for all</strong><span>Every module uses the same language and framework version. A framework upgrade touches the whole app.</span></li>
+        <li><strong>Large teams wait on each other</strong><span>One build, one test suite and one release schedule. Build and test time grow with the app.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="database">
+      <div class="file-head"><span class="chip tone-amber">Database</span><span class="name">db/schema.sql</span><span class="why">Every module keeps its tables in one database. Foreign keys can point from one module's table to another's.</span></div>
+<pre><code>CREATE TABLE users (
+  id          UUID PRIMARY KEY,
+  email       TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE orders (
+  id          UUID PRIMARY KEY,
+  user_id     UUID NOT NULL REFERENCES users(id),
+  total       NUMERIC(10, 2) NOT NULL
+);
+
+CREATE TABLE payments (
+  id          UUID PRIMARY KEY,
+  order_id    UUID NOT NULL REFERENCES orders(id),
+  amount      NUMERIC(10, 2) NOT NULL,
+  provider_id TEXT NOT NULL
+);</code></pre>
+    </div>
+  </div>
+
+  <div class="language-nginx">
+    <div class="file" data-lang="any" data-node="load-balancer">
+      <div class="file-head"><span class="chip tone-neutral">Load balancer</span><span class="name">deploy/nginx.conf</span><span class="why">Sends requests to 3 copies of the same app. Each copy has every module, so you cannot add copies of only the busy one.</span></div>
+<pre><code>upstream shop_app {
+    server app-1:3000;
+    server app-2:3000;
+    server app-3:3000;
+}
+
+server {
+    listen 80;
+
+    location / {
+        proxy_pass http://shop_app;
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="wiring">
+      <div class="file-head"><span class="chip tone-neutral">Startup</span><span class="name">src/main.ts</span><span class="why">Every module starts in the same process and shares one database pool. One build produces the whole app.</span></div>
+<pre><code>import express from "express";
+import { Pool } from "pg";
+import Stripe from "stripe";
+import nodemailer from "nodemailer";
+import { UserService } from "./modules/users/UserService";
+import { PaymentService } from "./modules/payments/PaymentService";
+import { NotificationService } from "./modules/notifications/NotificationService";
+import { OrderService } from "./modules/orders/OrderService";
+import { routes } from "./http/routes";
+
+const db = new Pool();
+const users = new UserService(db);
+const payments = new PaymentService(new Stripe(process.env.STRIPE_KEY!));
+const notifications = new NotificationService(nodemailer.createTransport(process.env.SMTP_URL));
+const orders = new OrderService(db, users, payments, notifications);
+
+express()
+  .use(express.json())
+  .use(routes(orders))
+  .listen(3000);</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="http">
+      <div class="file-head"><span class="chip tone-blue">Entry point</span><span class="name">src/http/routes.ts</span><span class="why">Turns an HTTP request into a call on the Orders module.</span></div>
+<pre><code>import { Router } from "express";
+import { OrderService } from "../modules/orders/OrderService";
+
+export function routes(orders: OrderService): Router {
+  const router = Router();
+
+  router.post("/orders", async (req, res) =&gt; {
+    const { userId, items, paymentMethodId } = req.body;
+    const orderId = await orders.placeOrder(userId, items, paymentMethodId);
+    res.status(201).json({ orderId });
+  });
+
+  return router;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="orders">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/modules/orders/OrderService.ts</span><span class="why">Calls three other modules as plain function calls. The order and payment rows are saved in one transaction.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import { UserService } from "../users/UserService";
+import { PaymentService } from "../payments/PaymentService";
+import { NotificationService } from "../notifications/NotificationService";
+
+export type OrderItem = { productId: string; price: number; quantity: number };
+
+export class OrderService {
+  constructor(
+    private readonly db: Pool,
+    private readonly users: UserService,
+    private readonly payments: PaymentService,
+    private readonly notifications: NotificationService,
+  ) {}
+
+  async placeOrder(userId: string, items: OrderItem[], paymentMethodId: string): Promise&lt;string&gt; {
+    const user = await this.users.getById(userId);
+    const total = items.reduce((sum, item) =&gt; sum + item.price * item.quantity, 0);
+    const providerId = await this.payments.charge(total, paymentMethodId);
+    const orderId = randomUUID();
+
+    const transaction = await this.db.connect();
+    try {
+      await transaction.query("BEGIN");
+      await transaction.query(
+        "INSERT INTO orders (id, user_id, total) VALUES ($1, $2, $3)",
+        [orderId, user.id, total],
+      );
+      await this.payments.record(transaction, orderId, total, providerId);
+      await transaction.query("COMMIT");
+    } catch (error) {
+      await transaction.query("ROLLBACK");
+      throw error;
+    } finally {
+      transaction.release();
+    }
+
+    await this.notifications.sendOrderConfirmation(user.email, orderId);
+    return orderId;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="users">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/modules/users/UserService.ts</span><span class="why">Owns the users table. Other modules call it instead of reading the table.</span></div>
+<pre><code>import { Pool } from "pg";
+
+export type User = { id: string; email: string };
+
+export class UserService {
+  constructor(private readonly db: Pool) {}
+
+  async getById(userId: string): Promise&lt;User&gt; {
+    const result = await this.db.query("SELECT id, email FROM users WHERE id = $1", [userId]);
+    if (result.rowCount === 0) {
+      throw new Error("The user does not exist.");
+    }
+    return result.rows[0];
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="payments">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/modules/payments/PaymentService.ts</span><span class="why">Charges the card through Stripe, then saves the payment row inside the caller's transaction.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { PoolClient } from "pg";
+import Stripe from "stripe";
+
+export class PaymentService {
+  constructor(private readonly stripe: Stripe) {}
+
+  async charge(amount: number, paymentMethodId: string): Promise&lt;string&gt; {
+    const paymentIntent = await this.stripe.paymentIntents.create({
+      amount: Math.round(amount * 100),
+      currency: "eur",
+      payment_method: paymentMethodId,
+      confirm: true,
+    });
+    return paymentIntent.id;
+  }
+
+  async record(transaction: PoolClient, orderId: string, amount: number, providerId: string): Promise&lt;void&gt; {
+    await transaction.query(
+      "INSERT INTO payments (id, order_id, amount, provider_id) VALUES ($1, $2, $3, $4)",
+      [randomUUID(), orderId, amount, providerId],
+    );
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="notifications">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/modules/notifications/NotificationService.ts</span><span class="why">Sends email. A crash here runs in the same process as checkout.</span></div>
+<pre><code>import { Transporter } from "nodemailer";
+
+export class NotificationService {
+  constructor(private readonly mailer: Transporter) {}
+
+  async sendOrderConfirmation(email: string, orderId: string): Promise&lt;void&gt; {
+    await this.mailer.sendMail({
+      from: "shop@example.com",
+      to: email,
+      subject: "Order received",
+      text: `Your order ${orderId} has been received.`,
+    });
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="wiring">
+      <div class="file-head"><span class="chip tone-neutral">Startup</span><span class="name">src/Shop/Program.cs</span><span class="why">Every module is registered in the same process and shares one database connection pool. One project produces the whole app.</span></div>
+<pre><code>using System.Net.Mail;
+using Npgsql;
+using Shop.Http;
+using Shop.Modules.Notifications;
+using Shop.Modules.Orders;
+using Shop.Modules.Payments;
+using Shop.Modules.Users;
+using Stripe;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Shop")!));
+builder.Services.AddSingleton(new PaymentIntentService(new StripeClient(builder.Configuration["Stripe:Key"])));
+builder.Services.AddScoped(_ =&gt; new SmtpClient(builder.Configuration["Smtp:Host"]));
+builder.Services.AddScoped&lt;UserService&gt;();
+builder.Services.AddScoped&lt;PaymentService&gt;();
+builder.Services.AddScoped&lt;NotificationService&gt;();
+builder.Services.AddScoped&lt;OrderService&gt;();
+
+var app = builder.Build();
+app.MapOrderEndpoints();
+app.Run();</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="http">
+      <div class="file-head"><span class="chip tone-blue">Entry point</span><span class="name">src/Shop/Http/OrderEndpoints.cs</span><span class="why">Turns an HTTP request into a call on the Orders module.</span></div>
+<pre><code>using Shop.Modules.Orders;
+
+namespace Shop.Http;
+
+public record PlaceOrderRequest(Guid UserId, List&lt;OrderItem&gt; Items, string PaymentMethodId);
+
+public static class OrderEndpoints
+{
+    public static void MapOrderEndpoints(this WebApplication app)
+    {
+        app.MapPost("/orders", async (PlaceOrderRequest request, OrderService orders) =&gt;
+        {
+            var orderId = await orders.PlaceOrderAsync(request.UserId, request.Items, request.PaymentMethodId);
+            return Results.Created($"/orders/{orderId}", new { orderId });
+        });
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="orders">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/Shop/Modules/Orders/OrderService.cs</span><span class="why">Calls three other modules as plain method calls. The order and payment rows are saved in one transaction. Uses Dapper for SQL.</span></div>
+<pre><code>using Dapper;
+using Npgsql;
+using Shop.Modules.Notifications;
+using Shop.Modules.Payments;
+using Shop.Modules.Users;
+
+namespace Shop.Modules.Orders;
+
+public record OrderItem(string ProductId, decimal Price, int Quantity);
+
+public class OrderService(
+    NpgsqlDataSource db,
+    UserService users,
+    PaymentService payments,
+    NotificationService notifications)
+{
+    public async Task&lt;Guid&gt; PlaceOrderAsync(Guid userId, IReadOnlyList&lt;OrderItem&gt; items, string paymentMethodId)
+    {
+        var user = await users.GetByIdAsync(userId);
+        var total = items.Sum(item =&gt; item.Price * item.Quantity);
+        var providerId = await payments.ChargeAsync(total, paymentMethodId);
+        var orderId = Guid.NewGuid();
+
+        await using var connection = await db.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        await connection.ExecuteAsync(
+            "INSERT INTO orders (id, user_id, total) VALUES (@orderId, @userId, @total)",
+            new { orderId, userId = user.Id, total },
+            transaction);
+        await payments.RecordAsync(connection, transaction, orderId, total, providerId);
+
+        await transaction.CommitAsync();
+
+        await notifications.SendOrderConfirmationAsync(user.Email, orderId);
+        return orderId;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="users">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/Shop/Modules/Users/UserService.cs</span><span class="why">Owns the users table. Other modules call it instead of reading the table.</span></div>
+<pre><code>using Dapper;
+using Npgsql;
+
+namespace Shop.Modules.Users;
+
+public record User(Guid Id, string Email);
+
+public class UserService(NpgsqlDataSource db)
+{
+    public async Task&lt;User&gt; GetByIdAsync(Guid userId)
+    {
+        await using var connection = await db.OpenConnectionAsync();
+        var user = await connection.QuerySingleOrDefaultAsync&lt;User&gt;(
+            "SELECT id, email FROM users WHERE id = @userId", new { userId });
+
+        return user ?? throw new KeyNotFoundException("The user does not exist.");
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="payments">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/Shop/Modules/Payments/PaymentService.cs</span><span class="why">Charges the card through Stripe, then saves the payment row inside the caller's transaction.</span></div>
+<pre><code>using System.Data;
+using Dapper;
+using Stripe;
+
+namespace Shop.Modules.Payments;
+
+public class PaymentService(PaymentIntentService stripePayments)
+{
+    public async Task&lt;string&gt; ChargeAsync(decimal amount, string paymentMethodId)
+    {
+        var paymentIntent = await stripePayments.CreateAsync(new PaymentIntentCreateOptions
+        {
+            Amount = (long)Math.Round(amount * 100),
+            Currency = "eur",
+            PaymentMethod = paymentMethodId,
+            Confirm = true,
+        });
+        return paymentIntent.Id;
+    }
+
+    public Task RecordAsync(IDbConnection connection, IDbTransaction transaction, Guid orderId, decimal amount, string providerId) =&gt;
+        connection.ExecuteAsync(
+            "INSERT INTO payments (id, order_id, amount, provider_id) VALUES (@id, @orderId, @amount, @providerId)",
+            new { id = Guid.NewGuid(), orderId, amount, providerId },
+            transaction);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="notifications">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/Shop/Modules/Notifications/NotificationService.cs</span><span class="why">Sends email. A crash here runs in the same process as checkout.</span></div>
+<pre><code>using System.Net.Mail;
+
+namespace Shop.Modules.Notifications;
+
+public class NotificationService(SmtpClient smtp)
+{
+    public Task SendOrderConfirmationAsync(string email, Guid orderId) =&gt;
+        smtp.SendMailAsync(new MailMessage(
+            from: "shop@example.com",
+            to: email,
+            subject: "Order received",
+            body: $"Your order {orderId} has been received."));
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-nginx.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

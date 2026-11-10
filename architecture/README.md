@@ -22,4 +22,5 @@ architecture/<category>/<topic>/
 
 ## Topics
 
-- [Hexagonal Architecture](code-organization/hexagonal/index.html)
+- [Hexagonal Architecture](code-organization/hexagonal/index.html) - code organization
+- [Monolith](system-topology/monolith/index.html) - system topology

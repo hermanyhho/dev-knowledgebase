@@ -6,175 +6,13 @@
 <title>Hexagonal Architecture</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
-<style>
-/* layout: one reading column; diagram and file list may scroll sideways inside their own box; code opens in a dialog */
-:root {
-  --bg: #F4F6F8;
-  --surface: #FFFFFF;
-  --ink: #18202B;
-  --muted: #586273;
-  --line: #D9DEE5;
-  --core: #0E7C6B;
-  --core-bg: #E2F3EF;
-  --port: #A9520C;
-  --port-bg: #FBEADB;
-  --adapter: #3550BE;
-  --adapter-bg: #E5EAFA;
-  --good: #1D7A3E;
-  --bad: #B3261E;
-  --code-bg: #121A24;
-  --code-fg: #DCE3EC;
-  --code-dim: #7D8A9C;
-  --syntax-keyword: #C792EA;
-  --syntax-string: #C3E88D;
-  --syntax-number: #F78C6C;
-  --syntax-function: #82AAFF;
-  --syntax-type: #FFCB6B;
-  --syntax-punctuation: #89DDFF;
-  --font-head: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
-  --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #10141A; --surface: #171D25; --ink: #E5E9EF; --muted: #97A1B1; --line: #29313C;
-    --core: #3CC2A9; --core-bg: #11302A; --port: #F09E57; --port-bg: #35230F;
-    --adapter: #8EA3F5; --adapter-bg: #1B2342; --good: #5CCB82; --bad: #F2867E;
-    --code-bg: #0A0E13; --code-fg: #DCE3EC; --code-dim: #6E7A8B;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #10141A; --surface: #171D25; --ink: #E5E9EF; --muted: #97A1B1; --line: #29313C;
-  --core: #3CC2A9; --core-bg: #11302A; --port: #F09E57; --port-bg: #35230F;
-  --adapter: #8EA3F5; --adapter-bg: #1B2342; --good: #5CCB82; --bad: #F2867E;
-  --code-bg: #0A0E13; --code-fg: #DCE3EC; --code-dim: #6E7A8B;
-  color-scheme: dark;
-}
-
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: 16px;
-  line-height: 1.6;
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 40px 64px;
-}
-main { max-width: 880px; margin: 0 auto; display: grid; gap: 56px; }
-section { display: grid; gap: 16px; min-width: 0; }
-h1, h2, h3 { font-family: var(--font-head); text-wrap: balance; margin: 0; line-height: 1.2; }
-h1 { font-size: 2.5rem; font-weight: 700; }
-h2 { font-size: 1.6rem; font-weight: 600; }
-h3 { font-size: 1.1rem; font-weight: 600; }
-p { margin: 0; max-width: 65ch; }
-code { font-family: var(--font-mono); font-size: 0.88em; }
-p code, li code, td code, h3 code { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
-
-.eyebrow { font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-header { display: grid; gap: 12px; }
-.aka { color: var(--muted); }
-
-.chip { display: inline-block; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 4px; border: 1px solid; white-space: nowrap; }
-.chip.core { color: var(--core); background: var(--core-bg); border-color: var(--core); }
-.chip.port { color: var(--port); background: var(--port-bg); border-color: var(--port); }
-.chip.adapter { color: var(--adapter); background: var(--adapter-bg); border-color: var(--adapter); }
-.chip.wiring { color: var(--muted); background: var(--surface); border-color: var(--line); }
-
-.terms { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
-.terms th, .terms td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-.terms th { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.terms td:first-child { white-space: nowrap; }
-.table-wrap { overflow-x: auto; }
-
-.rule { border: 1px solid var(--core); background: var(--core-bg); border-radius: 8px; padding: 14px 16px; max-width: 65ch; }
-.rule strong { color: var(--core); }
-
-.section-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
-.lang-switch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 3px; background: var(--surface); gap: 2px; }
-.lang-switch button { font: inherit; font-size: 0.88rem; font-weight: 500; color: var(--muted); background: transparent; border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
-.lang-switch button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
-.lang-switch button:focus-visible { outline: 2px solid var(--adapter); outline-offset: 2px; }
-
-.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; padding: 8px; }
-.diagram svg { display: block; width: 100%; min-width: 720px; height: auto; }
-.diagram text { font-family: var(--font-body); fill: var(--ink); text-anchor: middle; }
-.diagram .t-name { font-size: 14px; font-weight: 600; }
-.diagram .t-kind { font-size: 11.5px; fill: var(--muted); }
-.diagram .t-side { font-size: 13px; font-weight: 600; fill: var(--muted); letter-spacing: 0.04em; }
-.diagram .t-core { font-family: var(--font-head); font-size: 17px; font-weight: 700; fill: var(--core); }
-.diagram .t-ring { font-size: 12px; fill: var(--muted); letter-spacing: 0.08em; }
-.diagram .ring { fill: var(--bg); stroke: var(--line); stroke-width: 2; }
-.diagram .core { fill: var(--core-bg); stroke: var(--core); stroke-width: 2; }
-.diagram .port { fill: var(--port-bg); stroke: var(--port); stroke-width: 2; }
-.diagram .adapter { fill: var(--adapter-bg); stroke: var(--adapter); stroke-width: 1.5; }
-.diagram .flow { stroke: var(--muted); stroke-width: 1.8; fill: none; }
-.diagram .arrowhead { fill: var(--muted); }
-.diagram .node { cursor: pointer; outline: none; }
-.diagram .node:hover rect, .diagram .node:hover polygon,
-.diagram .node:focus-visible rect, .diagram .node:focus-visible polygon { stroke-width: 3.5; }
-.diagram .node:focus-visible rect, .diagram .node:focus-visible polygon { stroke-dasharray: 6 3; }
-.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 0.9rem; color: var(--muted); }
-.caption { font-size: 0.95rem; color: var(--muted); }
-
-.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 6px; max-width: 65ch; }
-
-.tree { font-family: var(--font-mono); font-size: 0.88rem; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow-x: auto; }
-.tree-root { padding: 4px 8px; color: var(--muted); white-space: nowrap; }
-.tree-row { display: flex; gap: 12px; align-items: center; width: 100%; font: inherit; color: var(--ink); text-align: left; background: transparent; border: 0; border-radius: 6px; padding: 4px 8px; cursor: pointer; white-space: nowrap; }
-.tree-row:hover { background: var(--bg); }
-.tree-row:focus-visible { outline: 2px solid var(--adapter); outline-offset: -2px; }
-.tree-row .path { min-width: 29em; }
-body:not([data-code-lang="cs"]) .tree[data-lang="cs"],
-body[data-code-lang="cs"] .tree[data-lang="ts"] { display: none; }
-
-.file { display: grid; gap: 8px; min-width: 0; }
-.file-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
-.file-head .name { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 500; overflow-wrap: anywhere; }
-.file-head .why { font-size: 0.9rem; color: var(--muted); flex-basis: 100%; }
-pre { margin: 0; background: var(--code-bg); color: var(--code-fg); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.84rem; line-height: 1.6; }
-pre .token.comment { color: var(--code-dim); }
-pre .token.keyword, pre .token.builtin { color: var(--syntax-keyword); }
-pre .token.string, pre .token.interpolation-string { color: var(--syntax-string); }
-pre .token.number, pre .token.boolean { color: var(--syntax-number); }
-pre .token.function { color: var(--syntax-function); }
-pre .token.class-name, pre .token.attribute { color: var(--syntax-type); }
-pre .token.punctuation, pre .token.operator { color: var(--syntax-punctuation); }
-
-#code-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 0; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; }
-#code-dialog::backdrop { background: rgb(0 0 0 / 0.55); }
-.dialog-head { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.dialog-head h3 { flex: 1 1 200px; overflow-wrap: anywhere; }
-.close-button { font: inherit; font-size: 0.9rem; font-weight: 500; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
-.close-button:focus-visible { outline: 2px solid var(--adapter); outline-offset: 2px; }
-.dialog-files { display: grid; gap: 20px; padding: 16px; }
-
-.tradeoffs { display: grid; gap: 48px; }
-.tradeoffs > div { display: grid; gap: 16px; min-width: 0; }
-.tradeoffs h2 { display: flex; align-items: center; gap: 10px; }
-.mark { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
-.solves .mark { background: var(--good); }
-.introduces .mark { background: var(--bad); }
-.tradeoffs ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.tradeoffs li { padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
-.tradeoffs li strong { display: block; font-weight: 600; margin-bottom: 2px; }
-.tradeoffs li span { color: var(--muted); font-size: 0.95rem; }
-
-@media (max-width: 520px) {
-  h1 { font-size: 2rem; }
-  body { padding-block: 24px 48px; }
-  main { gap: 44px; }
-}
-body { margin: 0; }
-[hidden] { display: none !important; }
-</style>
+<link rel="stylesheet" href="../../../assets/topic.css">
 </head>
 <body>
 
 <main>
   <header>
-    <div class="eyebrow">Architecture notes</div>
+    <div class="eyebrow"><a href="../../">Architecture</a> / Code organization</div>
     <h1>Hexagonal Architecture</h1>
     <p class="aka">Also called <strong>Ports and Adapters</strong>. Described by Alistair Cockburn in 2005.</p>
   </header>
@@ -189,11 +27,11 @@ body { margin: 0; }
       <table class="terms">
         <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
         <tbody>
-          <tr><td><span class="chip core">Core</span></td><td>Business rules and use cases. Plain code with no framework imports.</td><td><code>Order</code>, <code>PlaceOrderService</code></td></tr>
-          <tr><td><span class="chip port">Input port</span></td><td>Interface for what the app can do. Outside code calls it.</td><td><code>PlaceOrder</code></td></tr>
-          <tr><td><span class="chip port">Output port</span></td><td>Interface for what the app needs from outside. The core calls it.</td><td><code>OrderRepository</code></td></tr>
-          <tr><td><span class="chip adapter">Driving adapter</span></td><td>Starts an action by calling an input port.</td><td>HTTP endpoint, CLI, test</td></tr>
-          <tr><td><span class="chip adapter">Driven adapter</span></td><td>Implements an output port with a real tool.</td><td>Postgres, in-memory list</td></tr>
+          <tr><td><span class="chip tone-teal">Core</span></td><td>Business rules and use cases. Plain code with no framework imports.</td><td><code>Order</code>, <code>PlaceOrderService</code></td></tr>
+          <tr><td><span class="chip tone-amber">Input port</span></td><td>Interface for what the app can do. Outside code calls it.</td><td><code>PlaceOrder</code></td></tr>
+          <tr><td><span class="chip tone-amber">Output port</span></td><td>Interface for what the app needs from outside. The core calls it.</td><td><code>OrderRepository</code></td></tr>
+          <tr><td><span class="chip tone-blue">Driving adapter</span></td><td>Starts an action by calling an input port.</td><td>HTTP endpoint, CLI, test</td></tr>
+          <tr><td><span class="chip tone-blue">Driven adapter</span></td><td>Implements an output port with a real tool.</td><td>Postgres, in-memory list</td></tr>
         </tbody>
       </table>
     </div>
@@ -215,72 +53,93 @@ body { margin: 0; }
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
           </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
         </defs>
 
-        <polygon class="ring" points="670,270 565,451.9 355,451.9 250,270 355,88.1 565,88.1"/>
-        <text class="t-ring" x="460" y="128">APPLICATION</text>
+        <polygon class="frame" points="670,270 565,451.9 355,451.9 250,270 355,88.1 565,88.1"/>
+        <text class="t-label" x="460" y="128">APPLICATION</text>
 
-        <g class="node" tabindex="0" role="button" aria-label="Show code for the core" data-title="Core" data-node="core">
-          <polygon class="core" points="550,270 505,347.9 415,347.9 370,270 415,192.1 505,192.1"/>
-          <text class="t-core" x="460" y="248">CORE</text>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the core" data-title="Core" data-node="core" id="n-core">
+          <polygon class="shape tone-teal" points="550,270 505,347.9 415,347.9 370,270 415,192.1 505,192.1"/>
+          <text class="t-title" x="460" y="248">CORE</text>
           <text class="t-name" x="460" y="276">Order</text>
           <text class="t-kind" x="460" y="296">PlaceOrderService</text>
         </g>
 
-        <g class="node" tabindex="0" role="button" aria-label="Show code for the PlaceOrder input port" data-title="Input port: PlaceOrder" data-node="input-port">
-          <rect class="port" x="190" y="246" width="120" height="48" rx="6"/>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the PlaceOrder input port" data-title="Input port: PlaceOrder" data-node="input-port" id="n-input-port">
+          <rect class="shape tone-amber" x="190" y="246" width="120" height="48" rx="6"/>
           <text class="t-name" x="250" y="267">PlaceOrder</text>
           <text class="t-kind" x="250" y="284">input port</text>
         </g>
 
-        <g class="node" tabindex="0" role="button" aria-label="Show code for the OrderRepository output port" data-title="Output port: OrderRepository" data-node="output-port">
-          <rect class="port" x="610" y="246" width="120" height="48" rx="6"/>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the OrderRepository output port" data-title="Output port: OrderRepository" data-node="output-port" id="n-output-port">
+          <rect class="shape tone-amber" x="610" y="246" width="120" height="48" rx="6"/>
           <text class="t-name" x="670" y="267">OrderRepository</text>
           <text class="t-kind" x="670" y="284">output port</text>
         </g>
 
         <text class="t-side" x="82" y="140">DRIVING SIDE</text>
-        <g class="node" tabindex="0" role="button" aria-label="Show code for the HTTP endpoint" data-title="Driving adapter: HTTP endpoint" data-node="http">
-          <rect class="adapter" x="12" y="158" width="140" height="44" rx="6"/>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the HTTP endpoint" data-title="Driving adapter: HTTP endpoint" data-node="http" id="n-http">
+          <rect class="shape tone-blue" x="12" y="158" width="140" height="44" rx="6"/>
           <text class="t-name" x="82" y="177">HTTP endpoint</text>
           <text class="t-kind" x="82" y="194">web framework</text>
         </g>
-        <g class="node" tabindex="0" role="button" aria-label="Show code for the CLI command" data-title="Driving adapter: CLI command" data-node="cli">
-          <rect class="adapter" x="12" y="248" width="140" height="44" rx="6"/>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the CLI command" data-title="Driving adapter: CLI command" data-node="cli" id="n-cli">
+          <rect class="shape tone-blue" x="12" y="248" width="140" height="44" rx="6"/>
           <text class="t-name" x="82" y="267">CLI command</text>
           <text class="t-kind" x="82" y="284">terminal</text>
         </g>
-        <g class="node" tabindex="0" role="button" aria-label="Show code for the unit test" data-title="Driving adapter: unit test" data-node="test">
-          <rect class="adapter" x="12" y="338" width="140" height="44" rx="6"/>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the unit test" data-title="Driving adapter: unit test" data-node="test" id="n-test">
+          <rect class="shape tone-blue" x="12" y="338" width="140" height="44" rx="6"/>
           <text class="t-name" x="82" y="357">Unit test</text>
           <text class="t-kind" x="82" y="374">test runner</text>
         </g>
 
         <text class="t-side" x="838" y="186">DRIVEN SIDE</text>
-        <g class="node" tabindex="0" role="button" aria-label="Show code for the Postgres adapter" data-title="Driven adapter: Postgres" data-node="postgres">
-          <rect class="adapter" x="768" y="204" width="140" height="44" rx="6"/>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the Postgres adapter" data-title="Driven adapter: Postgres" data-node="postgres" id="n-postgres">
+          <rect class="shape tone-blue" x="768" y="204" width="140" height="44" rx="6"/>
           <text class="t-name" x="838" y="223">Postgres</text>
           <text class="t-kind" x="838" y="240">used in production</text>
         </g>
-        <g class="node" tabindex="0" role="button" aria-label="Show code for the in-memory adapter" data-title="Driven adapter: in-memory list" data-node="in-memory">
-          <rect class="adapter" x="768" y="294" width="140" height="44" rx="6"/>
+        <g class="node" tabindex="0" role="button" aria-label="Show code for the in-memory adapter" data-title="Driven adapter: in-memory list" data-node="in-memory" id="n-in-memory">
+          <rect class="shape tone-blue" x="768" y="294" width="140" height="44" rx="6"/>
           <text class="t-name" x="838" y="313">In-memory list</text>
           <text class="t-kind" x="838" y="330">used in tests</text>
         </g>
 
-        <path class="flow" d="M152,180 L188,256" marker-end="url(#arrow)"/>
-        <path class="flow" d="M152,270 L188,270" marker-end="url(#arrow)"/>
-        <path class="flow" d="M152,360 L188,284" marker-end="url(#arrow)"/>
-        <path class="flow" d="M310,270 L368,270" marker-end="url(#arrow)"/>
-        <path class="flow" d="M550,270 L608,270" marker-end="url(#arrow)"/>
-        <path class="flow" d="M730,262 L766,228" marker-end="url(#arrow)"/>
-        <path class="flow" d="M730,278 L766,314" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-http-port" d="M152,180 L188,256" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-cli-port" d="M152,270 L188,270" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-test-port" d="M152,360 L188,284" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-port-core" d="M310,270 L368,270" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-core-port" d="M550,270 L608,270" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-port-postgres" d="M730,262 L766,228" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-port-in-memory" d="M730,278 L766,314" marker-end="url(#arrow)"/>
       </svg>
     </div>
+    <div class="flow-player">
+      <div class="flow-controls">
+        <span class="flow-title">Example flow: <code>POST /orders</code></span>
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Press Play to follow one request through the diagram, step by step.</p>
+      <ol class="flow-steps" hidden>
+        <li data-highlight="n-http">The HTTP endpoint receives the request.</li>
+        <li data-highlight="n-http a-http-port n-input-port">The endpoint calls the <code>PlaceOrder</code> input port.</li>
+        <li data-highlight="n-input-port a-port-core n-core"><code>PlaceOrderService</code> creates an <code>Order</code>. The <code>Order</code> checks its own rules.</li>
+        <li data-highlight="n-core a-core-port n-output-port">The service calls save on the <code>OrderRepository</code> output port.</li>
+        <li data-highlight="n-output-port a-port-postgres n-postgres">The adapter plugged in at startup runs. In production that is Postgres.</li>
+        <li data-highlight="n-http">The endpoint sends <code>201</code> with the new order ID.</li>
+      </ol>
+    </div>
     <div class="legend">
-      <span class="chip core">Core</span>
-      <span class="chip port">Port</span>
-      <span class="chip adapter">Adapter</span>
+      <span class="chip tone-teal">Core</span>
+      <span class="chip tone-amber">Port</span>
+      <span class="chip tone-blue">Adapter</span>
       <span>Arrows show the order of calls when a request runs. Click a box to see its code.</span>
     </div>
     <p class="caption">On the right side, imports go the opposite way to the arrows. The Postgres adapter imports <code>OrderRepository</code> from the core. The core does not import Postgres. This is what lets you swap Postgres for the in-memory list.</p>
@@ -288,40 +147,31 @@ body { margin: 0; }
     <h3>Files</h3>
     <div class="tree" data-lang="ts" aria-label="TypeScript files">
       <div class="tree-root">src/</div>
-      <button type="button" class="tree-row" data-file="core/domain/Order.ts"><span class="path">├─ core/domain/Order.ts</span><span class="chip core">Core</span></button>
-      <button type="button" class="tree-row" data-file="core/ports/PlaceOrder.ts"><span class="path">├─ core/ports/PlaceOrder.ts</span><span class="chip port">Input port</span></button>
-      <button type="button" class="tree-row" data-file="core/ports/OrderRepository.ts"><span class="path">├─ core/ports/OrderRepository.ts</span><span class="chip port">Output port</span></button>
-      <button type="button" class="tree-row" data-file="core/PlaceOrderService.ts"><span class="path">├─ core/PlaceOrderService.ts</span><span class="chip core">Core</span></button>
-      <button type="button" class="tree-row" data-file="core/PlaceOrderService.test.ts"><span class="path">├─ core/PlaceOrderService.test.ts</span><span class="chip adapter">Driving adapter</span></button>
-      <button type="button" class="tree-row" data-file="adapters/http/orderRoutes.ts"><span class="path">├─ adapters/http/orderRoutes.ts</span><span class="chip adapter">Driving adapter</span></button>
-      <button type="button" class="tree-row" data-file="adapters/cli/placeOrderCommand.ts"><span class="path">├─ adapters/cli/placeOrderCommand.ts</span><span class="chip adapter">Driving adapter</span></button>
-      <button type="button" class="tree-row" data-file="adapters/db/PostgresOrderRepository.ts"><span class="path">├─ adapters/db/PostgresOrderRepository.ts</span><span class="chip adapter">Driven adapter</span></button>
-      <button type="button" class="tree-row" data-file="adapters/db/InMemoryOrderRepository.ts"><span class="path">├─ adapters/db/InMemoryOrderRepository.ts</span><span class="chip adapter">Driven adapter</span></button>
-      <button type="button" class="tree-row" data-file="main.ts"><span class="path">└─ main.ts</span><span class="chip wiring">Wiring</span></button>
+      <button type="button" class="tree-row" data-file="core/domain/Order.ts"><span class="path">├─ core/domain/Order.ts</span><span class="chip tone-teal">Core</span></button>
+      <button type="button" class="tree-row" data-file="core/ports/PlaceOrder.ts"><span class="path">├─ core/ports/PlaceOrder.ts</span><span class="chip tone-amber">Input port</span></button>
+      <button type="button" class="tree-row" data-file="core/ports/OrderRepository.ts"><span class="path">├─ core/ports/OrderRepository.ts</span><span class="chip tone-amber">Output port</span></button>
+      <button type="button" class="tree-row" data-file="core/PlaceOrderService.ts"><span class="path">├─ core/PlaceOrderService.ts</span><span class="chip tone-teal">Core</span></button>
+      <button type="button" class="tree-row" data-file="core/PlaceOrderService.test.ts"><span class="path">├─ core/PlaceOrderService.test.ts</span><span class="chip tone-blue">Driving adapter</span></button>
+      <button type="button" class="tree-row" data-file="adapters/http/orderRoutes.ts"><span class="path">├─ adapters/http/orderRoutes.ts</span><span class="chip tone-blue">Driving adapter</span></button>
+      <button type="button" class="tree-row" data-file="adapters/cli/placeOrderCommand.ts"><span class="path">├─ adapters/cli/placeOrderCommand.ts</span><span class="chip tone-blue">Driving adapter</span></button>
+      <button type="button" class="tree-row" data-file="adapters/db/PostgresOrderRepository.ts"><span class="path">├─ adapters/db/PostgresOrderRepository.ts</span><span class="chip tone-blue">Driven adapter</span></button>
+      <button type="button" class="tree-row" data-file="adapters/db/InMemoryOrderRepository.ts"><span class="path">├─ adapters/db/InMemoryOrderRepository.ts</span><span class="chip tone-blue">Driven adapter</span></button>
+      <button type="button" class="tree-row" data-file="main.ts"><span class="path">└─ main.ts</span><span class="chip tone-neutral">Wiring</span></button>
     </div>
     <div class="tree" data-lang="cs" aria-label="C# files">
       <div class="tree-root">Shop.sln</div>
-      <button type="button" class="tree-row" data-file="src/Shop.Core/Domain/Order.cs"><span class="path">├─ src/Shop.Core/Domain/Order.cs</span><span class="chip core">Core</span></button>
-      <button type="button" class="tree-row" data-file="src/Shop.Core/Ports/IPlaceOrder.cs"><span class="path">├─ src/Shop.Core/Ports/IPlaceOrder.cs</span><span class="chip port">Input port</span></button>
-      <button type="button" class="tree-row" data-file="src/Shop.Core/Ports/IOrderRepository.cs"><span class="path">├─ src/Shop.Core/Ports/IOrderRepository.cs</span><span class="chip port">Output port</span></button>
-      <button type="button" class="tree-row" data-file="src/Shop.Core/PlaceOrderService.cs"><span class="path">├─ src/Shop.Core/PlaceOrderService.cs</span><span class="chip core">Core</span></button>
-      <button type="button" class="tree-row" data-file="src/Shop.Adapters/Http/OrderEndpoints.cs"><span class="path">├─ src/Shop.Adapters/Http/OrderEndpoints.cs</span><span class="chip adapter">Driving adapter</span></button>
-      <button type="button" class="tree-row" data-file="src/Shop.Adapters/Cli/PlaceOrderCommand.cs"><span class="path">├─ src/Shop.Adapters/Cli/PlaceOrderCommand.cs</span><span class="chip adapter">Driving adapter</span></button>
-      <button type="button" class="tree-row" data-file="src/Shop.Adapters/Db/PostgresOrderRepository.cs"><span class="path">├─ src/Shop.Adapters/Db/PostgresOrderRepository.cs</span><span class="chip adapter">Driven adapter</span></button>
-      <button type="button" class="tree-row" data-file="src/Shop.Adapters/Db/InMemoryOrderRepository.cs"><span class="path">├─ src/Shop.Adapters/Db/InMemoryOrderRepository.cs</span><span class="chip adapter">Driven adapter</span></button>
-      <button type="button" class="tree-row" data-file="src/Shop.Api/Program.cs"><span class="path">├─ src/Shop.Api/Program.cs</span><span class="chip wiring">Wiring</span></button>
-      <button type="button" class="tree-row" data-file="tests/Shop.Tests/PlaceOrderServiceTests.cs"><span class="path">└─ tests/Shop.Tests/PlaceOrderServiceTests.cs</span><span class="chip adapter">Driving adapter</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Core/Domain/Order.cs"><span class="path">├─ src/Shop.Core/Domain/Order.cs</span><span class="chip tone-teal">Core</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Core/Ports/IPlaceOrder.cs"><span class="path">├─ src/Shop.Core/Ports/IPlaceOrder.cs</span><span class="chip tone-amber">Input port</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Core/Ports/IOrderRepository.cs"><span class="path">├─ src/Shop.Core/Ports/IOrderRepository.cs</span><span class="chip tone-amber">Output port</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Core/PlaceOrderService.cs"><span class="path">├─ src/Shop.Core/PlaceOrderService.cs</span><span class="chip tone-teal">Core</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Adapters/Http/OrderEndpoints.cs"><span class="path">├─ src/Shop.Adapters/Http/OrderEndpoints.cs</span><span class="chip tone-blue">Driving adapter</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Adapters/Cli/PlaceOrderCommand.cs"><span class="path">├─ src/Shop.Adapters/Cli/PlaceOrderCommand.cs</span><span class="chip tone-blue">Driving adapter</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Adapters/Db/PostgresOrderRepository.cs"><span class="path">├─ src/Shop.Adapters/Db/PostgresOrderRepository.cs</span><span class="chip tone-blue">Driven adapter</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Adapters/Db/InMemoryOrderRepository.cs"><span class="path">├─ src/Shop.Adapters/Db/InMemoryOrderRepository.cs</span><span class="chip tone-blue">Driven adapter</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Api/Program.cs"><span class="path">├─ src/Shop.Api/Program.cs</span><span class="chip tone-neutral">Wiring</span></button>
+      <button type="button" class="tree-row" data-file="tests/Shop.Tests/PlaceOrderServiceTests.cs"><span class="path">└─ tests/Shop.Tests/PlaceOrderServiceTests.cs</span><span class="chip tone-blue">Driving adapter</span></button>
     </div>
 
-    <h3>What happens on <code>POST /orders</code></h3>
-    <ol class="steps">
-      <li>The HTTP endpoint receives the request.</li>
-      <li>The endpoint calls the <code>PlaceOrder</code> input port.</li>
-      <li><code>PlaceOrderService</code> creates an <code>Order</code>. The <code>Order</code> checks its own rules.</li>
-      <li>The service calls save on the <code>OrderRepository</code> output port.</li>
-      <li>The adapter that was plugged in at startup runs. In production that is Postgres.</li>
-      <li>The endpoint sends <code>201</code> with the new order ID.</li>
-    </ol>
   </section>
 
   <section class="tradeoffs">
@@ -352,7 +202,7 @@ body { margin: 0; }
 <div class="code-store" hidden>
   <div class="language-typescript">
     <div class="file" data-lang="ts" data-node="core">
-      <div class="file-head"><span class="chip core">Core</span><span class="name">core/domain/Order.ts</span><span class="why">Business rules. No imports from Express or Postgres.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Core</span><span class="name">core/domain/Order.ts</span><span class="why">Business rules. No imports from Express or Postgres.</span></div>
 <pre><code>export type OrderItem = { productId: string; price: number; quantity: number };
 
 export class Order {
@@ -373,7 +223,7 @@ export class Order {
     </div>
 
     <div class="file" data-lang="ts" data-node="core">
-      <div class="file-head"><span class="chip core">Core</span><span class="name">core/PlaceOrderService.ts</span><span class="why">The use case. It knows the ports, not the tools behind them.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Core</span><span class="name">core/PlaceOrderService.ts</span><span class="why">The use case. It knows the ports, not the tools behind them.</span></div>
 <pre><code>import { randomUUID } from "node:crypto";
 import { Order } from "./domain/Order";
 import { PlaceOrder, PlaceOrderInput } from "./ports/PlaceOrder";
@@ -391,7 +241,7 @@ export class PlaceOrderService implements PlaceOrder {
     </div>
 
     <div class="file" data-lang="ts" data-node="input-port">
-      <div class="file-head"><span class="chip port">Input port</span><span class="name">core/ports/PlaceOrder.ts</span><span class="why">What the app offers to the outside.</span></div>
+      <div class="file-head"><span class="chip tone-amber">Input port</span><span class="name">core/ports/PlaceOrder.ts</span><span class="why">What the app offers to the outside.</span></div>
 <pre><code>import { OrderItem } from "../domain/Order";
 
 export type PlaceOrderInput = { customerId: string; items: OrderItem[] };
@@ -402,7 +252,7 @@ export interface PlaceOrder {
     </div>
 
     <div class="file" data-lang="ts" data-node="output-port">
-      <div class="file-head"><span class="chip port">Output port</span><span class="name">core/ports/OrderRepository.ts</span><span class="why">What the app needs from the outside. The core owns this interface.</span></div>
+      <div class="file-head"><span class="chip tone-amber">Output port</span><span class="name">core/ports/OrderRepository.ts</span><span class="why">What the app needs from the outside. The core owns this interface.</span></div>
 <pre><code>import { Order } from "../domain/Order";
 
 export interface OrderRepository {
@@ -411,7 +261,7 @@ export interface OrderRepository {
     </div>
 
     <div class="file" data-lang="ts" data-node="http">
-      <div class="file-head"><span class="chip adapter">Driving adapter</span><span class="name">adapters/http/orderRoutes.ts</span><span class="why">Turns an HTTP request into a call on the input port.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driving adapter</span><span class="name">adapters/http/orderRoutes.ts</span><span class="why">Turns an HTTP request into a call on the input port.</span></div>
 <pre><code>import { Router } from "express";
 import { PlaceOrder } from "../../core/ports/PlaceOrder";
 
@@ -428,7 +278,7 @@ export function orderRoutes(placeOrder: PlaceOrder): Router {
     </div>
 
     <div class="file" data-lang="ts" data-node="cli">
-      <div class="file-head"><span class="chip adapter">Driving adapter</span><span class="name">adapters/cli/placeOrderCommand.ts</span><span class="why">A second entry point. It calls the same input port as the HTTP route.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driving adapter</span><span class="name">adapters/cli/placeOrderCommand.ts</span><span class="why">A second entry point. It calls the same input port as the HTTP route.</span></div>
 <pre><code>import { PlaceOrder } from "../../core/ports/PlaceOrder";
 
 export async function placeOrderCommand(placeOrder: PlaceOrder, args: string[]): Promise&lt;void&gt; {
@@ -444,7 +294,7 @@ export async function placeOrderCommand(placeOrder: PlaceOrder, args: string[]):
     </div>
 
     <div class="file" data-lang="ts" data-node="test">
-      <div class="file-head"><span class="chip adapter">Driving adapter</span><span class="name">core/PlaceOrderService.test.ts</span><span class="why">The test is another driving adapter. It runs with no server and no database.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driving adapter</span><span class="name">core/PlaceOrderService.test.ts</span><span class="why">The test is another driving adapter. It runs with no server and no database.</span></div>
 <pre><code>import { PlaceOrderService } from "./PlaceOrderService";
 import { InMemoryOrderRepository } from "../adapters/db/InMemoryOrderRepository";
 
@@ -464,7 +314,7 @@ describe("when a customer places an order", () =&gt; {
     </div>
 
     <div class="file" data-lang="ts" data-node="postgres">
-      <div class="file-head"><span class="chip adapter">Driven adapter</span><span class="name">adapters/db/PostgresOrderRepository.ts</span><span class="why">Implements the output port with SQL.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driven adapter</span><span class="name">adapters/db/PostgresOrderRepository.ts</span><span class="why">Implements the output port with SQL.</span></div>
 <pre><code>import { Pool } from "pg";
 import { Order } from "../../core/domain/Order";
 import { OrderRepository } from "../../core/ports/OrderRepository";
@@ -482,7 +332,7 @@ export class PostgresOrderRepository implements OrderRepository {
     </div>
 
     <div class="file" data-lang="ts" data-node="in-memory">
-      <div class="file-head"><span class="chip adapter">Driven adapter</span><span class="name">adapters/db/InMemoryOrderRepository.ts</span><span class="why">Same port, no database. Used in tests.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driven adapter</span><span class="name">adapters/db/InMemoryOrderRepository.ts</span><span class="why">Same port, no database. Used in tests.</span></div>
 <pre><code>import { Order } from "../../core/domain/Order";
 import { OrderRepository } from "../../core/ports/OrderRepository";
 
@@ -496,7 +346,7 @@ export class InMemoryOrderRepository implements OrderRepository {
     </div>
 
     <div class="file" data-lang="ts" data-node="wiring">
-      <div class="file-head"><span class="chip wiring">Wiring</span><span class="name">main.ts</span><span class="why">The only file that knows every piece. It picks which adapter goes into which port.</span></div>
+      <div class="file-head"><span class="chip tone-neutral">Wiring</span><span class="name">main.ts</span><span class="why">The only file that knows every piece. It picks which adapter goes into which port.</span></div>
 <pre><code>import express from "express";
 import { Pool } from "pg";
 import { PlaceOrderService } from "./core/PlaceOrderService";
@@ -515,7 +365,7 @@ express()
 
   <div class="language-csharp">
     <div class="file" data-lang="cs" data-node="core">
-      <div class="file-head"><span class="chip core">Core</span><span class="name">src/Shop.Core/Domain/Order.cs</span><span class="why">Business rules. The Shop.Core project has no reference to ASP.NET or Npgsql, so the compiler blocks those imports.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Core</span><span class="name">src/Shop.Core/Domain/Order.cs</span><span class="why">Business rules. The Shop.Core project has no reference to ASP.NET or Npgsql, so the compiler blocks those imports.</span></div>
 <pre><code>namespace Shop.Core.Domain;
 
 public record OrderItem(string ProductId, decimal Price, int Quantity);
@@ -541,7 +391,7 @@ public class Order
     </div>
 
     <div class="file" data-lang="cs" data-node="core">
-      <div class="file-head"><span class="chip core">Core</span><span class="name">src/Shop.Core/PlaceOrderService.cs</span><span class="why">The use case. It knows the ports, not the tools behind them.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Core</span><span class="name">src/Shop.Core/PlaceOrderService.cs</span><span class="why">The use case. It knows the ports, not the tools behind them.</span></div>
 <pre><code>using Shop.Core.Domain;
 using Shop.Core.Ports;
 
@@ -559,7 +409,7 @@ public class PlaceOrderService(IOrderRepository orders) : IPlaceOrder
     </div>
 
     <div class="file" data-lang="cs" data-node="input-port">
-      <div class="file-head"><span class="chip port">Input port</span><span class="name">src/Shop.Core/Ports/IPlaceOrder.cs</span><span class="why">What the app offers to the outside.</span></div>
+      <div class="file-head"><span class="chip tone-amber">Input port</span><span class="name">src/Shop.Core/Ports/IPlaceOrder.cs</span><span class="why">What the app offers to the outside.</span></div>
 <pre><code>using Shop.Core.Domain;
 
 namespace Shop.Core.Ports;
@@ -573,7 +423,7 @@ public interface IPlaceOrder
     </div>
 
     <div class="file" data-lang="cs" data-node="output-port">
-      <div class="file-head"><span class="chip port">Output port</span><span class="name">src/Shop.Core/Ports/IOrderRepository.cs</span><span class="why">What the app needs from the outside. The core owns this interface.</span></div>
+      <div class="file-head"><span class="chip tone-amber">Output port</span><span class="name">src/Shop.Core/Ports/IOrderRepository.cs</span><span class="why">What the app needs from the outside. The core owns this interface.</span></div>
 <pre><code>using Shop.Core.Domain;
 
 namespace Shop.Core.Ports;
@@ -585,7 +435,7 @@ public interface IOrderRepository
     </div>
 
     <div class="file" data-lang="cs" data-node="http">
-      <div class="file-head"><span class="chip adapter">Driving adapter</span><span class="name">src/Shop.Adapters/Http/OrderEndpoints.cs</span><span class="why">Turns an HTTP request into a call on the input port.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driving adapter</span><span class="name">src/Shop.Adapters/Http/OrderEndpoints.cs</span><span class="why">Turns an HTTP request into a call on the input port.</span></div>
 <pre><code>using Shop.Core.Ports;
 
 namespace Shop.Adapters.Http;
@@ -604,7 +454,7 @@ public static class OrderEndpoints
     </div>
 
     <div class="file" data-lang="cs" data-node="cli">
-      <div class="file-head"><span class="chip adapter">Driving adapter</span><span class="name">src/Shop.Adapters/Cli/PlaceOrderCommand.cs</span><span class="why">A second entry point. It calls the same input port as the HTTP endpoint.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driving adapter</span><span class="name">src/Shop.Adapters/Cli/PlaceOrderCommand.cs</span><span class="why">A second entry point. It calls the same input port as the HTTP endpoint.</span></div>
 <pre><code>using Shop.Core.Domain;
 using Shop.Core.Ports;
 
@@ -623,7 +473,7 @@ public class PlaceOrderCommand(IPlaceOrder placeOrder)
     </div>
 
     <div class="file" data-lang="cs" data-node="test">
-      <div class="file-head"><span class="chip adapter">Driving adapter</span><span class="name">tests/Shop.Tests/PlaceOrderServiceTests.cs</span><span class="why">The test is another driving adapter. It runs with no server and no database. Uses xUnit.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driving adapter</span><span class="name">tests/Shop.Tests/PlaceOrderServiceTests.cs</span><span class="why">The test is another driving adapter. It runs with no server and no database. Uses xUnit.</span></div>
 <pre><code>using Shop.Adapters.Db;
 using Shop.Core;
 using Shop.Core.Domain;
@@ -648,7 +498,7 @@ public class WhenACustomerPlacesAnOrder
     </div>
 
     <div class="file" data-lang="cs" data-node="postgres">
-      <div class="file-head"><span class="chip adapter">Driven adapter</span><span class="name">src/Shop.Adapters/Db/PostgresOrderRepository.cs</span><span class="why">Implements the output port with SQL through Npgsql.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driven adapter</span><span class="name">src/Shop.Adapters/Db/PostgresOrderRepository.cs</span><span class="why">Implements the output port with SQL through Npgsql.</span></div>
 <pre><code>using Npgsql;
 using Shop.Core.Domain;
 using Shop.Core.Ports;
@@ -671,7 +521,7 @@ public class PostgresOrderRepository(NpgsqlDataSource db) : IOrderRepository
     </div>
 
     <div class="file" data-lang="cs" data-node="in-memory">
-      <div class="file-head"><span class="chip adapter">Driven adapter</span><span class="name">src/Shop.Adapters/Db/InMemoryOrderRepository.cs</span><span class="why">Same port, no database. Used in tests.</span></div>
+      <div class="file-head"><span class="chip tone-blue">Driven adapter</span><span class="name">src/Shop.Adapters/Db/InMemoryOrderRepository.cs</span><span class="why">Same port, no database. Used in tests.</span></div>
 <pre><code>using Shop.Core.Domain;
 using Shop.Core.Ports;
 
@@ -690,7 +540,7 @@ public class InMemoryOrderRepository : IOrderRepository
     </div>
 
     <div class="file" data-lang="cs" data-node="wiring">
-      <div class="file-head"><span class="chip wiring">Wiring</span><span class="name">src/Shop.Api/Program.cs</span><span class="why">The only project that references every other one. The dependency injection setup picks which adapter goes into which port.</span></div>
+      <div class="file-head"><span class="chip tone-neutral">Wiring</span><span class="name">src/Shop.Api/Program.cs</span><span class="why">The only project that references every other one. The dependency injection setup picks which adapter goes into which port.</span></div>
 <pre><code>using Npgsql;
 using Shop.Adapters.Db;
 using Shop.Adapters.Http;
@@ -725,77 +575,6 @@ app.Run();</code></pre>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
-<script>
-const codeDialog = document.getElementById("code-dialog");
-const codeDialogTitle = document.getElementById("code-dialog-title");
-const codeDialogFiles = codeDialog.querySelector(".dialog-files");
-const languageStorageKey = "hexagonal-code-language";
-let currentLanguage = "ts";
-let openedTarget = null;
-
-function fileBlocksForNode(nodeName) {
-  return [...document.querySelectorAll(`.code-store .file[data-lang="${currentLanguage}"][data-node="${nodeName}"]`)];
-}
-
-function renderDialog() {
-  const fileBlocks = fileBlocksForNode(openedTarget.nodeName);
-  codeDialogTitle.textContent = openedTarget.title ?? fileBlocks[0].querySelector(".name").textContent;
-  codeDialogFiles.replaceChildren(...fileBlocks.map((fileBlock) => fileBlock.cloneNode(true)));
-}
-
-function openDialog(target) {
-  openedTarget = target;
-  renderDialog();
-  codeDialog.showModal();
-}
-
-function setLanguage(language) {
-  currentLanguage = language;
-  document.body.dataset.codeLang = language;
-  document.querySelectorAll(".lang-switch button").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.lang === language));
-  });
-  if (codeDialog.open) renderDialog();
-  try { localStorage.setItem(languageStorageKey, language); } catch {}
-}
-
-function nodeNameForFile(fileName) {
-  return [...document.querySelectorAll(".code-store .file")]
-    .find((fileBlock) => fileBlock.querySelector(".name").textContent === fileName)
-    .dataset.node;
-}
-
-document.querySelectorAll(".diagram .node").forEach((diagramNode) => {
-  const target = { nodeName: diagramNode.dataset.node, title: diagramNode.dataset.title };
-  diagramNode.addEventListener("click", () => openDialog(target));
-  diagramNode.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      openDialog(target);
-    }
-  });
-});
-
-document.querySelectorAll(".tree-row").forEach((treeRow) => {
-  treeRow.addEventListener("click", () => {
-    const nodeName = nodeNameForFile(treeRow.dataset.file);
-    const diagramNode = document.querySelector(`.diagram .node[data-node="${nodeName}"]`);
-    openDialog({ nodeName, title: diagramNode?.dataset.title ?? "Wiring" });
-  });
-});
-
-document.querySelectorAll(".lang-switch button").forEach((button) => {
-  button.addEventListener("click", () => setLanguage(button.dataset.lang));
-});
-
-document.getElementById("code-dialog-close").addEventListener("click", () => codeDialog.close());
-codeDialog.addEventListener("click", (event) => {
-  if (event.target === codeDialog) codeDialog.close();
-});
-
-let savedLanguage = null;
-try { savedLanguage = localStorage.getItem(languageStorageKey); } catch {}
-setLanguage(savedLanguage === "cs" ? "cs" : "ts");
-</script>
+<script src="../../../assets/topic.js"></script>
 </body>
 </html>
