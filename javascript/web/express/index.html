@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Express</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Web</div>
+    <h1>Express</h1>
+    <p class="aka">A small web framework for Node.js. A request passes through a list of functions, one after another.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Express is a thin layer on top of the <code>node:http</code> module from <a href="../../node/how-nodejs-works/">Node.js</a>. Node.js parses the HTTP request. Express adds routing, helper methods such as <code>res.json()</code>, and a <strong>middleware chain</strong>.</p>
+    <p>A middleware is a function <code>(req, res, next)</code>. You register middleware with <code>app.use()</code>, and Express calls them in that order for every request. Each one either sends a response or calls <code>next()</code> to hand the request to the next function. Routes are middleware too: they only run when the method and path match.</p>
+    <p>Express has no validation, no schemas and no security defaults. You add each of those with a package.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">app</span></td><td>The object <code>express()</code> returns. It is a function that <code>node:http</code> calls once per request.</td><td><code>http.createServer(createApp())</code></td></tr>
+          <tr><td><span class="chip tone-amber">Middleware</span></td><td>A function <code>(req, res, next)</code> that runs for each matching request, in registration order.</td><td><code>app.use(helmet())</code></td></tr>
+          <tr><td><span class="chip tone-amber"><code>next()</code></span></td><td>Hands the request to the next matching middleware. <code>next(error)</code> skips to the error middleware.</td><td>Last line of <code>requireAuth</code></td></tr>
+          <tr><td><span class="chip tone-blue">Router</span></td><td>A small app with its own routes and middleware, mounted at a path prefix.</td><td><code>app.use("/api/orders", ordersRouter)</code></td></tr>
+          <tr><td><span class="chip tone-blue">Route parameter</span></td><td>A named part of the path. Express puts the matched text, as a string, in <code>req.params</code>.</td><td><code>/:orderId</code> gives <code>req.params.orderId</code></td></tr>
+          <tr><td><span class="chip tone-amber"><code>express.json()</code></span></td><td>Middleware that reads the request body, parses it as JSON and stores it in <code>req.body</code>.</td><td>Only for <code>Content-Type: application/json</code></td></tr>
+          <tr><td><span class="chip tone-teal">Error middleware</span></td><td>Middleware with four arguments <code>(error, req, res, next)</code>. Express calls it only after an error.</td><td><code>errorHandler</code>, registered last</td></tr>
+          <tr><td><span class="chip tone-neutral"><code>req</code>, <code>res</code></span></td><td>Node's request and response objects, with extra Express methods.</td><td><code>req.get()</code>, <code>res.status().json()</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> every middleware must either send a response or call <code>next()</code>. Register middleware in the order a request should pass through them, and the error middleware last.</div>
+  </section>
+
+  <section>
+    <h2>What a middleware function can do</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>The middleware</th><th>What happens next</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Calls <code>next()</code></td><td>Express runs the next middleware or route that matches the path.</td><td><code>helmet()</code> sets headers, then calls <code>next()</code></td></tr>
+          <tr><td>Sends a response</td><td>The request ends. No later middleware or route runs.</td><td>Auth replies <code>401</code> when the token is missing</td></tr>
+          <tr><td>Calls <code>next(error)</code> or throws</td><td>Express skips all normal middleware and routes, and runs the next error middleware.</td><td><code>express.json()</code> gets invalid JSON</td></tr>
+          <tr><td>Does neither</td><td>Nothing else runs and the client gets no answer. The request stays open until the client or the load balancer gives up.</td><td>A middleware that forgets <code>next()</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why middleware order matters</h2>
+    <p>Express keeps one list of middleware and routes, in the order of your <code>app.use()</code> and <code>app.get()</code> calls. For each request it walks that list from the top. Each mistake below comes from a wrong position in that list.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Mistake</th><th>Symptom</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td><code>express.json()</code> registered after the routes</td><td><code>req.body</code> is <code>undefined</code> in every handler</td><td>Register body parsers before the routers.</td></tr>
+          <tr><td>Error middleware registered before the routes</td><td>Errors get the default Express HTML error page</td><td>Register the error middleware last.</td></tr>
+          <tr><td>Auth registered before <code>/health</code></td><td>The load balancer's health check gets <code>401</code> and marks the server as down</td><td>Register public routes first, or mount auth on <code>/api</code> only.</td></tr>
+          <tr><td>Request logger registered after a middleware that can end the request</td><td>Rejected requests have no log line and no request ID</td><td>Register the request ID and logger middleware first.</td></tr>
+          <tr><td>404 handler registered before the routers</td><td>Every request gets <code>404</code></td><td>Register it after all routes, before the error middleware.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What changed in Express 5</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Area</th><th>Express 4</th><th>Express 5</th></tr></thead>
+        <tbody>
+          <tr><td>Async handler that throws or rejects</td><td>Express does not see the error. The request hangs and Node.js reports an unhandled rejection.</td><td>Express catches the rejected promise and calls <code>next(error)</code>. The error middleware runs.</td></tr>
+          <tr><td>Wildcard path</td><td><code>/files/*</code></td><td>The wildcard needs a name: <code>/files/*filePath</code>. <code>req.params.filePath</code> is an array of path segments.</td></tr>
+          <tr><td>Optional part of a path</td><td><code>/invoice.:format?</code></td><td>Braces: <code>/invoice{.:format}</code></td></tr>
+          <tr><td>Regular expression characters in a path string</td><td>Allowed, such as <code>/user(s)?</code></td><td>Not allowed. Use an array of paths or a <code>RegExp</code>.</td></tr>
+          <tr><td>Body not parsed (wrong <code>Content-Type</code>)</td><td><code>req.body</code> is <code>{}</code></td><td><code>req.body</code> is <code>undefined</code></td></tr>
+          <tr><td><code>req.query</code></td><td>Writable. <code>?filter[status]=paid</code> becomes a nested object.</td><td>Read-only. The default parser no longer builds nested objects.</td></tr>
+          <tr><td>Removed methods</td><td><code>res.json(body, status)</code>, <code>req.param()</code>, <code>app.del()</code></td><td><code>res.status(404).json(body)</code>, <code>req.params</code>, <code>app.delete()</code></td></tr>
+          <tr><td>Node.js version</td><td>0.10 and later</td><td>18 and later</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What Express does not include</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Need</th><th>Package</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Validating body, params and query</td><td><code>zod</code>, or valibot, joi</td><td>Express accepts any JSON. Validate before the handler uses <code>req.body</code>.</td></tr>
+          <tr><td>Security headers</td><td><code>helmet</code></td><td>Sets <code>Content-Security-Policy</code>, <code>Strict-Transport-Security</code> and others. Removes <code>X-Powered-By</code>.</td></tr>
+          <tr><td>Cross-origin requests from browsers</td><td><code>cors</code></td><td>Give an explicit list of allowed origins, not <code>*</code>, when cookies or tokens are used.</td></tr>
+          <tr><td>Compressing responses</td><td><code>compression</code></td><td>Skip it when a reverse proxy such as nginx already compresses.</td></tr>
+          <tr><td>Request logging</td><td><code>pino-http</code> or <code>morgan</code></td><td>pino-http writes JSON and gives each request <code>req.log</code>. morgan writes one text line per request.</td></tr>
+          <tr><td>Rate limiting</td><td><code>express-rate-limit</code></td><td>Needs a shared store such as Redis when you run more than one process.</td></tr>
+          <tr><td>API documentation</td><td><code>@asteasolutions/zod-to-openapi</code></td><td>Express has no route schemas, so the OpenAPI file comes from your zod schemas.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why Express is slower than Fastify</h2>
+    <p>The <a href="../fastify/">Fastify</a> page explains how its hooks and schemas work.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>Express</th><th>Fastify</th></tr></thead>
+        <tbody>
+          <tr><td>Finding the route</td><td>Walks the middleware and route list from the top and tests each path pattern. More routes means more checks.</td><td>Looks up the path in a tree built at startup. The cost depends on the path length, not the number of routes.</td></tr>
+          <tr><td>Writing the JSON response</td><td><code>JSON.stringify</code> on every response</td><td>A serializer compiled from the response schema, which is faster and drops fields not in the schema</td></tr>
+          <tr><td>Validating the request</td><td>Not included. Each zod call runs at request time.</td><td>JSON Schema compiled once at startup</td></tr>
+          <tr><td>Middleware</td><td>Every <code>app.use()</code> function runs for every request it matches</td><td>Hooks run only for the routes in the plugin that registered them</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>In "hello world" benchmarks Fastify handles about two to three times as many requests per second. In most real APIs, database and network time is larger than this difference. Express is still the most used Node.js framework, with the most examples and middleware.</p>
+  </section>
+
+  <section>
+    <h2>Running Express in production</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Graceful shutdown</td><td>On <code>SIGTERM</code>, call <code>server.close()</code>. It stops new connections, waits for open requests, and since Node.js 19 closes idle keep-alive connections. Then close the database pool and exit. Force an exit after about 10 seconds.</td></tr>
+          <tr><td>Behind a load balancer</td><td>Set <code>app.set("trust proxy", 1)</code> so <code>req.ip</code> and <code>req.protocol</code> come from the <code>X-Forwarded-*</code> headers of your own proxy.</td></tr>
+          <tr><td>Keep-alive timeout</td><td>Set <code>server.keepAliveTimeout</code> longer than the load balancer's idle timeout. Otherwise Node.js closes connections the load balancer still uses, and clients get <code>502</code>.</td></tr>
+          <tr><td>Body size</td><td><code>express.json()</code> accepts 100 KB by default and replies <code>413</code> above that. Raise the limit only on routes that need it.</td></tr>
+          <tr><td><code>NODE_ENV=production</code></td><td>Set it. Without it, the default error handler sends stack traces to the client.</td></tr>
+          <tr><td>Slow handlers</td><td>CPU-heavy code in a handler blocks every other request. See the <a href="../../runtime/event-loop/">event loop</a> page.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Request ID middleware, first in the chain</td><td>Read <code>x-request-id</code> from the proxy if it is a valid short string, else create one with <code>crypto.randomUUID()</code>. Send it back in the response header.</td><td></td></tr>
+          <tr><td>End of each request (pino-http)</td><td>One line: method, URL, status, response time, request ID</td><td>info, warn for 4xx, error for 5xx</td></tr>
+          <tr><td>Error middleware</td><td>Set <code>res.err = error</code>. pino-http adds the error and stack to the request's line. Do not also log in handlers and then rethrow: that logs the same error twice.</td><td>error for 5xx</td></tr>
+          <tr><td>Inside handlers</td><td>Use <code>req.log</code>, not the global logger, so each line has the request ID.</td><td>debug or info</td></tr>
+          <tr><td>Calls to other services</td><td>Send the same <code>x-request-id</code> header, so their logs share the ID.</td><td></td></tr>
+          <tr><td>Never log</td><td><code>Authorization</code> and <code>Cookie</code> headers, passwords, full request bodies. Use pino's <code>redact</code> option.</td><td></td></tr>
+          <tr><td>Metrics</td><td>Requests per second, status codes and 95th percentile latency per route. Group by <code>req.route.path</code> (<code>/:orderId</code>), not the raw URL.</td><td>Alert on 5xx rate and latency</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 335" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A client sends a request to the Node.js http server. Express passes it through the middleware chain: request ID and logger, helmet, express.json and auth. The router then calls the route handler. Errors skip to the error middleware.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="180" y="172" width="710" height="108" rx="10"/>
+        <text class="t-label" x="535" y="189">MIDDLEWARE CHAIN, IN app.use() ORDER</text>
+
+        <g class="node" id="n-client" tabindex="0" role="button" aria-label="Show example requests" data-title="Client: example requests" data-node="client">
+          <rect class="shape tone-neutral" x="30" y="95" width="120" height="305" rx="6"/>
+          <text class="t-name" x="90" y="240">Client</text>
+          <text class="t-kind" x="90" y="258">browser, app</text>
+          <text class="t-kind" x="90" y="274">or curl</text>
+        </g>
+        <g class="node" id="n-http" tabindex="0" role="button" aria-label="Show the server and graceful shutdown" data-title="Node http server: startup and shutdown" data-node="http">
+          <rect class="shape tone-neutral" x="190" y="95" width="240" height="50" rx="6"/>
+          <text class="t-name" x="310" y="116">Node http server</text>
+          <text class="t-kind" x="310" y="133">node:http calls app(req, res)</text>
+        </g>
+        <g class="node" id="n-reqid" tabindex="0" role="button" aria-label="Show the request ID and logger middleware" data-title="Request ID and request logging" data-node="reqid">
+          <rect class="shape tone-amber" x="195" y="200" width="150" height="60" rx="6"/>
+          <text class="t-name" x="270" y="226">Request ID, log</text>
+          <text class="t-kind" x="270" y="243">pino-http</text>
+        </g>
+        <g class="node" id="n-helmet" tabindex="0" role="button" aria-label="Show the app setup with helmet, cors and compression" data-title="App setup: the middleware order" data-node="helmet">
+          <rect class="shape tone-amber" x="371" y="200" width="150" height="60" rx="6"/>
+          <text class="t-name" x="446" y="226">helmet, cors</text>
+          <text class="t-kind" x="446" y="243">compression</text>
+        </g>
+        <g class="node" id="n-json" tabindex="0" role="button" aria-label="Show body parsing and validation" data-title="express.json() and zod validation" data-node="json">
+          <rect class="shape tone-amber" x="547" y="200" width="150" height="60" rx="6"/>
+          <text class="t-name" x="622" y="226">express.json()</text>
+          <text class="t-kind" x="622" y="243">sets req.body</text>
+        </g>
+        <g class="node" id="n-auth" tabindex="0" role="button" aria-label="Show the auth middleware" data-title="Auth middleware" data-node="auth">
+          <rect class="shape tone-amber" x="723" y="200" width="150" height="60" rx="6"/>
+          <text class="t-name" x="798" y="226">Auth</text>
+          <text class="t-kind" x="798" y="243">only under /api</text>
+        </g>
+        <g class="node" id="n-router" tabindex="0" role="button" aria-label="Show the orders router" data-title="Router: orders routes" data-node="router">
+          <rect class="shape tone-blue" x="723" y="310" width="150" height="60" rx="6"/>
+          <text class="t-name" x="798" y="336">Router</text>
+          <text class="t-kind" x="798" y="353">/orders/:orderId</text>
+        </g>
+        <g class="node" id="n-handler" tabindex="0" role="button" aria-label="Show the route handlers" data-title="Route handlers" data-node="handler">
+          <rect class="shape tone-blue" x="470" y="310" width="190" height="60" rx="6"/>
+          <text class="t-name" x="565" y="336">Route handler</text>
+          <text class="t-kind" x="565" y="353">async (req, res)</text>
+        </g>
+        <g class="node" id="n-error" tabindex="0" role="button" aria-label="Show the error middleware" data-title="Error middleware" data-node="error">
+          <rect class="shape tone-teal" x="190" y="310" width="210" height="60" rx="6"/>
+          <text class="t-name" x="295" y="336">Error middleware</text>
+          <text class="t-kind" x="295" y="353">(error, req, res, next)</text>
+        </g>
+
+        <path class="flow" id="a-client-http" d="M150,120 L188,120" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-http-reqid" d="M270,145 L270,198" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-reqid-helmet" d="M345,230 L369,230" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-helmet-json" d="M521,230 L545,230" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-json-auth" d="M697,230 L721,230" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-auth-router" d="M798,260 L798,308" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-router-handler" d="M723,340 L662,340" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-handler-error" d="M470,340 L402,340" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-json-error" d="M600,260 L600,293 L330,293 L330,308" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-handler-client" d="M565,370 L565,395 L152,395" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-error-client" d="M190,340 L152,340" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-auth-client" d="M840,198 L840,160 L152,160" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-401" x="640" y="154">401 RESPONSE, ROUTER AND HANDLER NEVER RUN</text>
+        <text class="ghost-label" id="t-hanging" x="720" y="162">NO next() AND NO RESPONSE: CLIENT WAITS</text>
+        <text class="ghost-label" id="t-skipped" x="465" y="306">AUTH, ROUTER, HANDLER SKIPPED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="normal" aria-pressed="true">A normal request</button>
+        <button type="button" data-flow="unauthorized" aria-pressed="false">Missing token: 401</button>
+        <button type="button" data-flow="async-error" aria-pressed="false">Async handler fails</button>
+        <button type="button" data-flow="bad-json" aria-pressed="false">Invalid JSON body</button>
+        <button type="button" data-flow="hanging" aria-pressed="false">Forgotten next()</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="normal" hidden>
+        <li data-highlight="n-client a-client-http n-http">The client sends <code>GET /api/orders/42</code> with a token. Node's <code>http</code> module parses the request and calls the Express app with <code>req</code> and <code>res</code>.</li>
+        <li data-highlight="n-http a-http-reqid n-reqid">pino-http takes the <code>x-request-id</code> header or creates a new ID, sets it on the response, and adds <code>req.log</code>. Then it calls <code>next()</code>.</li>
+        <li data-highlight="n-reqid a-reqid-helmet n-helmet">helmet adds security headers to the response. cors and compression do their part. Each calls <code>next()</code>.</li>
+        <li data-highlight="n-helmet a-helmet-json n-json">A <code>GET</code> request has no JSON body, so <code>express.json()</code> reads nothing and calls <code>next()</code>.</li>
+        <li data-highlight="n-json a-json-auth n-auth">The auth middleware checks the token, stores the user in <code>req.user</code> and calls <code>next()</code>.</li>
+        <li data-highlight="n-auth a-auth-router n-router">The router matches <code>/:orderId</code> and sets <code>req.params.orderId</code> to the string <code>"42"</code>.</li>
+        <li data-highlight="n-router a-router-handler n-handler a-handler-client n-client">The handler loads the order and calls <code>res.json(order)</code>. When the response is sent, pino-http writes one log line with status 200 and the response time.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="unauthorized" hidden>
+        <li data-highlight="n-client a-client-http n-http a-http-reqid n-reqid">The client sends <code>GET /api/orders/42</code> without an <code>Authorization</code> header. The request gets an ID.</li>
+        <li data-highlight="n-reqid a-reqid-helmet n-helmet a-helmet-json n-json a-json-auth n-auth">helmet, cors, compression and <code>express.json()</code> each call <code>next()</code>, as in a normal request.</li>
+        <li data-highlight="n-auth a-auth-client n-client t-401">The auth middleware finds no token and calls <code>res.status(401).json(...)</code>. It does not call <code>next()</code>, so the router and handler never run.</li>
+        <li data-highlight="n-reqid">pino-http still writes the log line, at warn level, because it was registered before auth.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="async-error" hidden>
+        <li data-highlight="n-client a-client-http n-http a-http-reqid n-reqid a-reqid-helmet n-helmet a-helmet-json n-json a-json-auth n-auth a-auth-router n-router">The client sends <code>POST /api/orders</code> with a valid body and token. All middleware call <code>next()</code> and the router picks <code>createOrder</code>.</li>
+        <li data-highlight="n-router a-router-handler n-handler">The async handler awaits <code>orderRepository.insert()</code>. The database is down, so the promise rejects.</li>
+        <li data-highlight="n-handler a-handler-error n-error">Express 5 catches the rejected promise and calls <code>next(error)</code>. It skips any normal middleware and runs the error middleware. In Express 4 the request would hang.</li>
+        <li data-highlight="n-error a-error-client n-client">The error middleware sets <code>res.err</code>, replies <code>500</code> with a general message and the request ID, and hides the database error from the client.</li>
+        <li data-highlight="n-reqid">pino-http writes one line at error level, with the stack and the request ID. The error is logged once.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="bad-json" hidden>
+        <li data-highlight="n-client a-client-http n-http a-http-reqid n-reqid a-reqid-helmet n-helmet">The client sends <code>POST /api/orders</code> with the body <code>{"quantity": 2,</code>. The JSON is cut off.</li>
+        <li data-highlight="n-helmet a-helmet-json n-json">The <code>Content-Type</code> is <code>application/json</code>, so <code>express.json()</code> reads the body and tries to parse it. Parsing fails.</li>
+        <li data-highlight="n-json a-json-error n-error t-skipped">The parser calls <code>next(error)</code> with <code>status: 400</code>. Express skips auth, the router and the handler, and runs the error middleware.</li>
+        <li data-highlight="n-error a-error-client n-client">The error middleware sees <code>error.expose</code> is true, so it replies <code>400</code> with the parser's message.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="hanging" hidden>
+        <li data-highlight="n-client a-client-http n-http a-http-reqid n-reqid a-reqid-helmet n-helmet a-helmet-json n-json a-json-auth n-auth">The client sends <code>GET /api/orders/42</code> with a valid token. The request reaches the auth middleware.</li>
+        <li data-highlight="n-auth t-hanging">The auth middleware sets <code>req.user</code> but its last line, <code>next()</code>, is missing. It also sends no response.</li>
+        <li data-highlight="n-client n-auth t-hanging">Express waits. The <a href="../../runtime/event-loop/">event loop</a> is not blocked, so other requests still work. This socket stays open until the client or the load balancer times out, often after 60 seconds.</li>
+        <li data-highlight="n-http n-auth">On shutdown, <code>server.close()</code> waits for this request too. That is why the shutdown code forces an exit after 10 seconds.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Client and Node.js</span>
+      <span class="chip tone-amber">Middleware</span>
+      <span class="chip tone-blue">Routing</span>
+      <span class="chip tone-teal">Error handling</span>
+      <span>Solid arrows: <code>next()</code>. Dotted arrows: <code>next(error)</code> or a rejected promise. Response arrows appear during a flow. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">shop-api/</div>
+      <button type="button" class="tree-row" data-file="package.json"><span class="path">├─ package.json</span><span class="chip tone-neutral">Project</span></button>
+      <button type="button" class="tree-row" data-file="src/server.js"><span class="path">├─ src/server.js</span><span class="chip tone-neutral">HTTP server</span></button>
+      <button type="button" class="tree-row" data-file="src/app.js"><span class="path">├─ src/app.js</span><span class="chip tone-amber">Middleware order</span></button>
+      <button type="button" class="tree-row" data-file="src/logger.js"><span class="path">├─ src/logger.js</span><span class="chip tone-amber">Logging</span></button>
+      <button type="button" class="tree-row" data-file="src/http-error.js"><span class="path">├─ src/http-error.js</span><span class="chip tone-teal">Errors</span></button>
+      <button type="button" class="tree-row" data-file="src/middleware/request-logger.js"><span class="path">├─ src/middleware/request-logger.js</span><span class="chip tone-amber">Request ID</span></button>
+      <button type="button" class="tree-row" data-file="src/middleware/validate-body.js"><span class="path">├─ src/middleware/validate-body.js</span><span class="chip tone-amber">Validation</span></button>
+      <button type="button" class="tree-row" data-file="src/middleware/require-auth.js"><span class="path">├─ src/middleware/require-auth.js</span><span class="chip tone-amber">Auth</span></button>
+      <button type="button" class="tree-row" data-file="src/middleware/error-handler.js"><span class="path">├─ src/middleware/error-handler.js</span><span class="chip tone-teal">Errors</span></button>
+      <button type="button" class="tree-row" data-file="src/routes/orders-router.js"><span class="path">├─ src/routes/orders-router.js</span><span class="chip tone-blue">Router</span></button>
+      <button type="button" class="tree-row" data-file="src/orders/order-handlers.js"><span class="path">├─ src/orders/order-handlers.js</span><span class="chip tone-blue">Handlers</span></button>
+      <button type="button" class="tree-row" data-file="examples/forgotten-next.js"><span class="path">├─ examples/forgotten-next.js</span><span class="chip tone-amber">Common mistake</span></button>
+      <button type="button" class="tree-row" data-file="examples/requests.sh"><span class="path">└─ examples/requests.sh</span><span class="chip tone-neutral">Client</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Raw <code>node:http</code> is low-level</strong><span>Express adds routing, route parameters, body parsing and helpers such as <code>res.json()</code>.</span></li>
+        <li><strong>Shared logic per request</strong><span>Logging, auth and headers live in middleware instead of in every handler.</span></li>
+        <li><strong>Large codebases need structure</strong><span>Routers split an API into files, each mounted at its own path.</span></li>
+        <li><strong>Finding help and packages</strong><span>Express is the most used Node.js framework. Most problems already have an answer and a middleware.</span></li>
+        <li><strong>Lost async errors</strong><span>Since Express 5, a rejected promise in a handler reaches the error middleware.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>No validation or schemas</strong><span>You add zod or similar yourself, and API docs do not come from the routes.</span></li>
+        <li><strong>Order-dependent setup</strong><span>A middleware in the wrong place breaks requests without any error at startup.</span></li>
+        <li><strong>Hanging requests</strong><span>A middleware that forgets <code>next()</code> leaves the client waiting with no error.</span></li>
+        <li><strong>Slower than Fastify</strong><span>Route matching walks a list, and JSON output does not use a schema.</span></li>
+        <li><strong>No secure defaults</strong><span>Security headers, CORS and rate limits are separate packages you must add.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="http">
+      <div class="file-head"><span class="chip tone-neutral">Project</span><span class="name">package.json</span><span class="why">Express 5 and the packages it needs for a production API. Express itself has only routing, middleware and body parsing.</span></div>
+<pre><code>{
+  "name": "shop-api",
+  "version": "2.0.0",
+  "type": "module",
+  "engines": { "node": "&gt;=22" },
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "compression": "^1.8.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "pg": "^8.16.0",
+    "pino": "^9.7.0",
+    "pino-http": "^10.5.0",
+    "zod": "^4.1.0"
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="http">
+      <div class="file-head"><span class="chip tone-neutral">HTTP server</span><span class="name">src/server.js</span><span class="why">The Express app is a request listener for <code>node:http</code>. On <code>SIGTERM</code> the server stops taking new connections, waits for open requests, closes the database pool and exits. A timer forces the exit if a request never finishes.</span></div>
+<pre><code>import http from "node:http";
+import { createApp } from "./app.js";
+import { database } from "./database.js";
+import { logger } from "./logger.js";
+
+const port = Number(process.env.PORT ?? 3000);
+const shutdownTimeoutMs = 10_000;
+
+const server = http.createServer(createApp());
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+
+server.listen(port, () =&gt; {
+  logger.info({ port, nodeVersion: process.version }, "server listening");
+});
+
+function shutDown(signal) {
+  logger.info({ signal }, "shutting down");
+
+  server.close(async () =&gt; {
+    await database.end();
+    logger.info("shutdown complete");
+    process.exit(0);
+  });
+
+  setTimeout(() =&gt; {
+    logger.error("open requests did not finish in time, exiting");
+    process.exit(1);
+  }, shutdownTimeoutMs).unref();
+}
+
+process.once("SIGTERM", () =&gt; shutDown("SIGTERM"));
+process.once("SIGINT", () =&gt; shutDown("SIGINT"));</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="helmet">
+      <div class="file-head"><span class="chip tone-amber">Middleware order</span><span class="name">src/app.js</span><span class="why">The whole chain, in the order a request passes through it. The logger is first so every request gets an ID and a log line. <code>/health</code> comes before auth. The 404 handler and the error middleware come last.</span></div>
+<pre><code>import compression from "compression";
+import cors from "cors";
+import express from "express";
+import helmet from "helmet";
+import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { requestLogger } from "./middleware/request-logger.js";
+import { requireAuth } from "./middleware/require-auth.js";
+import { ordersRouter } from "./routes/orders-router.js";
+
+export function createApp() {
+  const app = express();
+  app.set("trust proxy", 1);
+
+  app.use(requestLogger);
+  app.use(helmet());
+  app.use(cors({ origin: ["https://shop.example.com"] }));
+  app.use(compression());
+  app.use(express.json({ limit: "100kb" }));
+
+  app.get("/health", (req, res) =&gt; res.json({ status: "ok" }));
+
+  app.use("/api", requireAuth);
+  app.use("/api/orders", ordersRouter);
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+  return app;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="reqid">
+      <div class="file-head"><span class="chip tone-amber">Logging</span><span class="name">src/logger.js</span><span class="why">One pino logger for the whole process. It writes JSON lines to standard output and removes the token and cookies from logged headers.</span></div>
+<pre><code>import pino from "pino";
+
+export const logger = pino({
+  level: process.env.LOG_LEVEL ?? "info",
+  redact: ["req.headers.authorization", "req.headers.cookie"],
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="reqid">
+      <div class="file-head"><span class="chip tone-amber">Request ID</span><span class="name">src/middleware/request-logger.js</span><span class="why">Reuses the proxy's <code>x-request-id</code> when it looks valid, else creates a new one. pino-http stores it in <code>req.id</code>, adds it to every <code>req.log</code> line, and writes one line when the response is finished.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import pinoHttp from "pino-http";
+import { logger } from "../logger.js";
+
+const validRequestId = /^[\w-]{1,64}$/;
+
+function requestIdFor(req, res) {
+  const incomingId = req.headers["x-request-id"];
+  const requestId = validRequestId.test(incomingId ?? "") ? incomingId : randomUUID();
+  res.setHeader("x-request-id", requestId);
+  return requestId;
+}
+
+function logLevelFor(req, res) {
+  if (res.statusCode &gt;= 500) return "error";
+  if (res.statusCode &gt;= 400) return "warn";
+  return "info";
+}
+
+export const requestLogger = pinoHttp({
+  logger,
+  genReqId: requestIdFor,
+  customLogLevel: logLevelFor,
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="json">
+      <div class="file-head"><span class="chip tone-amber">Validation</span><span class="name">src/middleware/validate-body.js</span><span class="why"><code>express.json()</code> only parses. This middleware checks <code>req.body</code> against a zod schema and replaces it with the parsed data, so unknown fields are dropped. A throw in a middleware goes to the error middleware.</span></div>
+<pre><code>import { HttpError } from "../http-error.js";
+
+export function validateBody(schema) {
+  return (req, res, next) =&gt; {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      throw new HttpError(400, "The request body is invalid.", result.error.issues);
+    }
+    req.body = result.data;
+    next();
+  };
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="auth">
+      <div class="file-head"><span class="chip tone-amber">Auth</span><span class="name">src/middleware/require-auth.js</span><span class="why">Ends the request with <code>401</code> when the token is missing or invalid. Otherwise it stores the user and calls <code>next()</code>. Mounted on <code>/api</code> only, so <code>/health</code> stays public.</span></div>
+<pre><code>import { verifyAccessToken } from "../auth/access-tokens.js";
+
+export async function requireAuth(req, res, next) {
+  const [scheme, token] = (req.get("authorization") ?? "").split(" ");
+  if (scheme !== "Bearer" || !token) {
+    return res.status(401).json({ error: "The access token is missing." });
+  }
+
+  const user = await verifyAccessToken(token);
+  if (!user) {
+    return res.status(401).json({ error: "The access token is invalid or expired." });
+  }
+
+  req.user = user;
+  next();
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="auth">
+      <div class="file-head"><span class="chip tone-amber">Common mistake</span><span class="name">examples/forgotten-next.js</span><span class="why">Run it and call <code>curl localhost:3000/hello</code>. The request never gets an answer and no error appears. Add <code>next();</code> as the last line of <code>loadTenant</code> to fix it.</span></div>
+<pre><code>import express from "express";
+
+const app = express();
+
+function loadTenant(req, res, next) {
+  req.tenant = req.get("x-tenant") ?? "default";
+}
+
+app.use(loadTenant);
+app.get("/hello", (req, res) =&gt; res.send(`hello ${req.tenant}`));
+
+app.listen(3000);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="router">
+      <div class="file-head"><span class="chip tone-blue">Router</span><span class="name">src/routes/orders-router.js</span><span class="why">Mounted at <code>/api/orders</code>, so <code>"/:orderId"</code> matches <code>/api/orders/42</code>. <code>{.:format}</code> is Express 5 syntax for an optional part: it matches <code>/invoice</code> and <code>/invoice.pdf</code>.</span></div>
+<pre><code>import { Router } from "express";
+import { validateBody } from "../middleware/validate-body.js";
+import { createOrder, createOrderBody, getInvoice, getOrder } from "../orders/order-handlers.js";
+
+export const ordersRouter = Router();
+
+ordersRouter.post("/", validateBody(createOrderBody), createOrder);
+ordersRouter.get("/:orderId", getOrder);
+ordersRouter.get("/:orderId/invoice{.:format}", getInvoice);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="handler">
+      <div class="file-head"><span class="chip tone-blue">Handlers</span><span class="name">src/orders/order-handlers.js</span><span class="why">Async handlers with no <code>try</code>/<code>catch</code>. In Express 5 a throw or a rejected <code>await</code> reaches the error middleware. Route parameters are always strings.</span></div>
+<pre><code>import { z } from "zod";
+import { HttpError } from "../http-error.js";
+import { renderInvoice } from "./invoices.js";
+import { orderRepository } from "./order-repository.js";
+
+const invoiceFormats = ["pdf", "html"];
+
+export const createOrderBody = z.object({
+  productId: z.uuid(),
+  quantity: z.number().int().min(1).max(100),
+});
+
+export async function createOrder(req, res) {
+  const order = await orderRepository.insert({ ...req.body, customerId: req.user.id });
+  res.status(201).location(`/api/orders/${order.id}`).json(order);
+}
+
+export async function getOrder(req, res) {
+  const order = await findCustomerOrder(req.params.orderId, req.user.id);
+  req.log.info({ orderId: order.id }, "order loaded");
+  res.json(order);
+}
+
+export async function getInvoice(req, res) {
+  const format = req.params.format ?? "pdf";
+  if (!invoiceFormats.includes(format)) {
+    throw new HttpError(400, "The invoice format must be pdf or html.");
+  }
+  const order = await findCustomerOrder(req.params.orderId, req.user.id);
+  res.type(format).send(await renderInvoice(order, format));
+}
+
+async function findCustomerOrder(orderId, customerId) {
+  const order = await orderRepository.findForCustomer(orderId, customerId);
+  if (!order) {
+    throw new HttpError(404, "The order does not exist.");
+  }
+  return order;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="error">
+      <div class="file-head"><span class="chip tone-teal">Errors</span><span class="name">src/http-error.js</span><span class="why">An error with a status code. <code>expose</code> marks the message as safe to send to the client, the same flag the body parser sets on its own errors.</span></div>
+<pre><code>export class HttpError extends Error {
+  constructor(status, message, details) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+    this.details = details;
+    this.expose = true;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="error">
+      <div class="file-head"><span class="chip tone-teal">Errors</span><span class="name">src/middleware/error-handler.js</span><span class="why">Four arguments, so Express treats it as error middleware. Client errors get their message. Every other error gets <code>500</code> and a general message, so database details do not reach the client.</span></div>
+<pre><code>export function notFoundHandler(req, res) {
+  res.status(404).json({ error: "The route does not exist." });
+}
+
+export function errorHandler(error, req, res, next) {
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  // pino-http adds res.err to the request's log line, so the error is logged once, with its request id
+  res.err = error;
+
+  const isClientError = error.expose === true;
+  res.status(isClientError ? error.status : 500).json({
+    error: isClientError ? error.message : "Internal server error.",
+    details: isClientError ? error.details : undefined,
+    requestId: req.id,
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-bash">
+    <div class="file" data-lang="any" data-node="client">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">examples/requests.sh</span><span class="why">One request per example flow: a normal request, a missing token (<code>401</code>), invalid JSON (<code>400</code>), and a request with an ID from the caller. <code>-i</code> prints the response headers, including <code>x-request-id</code>.</span></div>
+<pre><code>curl -i http://localhost:3000/api/orders/42 \
+  -H "authorization: Bearer $ACCESS_TOKEN"
+
+curl -i http://localhost:3000/api/orders/42
+
+curl -i -X POST http://localhost:3000/api/orders \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"quantity": 2,'
+
+curl -i http://localhost:3000/api/orders/42/invoice.pdf \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "x-request-id: checkout-7f3a"</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
