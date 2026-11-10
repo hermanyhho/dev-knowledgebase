@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASP.NET Core</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">.NET</a> / Web</div>
+    <h1>ASP.NET Core</h1>
+    <p class="aka">Microsoft's web framework for .NET. Open source, runs on Windows, Linux and macOS. First released in 2016.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>ASP.NET Core is a framework for building web APIs and web sites in C#. It runs on <a href="../../runtime/how-dotnet-works/">.NET</a>, the runtime that compiles and runs C# code. Your app is a normal program: <code>dotnet run</code> starts it, and it listens for HTTP requests itself.</p>
+    <p>A program has two phases. First, a <strong><code>WebApplicationBuilder</code></strong> collects settings and registers services in the dependency injection container. Then <code>builder.Build()</code> creates a <strong><code>WebApplication</code></strong>, and you add middleware and endpoints to it. <code>app.Run()</code> starts the web server, <strong>Kestrel</strong>.</p>
+    <p>Each request gets its own <code>HttpContext</code> object and travels through the middleware in the order you added it. The last step is your endpoint: a minimal API handler or a controller method.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Kestrel</span></td><td>The web server built into ASP.NET Core. It runs inside your process and turns bytes from the network into requests.</td><td>Listens on port 8080 in the container</td></tr>
+          <tr><td><span class="chip tone-neutral"><code>WebApplication</code></span></td><td>The app object. The builder registers services; the app holds the middleware and endpoints.</td><td><code>Program.cs</code></td></tr>
+          <tr><td><span class="chip tone-amber">Middleware</span></td><td>A function that gets the <code>HttpContext</code> and a <code>next</code> function. It can work before and after <code>next</code>, or not call it.</td><td><code>RequestLoggingMiddleware</code></td></tr>
+          <tr><td><span class="chip tone-blue">Endpoint</span></td><td>The code that handles one route, for example <code>GET /orders/{orderId}</code>.</td><td><code>OrderEndpoints.GetOrder</code></td></tr>
+          <tr><td><span class="chip tone-teal">DI container</span></td><td>The object that creates your services and passes them into constructors and handlers (dependency injection).</td><td><code>builder.Services</code></td></tr>
+          <tr><td><span class="chip tone-neutral"><code>HttpContext</code></span></td><td>One object per request: request, response, user, services for this request.</td><td>Parameter of every middleware</td></tr>
+          <tr><td><span class="chip tone-neutral">Options</span></td><td>A typed C# class filled from configuration, such as <code>appsettings.json</code> and environment variables.</td><td><code>OrderOptions</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> every request goes through the middleware in the order of the <code>app.Use...</code> calls in <code>Program.cs</code>, then back out in reverse order. Wrong order is the most common ASP.NET Core bug.</div>
+  </section>
+
+  <section>
+    <h2>How ASP.NET Core differs from the old ASP.NET</h2>
+    <p>"ASP.NET" without "Core" is the older framework from 2002. It still runs many company apps. ASP.NET Core is a rewrite, not an upgrade: old code needs changes to move over.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>ASP.NET (old)</th><th>ASP.NET Core</th></tr></thead>
+        <tbody>
+          <tr><td>Runtime</td><td>.NET Framework 4.x, Windows only</td><td>.NET 10 (the current LTS version) and later, on Windows, Linux and macOS</td></tr>
+          <tr><td>Web server</td><td>IIS only. The app runs inside the IIS worker process through <code>System.Web</code>.</td><td>Kestrel, inside your own process. IIS, Nginx or a cloud load balancer can sit in front as a reverse proxy.</td></tr>
+          <tr><td>Request pipeline</td><td>HTTP modules and handlers, set up in <code>web.config</code> and <code>Global.asax</code></td><td>Middleware, written in C# in <code>Program.cs</code></td></tr>
+          <tr><td>Current request</td><td>The static <code>HttpContext.Current</code></td><td>An <code>HttpContext</code> passed as a parameter. No static.</td></tr>
+          <tr><td>UI and API styles</td><td>Web Forms, MVC 5, Web API 2, with two different controller base classes</td><td>One controller model for MVC and APIs, minimal APIs, Razor Pages, Blazor</td></tr>
+          <tr><td>Dependency injection</td><td>Not built in. Teams added Autofac or Ninject.</td><td>Built in</td></tr>
+          <tr><td>Configuration</td><td><code>web.config</code> XML, <code>ConfigurationManager.AppSettings</code></td><td><code>appsettings.json</code>, environment variables, options classes</td></tr>
+          <tr><td>New features</td><td>None. Security fixes only.</td><td>A new .NET version every November</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The middleware pipeline and its order</h2>
+    <p>Middleware code before <code>await next(context)</code> runs on the way in. Code after it runs on the way out, when the response is coming back. A middleware that does not call <code>next</code> ends the request there. This is called short-circuiting: the rest of the pipeline and the endpoint never run.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Order</th><th>Middleware</th><th>What it does</th><th>Why it is here</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><code>UseForwardedHeaders</code></td><td>Reads <code>X-Forwarded-Proto</code> and <code>X-Forwarded-For</code> from the reverse proxy</td><td>Everything after it sees the real scheme and client IP</td></tr>
+          <tr><td>2</td><td>Request logging (yours)</td><td>Sets a correlation ID, logs one line per request</td><td>Outermost, so it sees the final status code, including a 500</td></tr>
+          <tr><td>3</td><td><code>UseExceptionHandler</code></td><td>Catches exceptions from all later middleware and returns a 500 response</td><td>It can only catch what runs after it</td></tr>
+          <tr><td>4</td><td><code>UseHsts</code>, <code>UseHttpsRedirection</code></td><td>Redirects <code>http://</code> to <code>https://</code> with a 307 status</td><td>Before any real work</td></tr>
+          <tr><td>5</td><td><code>UseRouting</code></td><td>Picks the endpoint for the URL and stores it on <code>HttpContext</code></td><td>Authorization needs to know the endpoint and its rules</td></tr>
+          <tr><td>6</td><td><code>UseAuthentication</code></td><td>Reads the token or cookie and sets <code>HttpContext.User</code>. Never rejects a request.</td><td>After routing, before authorization</td></tr>
+          <tr><td>7</td><td><code>UseAuthorization</code></td><td>Checks the endpoint's policy. Returns 401 or 403 and stops.</td><td>Needs both the endpoint and the user</td></tr>
+          <tr><td>8</td><td>Endpoints (<code>MapGet</code>, <code>MapControllers</code>)</td><td>Runs your handler</td><td>Last</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dependency injection lifetimes</h2>
+    <p>You register each service with a lifetime. The lifetime decides how long one instance lives and who shares it. Each request gets its own <strong>scope</strong>, a small container that lives until the response is sent.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Lifetime</th><th>Instances</th><th>Register with</th><th>Use for</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Singleton</span></td><td>One for the whole app, shared by all requests and threads</td><td><code>AddSingleton</code></td><td>Caches, <code>TimeProvider</code>, clients that are safe to share. Must be thread safe.</td></tr>
+          <tr><td><span class="chip tone-teal">Scoped</span></td><td>One per request</td><td><code>AddScoped</code>, <code>AddDbContext</code></td><td><code>DbContext</code>, services that use it, data about the current user</td></tr>
+          <tr><td><span class="chip tone-teal">Transient</span></td><td>A new one every time it is asked for</td><td><code>AddTransient</code></td><td>Small helpers with no state</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A service may only depend on services that live as long or longer. A singleton that takes a scoped service in its constructor keeps that one instance forever. This mistake is called a <strong>captive dependency</strong>. With a <code>DbContext</code>, all requests then share one object that is not thread safe. In the Development environment, <code>builder.Build()</code> throws an error for this. In Production, the check is off, so the bug reaches users. The fix: make the consumer scoped, or inject <code>IServiceScopeFactory</code> and create a scope for each unit of work.</p>
+  </section>
+
+  <section>
+    <h2>Routing, minimal APIs and controllers</h2>
+    <p>A route template such as <code>/orders/{orderId:int}</code> has fixed parts, parameters in braces and constraints after a colon. A constraint only picks the route: <code>/orders/abc</code> gets 404, not a validation error. There are two ways to write endpoints. Both run on the same routing and middleware.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Minimal APIs</th><th>Controllers</th></tr></thead>
+        <tbody>
+          <tr><td>How you write one</td><td><code>app.MapGet("/orders/{orderId:int}", GetOrder)</code></td><td>A class with <code>[ApiController]</code> and methods with <code>[HttpGet]</code></td></tr>
+          <tr><td>Grouping</td><td><code>MapGroup("/orders")</code></td><td>One class, with <code>[Route("api/orders")]</code></td></tr>
+          <tr><td>Validation of the body</td><td>Automatic since .NET 10, after <code>builder.Services.AddValidation()</code></td><td>Automatic: invalid models get a 400 response</td></tr>
+          <tr><td>Code around handlers</td><td>Endpoint filters</td><td>Action filters</td></tr>
+          <tr><td>Native AOT (compiled ahead of time, fast start)</td><td>Supported</td><td>Not supported</td></tr>
+          <tr><td>Common fit</td><td>New APIs and small services</td><td>Large existing APIs, teams used to MVC</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Model binding and validation</h2>
+    <p>Model binding fills your handler's parameters from the request. ASP.NET Core decides the source from the parameter's type and name, or from an attribute.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Source</th><th>How it is chosen</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Route</td><td>The name matches a <code>{parameter}</code> in the route</td><td><code>int orderId</code> from <code>/orders/42</code></td></tr>
+          <tr><td>Query string</td><td>A simple type that is not in the route, or <code>[FromQuery]</code></td><td><code>int page</code> from <code>?page=2</code></td></tr>
+          <tr><td>Header</td><td><code>[FromHeader(Name = "X-Correlation-ID")]</code></td><td><code>string correlationId</code></td></tr>
+          <tr><td>JSON body</td><td>A complex type. One per endpoint.</td><td><code>CreateOrderRequest request</code></td></tr>
+          <tr><td>DI container</td><td>A registered service type, or <code>[FromServices]</code></td><td><code>OrderService orderService</code></td></tr>
+          <tr><td>Request itself</td><td>Special types</td><td><code>HttpContext</code>, <code>CancellationToken</code>, <code>ClaimsPrincipal</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Broken JSON or a wrong type, such as <code>"quantity": "two"</code>, returns 400 in both styles. Rules such as "quantity must be at least 1" are validation. Put <code>[Required]</code> and <code>[Range]</code> attributes on the model. Controllers check them for you. Minimal APIs check them since .NET 10, once you call <code>AddValidation()</code>. Rules that depend on settings or data, such as a maximum read from options, stay in the handler and return <code>TypedResults.ValidationProblem</code>.</p>
+  </section>
+
+  <section>
+    <h2>Configuration and options</h2>
+    <p>Configuration is read from several sources. A later source overrides an earlier one with the same key. The environment comes from the <code>ASPNETCORE_ENVIRONMENT</code> variable and is <code>Production</code> when not set.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Order</th><th>Source</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><code>appsettings.json</code></td><td><code>"Orders": { "MaxQuantityPerOrder": 100 }</code></td></tr>
+          <tr><td>2</td><td><code>appsettings.{Environment}.json</code></td><td><code>appsettings.Production.json</code></td></tr>
+          <tr><td>3</td><td>User secrets, Development only, stored outside the project folder</td><td><code>dotnet user-secrets set "ConnectionStrings:Shop" "..."</code></td></tr>
+          <tr><td>4</td><td>Environment variables. <code>__</code> separates sections.</td><td><code>Orders__MaxQuantityPerOrder=50</code></td></tr>
+          <tr><td>5</td><td>Command-line arguments</td><td><code>--Orders:MaxQuantityPerOrder=50</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Read options with</th><th>Lifetime</th><th>Sees changes to the file</th></tr></thead>
+        <tbody>
+          <tr><td><code>IOptions&lt;T&gt;</code></td><td>Singleton, read once</td><td>No</td></tr>
+          <tr><td><code>IOptionsSnapshot&lt;T&gt;</code></td><td>Scoped, read once per request</td><td>Yes, on the next request</td></tr>
+          <tr><td><code>IOptionsMonitor&lt;T&gt;</code></td><td>Singleton, with a change event</td><td>Yes, right away</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Add <code>ValidateDataAnnotations()</code> and <code>ValidateOnStart()</code>, so a missing or wrong setting stops the app at startup instead of failing on the first request.</p>
+  </section>
+
+  <section>
+    <h2>HttpContext: one object per request</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Property</th><th>Holds</th></tr></thead>
+        <tbody>
+          <tr><td><code>Request</code></td><td>Method, path, query, headers, body stream</td></tr>
+          <tr><td><code>Response</code></td><td>Status code, headers, body stream. Headers cannot change once the body has started (<code>Response.HasStarted</code>).</td></tr>
+          <tr><td><code>User</code></td><td>The <code>ClaimsPrincipal</code> set by authentication. Anonymous if there was no valid token.</td></tr>
+          <tr><td><code>RequestServices</code></td><td>The DI scope for this request</td></tr>
+          <tr><td><code>TraceIdentifier</code></td><td>An ID for this request, unique within the process. Used in logs and error responses.</td></tr>
+          <tr><td><code>RequestAborted</code></td><td>A <code>CancellationToken</code> that fires when the client disconnects</td></tr>
+          <tr><td><code>Items</code></td><td>A dictionary for passing values between middleware during one request</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>HttpContext</code> is not thread safe and is only valid while the request runs. Do not store it in a singleton or pass it to a background task. Copy the values you need instead.</p>
+  </section>
+
+  <section>
+    <h2>How ASP.NET Core compares with Express and Fastify</h2>
+    <p><a href="../../../javascript/web/express/">Express</a> and <a href="../../../javascript/web/fastify/">Fastify</a> are web frameworks for <a href="../../../javascript/node/how-nodejs-works/">Node.js</a>. The concepts match, but ASP.NET Core includes more pieces itself.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Concept</th><th>ASP.NET Core</th><th>Express</th><th>Fastify</th></tr></thead>
+        <tbody>
+          <tr><td>Web server</td><td>Kestrel</td><td>Node.js <code>http</code> module</td><td>Node.js <code>http</code> module</td></tr>
+          <tr><td>Middleware</td><td><code>app.Use...</code>, with <code>next</code></td><td><code>app.use((req, res, next) =&gt; ...)</code></td><td>Hooks such as <code>onRequest</code>, and plugins</td></tr>
+          <tr><td>Route handler</td><td><code>MapGet</code> or a controller method</td><td><code>app.get</code></td><td><code>fastify.get</code></td></tr>
+          <tr><td>Per-request object</td><td><code>HttpContext</code></td><td><code>req</code>, <code>res</code></td><td><code>request</code>, <code>reply</code></td></tr>
+          <tr><td>Dependency injection</td><td>Built in, with lifetimes</td><td>None. Import modules or pass objects.</td><td>Decorators on the instance, scoped by plugin</td></tr>
+          <tr><td>Validation</td><td>Attributes with controllers</td><td>None built in</td><td>JSON Schema built in</td></tr>
+          <tr><td>Error handling</td><td><code>UseExceptionHandler</code></td><td>Error middleware with four parameters</td><td><code>setErrorHandler</code></td></tr>
+          <tr><td>Logging</td><td><code>ILogger&lt;T&gt;</code> built in</td><td>None built in</td><td>pino built in</td></tr>
+          <tr><td>Threads running request code</td><td>A thread pool, all CPU cores in one process</td><td>One per process</td><td>One per process</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <p>Ask for <code>ILogger&lt;T&gt;</code> in a constructor. <code>T</code> becomes the log category, so you can set levels per class or namespace in <code>appsettings.json</code>. Write message templates with named placeholders, such as <code>"Order {OrderId} created"</code>, not string interpolation. The placeholders become separate fields in JSON logs.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level</th></tr></thead>
+        <tbody>
+          <tr><td>Request logging middleware</td><td>Method, path, status code, duration, correlation ID. One line per request.</td><td>Information</td></tr>
+          <tr><td>Correlation ID</td><td>The incoming <code>X-Correlation-ID</code> header, else <code>Activity.Current.TraceId</code>, else <code>HttpContext.TraceIdentifier</code>. Put it in a log scope and the response header.</td><td></td></tr>
+          <tr><td>Services</td><td>Business events with IDs: order created, payment refused</td><td>Information, Warning</td></tr>
+          <tr><td>Exception handler</td><td>Unhandled exceptions with stack trace. The middleware logs the ones no <code>IExceptionHandler</code> handled.</td><td>Error</td></tr>
+          <tr><td>Framework categories</td><td>Set <code>Microsoft.AspNetCore</code> to Warning to keep its per-request lines out</td><td></td></tr>
+          <tr><td>Log format</td><td>The JSON console formatter with <code>IncludeScopes</code>. The platform collects standard output.</td><td></td></tr>
+          <tr><td>Traces and metrics</td><td>OpenTelemetry: <code>AddAspNetCoreInstrumentation</code> records one span per request and reads the W3C <code>traceparent</code> header. Export with OTLP.</td><td></td></tr>
+          <tr><td>Never log</td><td><code>Authorization</code> headers, tokens, passwords, request bodies with personal data</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>For how bearer tokens are checked, see <a href="../../../security/authentication/jwt/">JWT</a> and <a href="../../../security/authentication/access-and-refresh-tokens/">access and refresh tokens</a>.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 640" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A client request reaches Kestrel, passes down the middleware pipeline (request logging, exception handler, HTTPS, routing, authentication, authorization) to an endpoint. The endpoint uses services from the DI container. Program.cs builds the server, configuration and container.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="70" y="175" width="320" height="440" rx="10"/>
+        <text class="t-label" x="310" y="194">MIDDLEWARE</text>
+        <rect class="frame" x="450" y="175" width="450" height="220" rx="10"/>
+        <text class="t-label" x="675" y="194">DI CONTAINER</text>
+        <rect class="frame" x="450" y="420" width="450" height="195" rx="10"/>
+        <text class="t-label" x="675" y="439">ENDPOINTS</text>
+
+        <g class="node" id="n-client" tabindex="0" role="button" aria-label="Show example HTTP requests" data-title="Client: example requests" data-node="client">
+          <rect class="shape tone-neutral" x="90" y="20" width="280" height="50" rx="6"/>
+          <text class="t-name" x="230" y="41">Client</text>
+          <text class="t-kind" x="230" y="58">browser, mobile app, other service</text>
+        </g>
+        <g class="node" id="n-kestrel" tabindex="0" role="button" aria-label="Show Kestrel settings" data-title="Kestrel: endpoints and limits" data-node="kestrel">
+          <rect class="shape tone-neutral" x="90" y="100" width="280" height="50" rx="6"/>
+          <text class="t-name" x="230" y="121">Kestrel</text>
+          <text class="t-kind" x="230" y="138">web server inside your process</text>
+        </g>
+        <g class="node" id="n-builder" tabindex="0" role="button" aria-label="Show Program.cs" data-title="WebApplication builder: Program.cs" data-node="builder">
+          <rect class="shape tone-neutral" x="470" y="20" width="410" height="50" rx="6"/>
+          <text class="t-name" x="675" y="41">Program.cs</text>
+          <text class="t-kind" x="675" y="58">WebApplication builder: services first, then the pipeline</text>
+        </g>
+        <g class="node" id="n-config" tabindex="0" role="button" aria-label="Show configuration and options" data-title="Configuration and options" data-node="config">
+          <rect class="shape tone-neutral" x="470" y="100" width="410" height="50" rx="6"/>
+          <text class="t-name" x="675" y="121">Configuration and options</text>
+          <text class="t-kind" x="675" y="138">appsettings.json, environment variables, OrderOptions</text>
+        </g>
+
+        <g class="node" id="n-logging" tabindex="0" role="button" aria-label="Show the request logging middleware" data-title="Request logging and correlation ID" data-node="logging">
+          <rect class="shape tone-amber" x="90" y="205" width="280" height="50" rx="6"/>
+          <text class="t-name" x="230" y="226">Request logging</text>
+          <text class="t-kind" x="230" y="243">correlation ID, one line per request</text>
+        </g>
+        <g class="node" id="n-exception" tabindex="0" role="button" aria-label="Show the exception handler" data-title="Exception handler" data-node="exception">
+          <rect class="shape tone-amber" x="90" y="270" width="280" height="50" rx="6"/>
+          <text class="t-name" x="230" y="291">Exception handler</text>
+          <text class="t-kind" x="230" y="308">turns exceptions into 500 responses</text>
+        </g>
+        <g class="node" id="n-https" tabindex="0" role="button" aria-label="Show HTTPS setup" data-title="HTTPS redirection and HSTS" data-node="https">
+          <rect class="shape tone-amber" x="90" y="335" width="280" height="50" rx="6"/>
+          <text class="t-name" x="230" y="356">HTTPS redirection</text>
+          <text class="t-kind" x="230" y="373">sends http:// requests to https://</text>
+        </g>
+        <g class="node" id="n-routing" tabindex="0" role="button" aria-label="Show what routing stores on HttpContext" data-title="Routing: the matched endpoint" data-node="routing">
+          <rect class="shape tone-amber" x="90" y="400" width="280" height="50" rx="6"/>
+          <text class="t-name" x="230" y="421">Routing</text>
+          <text class="t-kind" x="230" y="438">picks the endpoint for the URL</text>
+        </g>
+        <g class="node" id="n-authn" tabindex="0" role="button" aria-label="Show authentication setup" data-title="Authentication: JWT bearer" data-node="authn">
+          <rect class="shape tone-amber" x="90" y="465" width="280" height="50" rx="6"/>
+          <text class="t-name" x="230" y="486">Authentication</text>
+          <text class="t-kind" x="230" y="503">reads the token, sets HttpContext.User</text>
+        </g>
+        <g class="node" id="n-authz" tabindex="0" role="button" aria-label="Show authorization policies" data-title="Authorization: policies" data-node="authz">
+          <rect class="shape tone-amber" x="90" y="530" width="280" height="50" rx="6"/>
+          <text class="t-name" x="230" y="551">Authorization</text>
+          <text class="t-kind" x="230" y="568">checks the endpoint's rules</text>
+        </g>
+
+        <g class="node" id="n-orders" tabindex="0" role="button" aria-label="Show OrderService" data-title="OrderService: a scoped service" data-node="orders">
+          <rect class="shape tone-teal" x="465" y="210" width="130" height="70" rx="6"/>
+          <text class="t-name" x="530" y="236">OrderService</text>
+          <text class="t-kind" x="530" y="254">scoped</text>
+          <text class="t-kind" x="530" y="270">one per request</text>
+        </g>
+        <g class="node" id="n-db" tabindex="0" role="button" aria-label="Show AppDbContext" data-title="AppDbContext: scoped" data-node="db">
+          <rect class="shape tone-teal" x="610" y="210" width="130" height="70" rx="6"/>
+          <text class="t-name" x="675" y="236">AppDbContext</text>
+          <text class="t-kind" x="675" y="254">scoped</text>
+          <text class="t-kind" x="675" y="270">one per request</text>
+        </g>
+        <g class="node" id="n-cache" tabindex="0" role="button" aria-label="Show PriceCache and the captive dependency" data-title="PriceCache: singleton and captive dependency" data-node="cache">
+          <rect class="shape tone-teal" x="755" y="210" width="130" height="70" rx="6"/>
+          <text class="t-name" x="820" y="236">PriceCache</text>
+          <text class="t-kind" x="820" y="254">singleton</text>
+          <text class="t-kind" x="820" y="270">one for the app</text>
+        </g>
+
+        <g class="node" id="n-minimal" tabindex="0" role="button" aria-label="Show the minimal API endpoints" data-title="Minimal API endpoints" data-node="minimal">
+          <rect class="shape tone-blue" x="465" y="455" width="190" height="70" rx="6"/>
+          <text class="t-name" x="560" y="481">Minimal API</text>
+          <text class="t-kind" x="560" y="499">MapGet, MapPost</text>
+          <text class="t-kind" x="560" y="515">handler methods</text>
+        </g>
+        <text class="t-kind" x="675" y="494">or</text>
+        <g class="node" id="n-controller" tabindex="0" role="button" aria-label="Show the controller" data-title="Controller" data-node="controller">
+          <rect class="shape tone-blue" x="695" y="455" width="190" height="70" rx="6"/>
+          <text class="t-name" x="790" y="481">Controller</text>
+          <text class="t-kind" x="790" y="499">[ApiController] class</text>
+          <text class="t-kind" x="790" y="515">[HttpGet] methods</text>
+        </g>
+
+        <path class="flow" id="a-client-kestrel" d="M230,70 L230,98" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-kestrel-pipe" d="M230,150 L230,203" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-log-ex" d="M230,255 L230,268" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-ex-https" d="M230,320 L230,333" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-https-routing" d="M230,385 L230,398" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-routing-authn" d="M230,450 L230,463" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-authn-authz" d="M230,515 L230,528" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-authz-minimal" d="M370,555 L420,555 L420,490 L463,490" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-minimal-orders" d="M480,455 L480,282" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-db" d="M595,245 L608,245" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-cache-db" d="M755,245 L742,245" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-builder-config" d="M675,70 L675,98" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-config-di" d="M675,150 L675,173" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-builder-kestrel" d="M470,45 L420,45 L420,125 L372,125" marker-end="url(#arrow)"/>
+
+        <path class="flow reply" id="a-reply-ok" d="M465,510 L435,510 L435,600 L50,600 L50,45 L88,45" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-reply-401" d="M90,555 L50,555 L50,45 L88,45" marker-end="url(#arrow)"/>
+        <path class="flow reply blocked" id="a-throw" d="M465,520 L442,520 L442,607 L62,607 L62,300 L88,300" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-reply-500" d="M90,290 L50,290 L50,45 L88,45" marker-end="url(#arrow)"/>
+
+        <text class="ghost-label" id="t-401" x="315" y="89">401 UNAUTHORIZED</text>
+        <text class="ghost-label" id="t-500" x="315" y="89">500 PROBLEM DETAILS</text>
+        <text class="state-item t-item" id="s-200" x="315" y="89">200 OK, JSON body</text>
+        <g class="state-item" id="s-db-1"><rect class="slot tone-teal" x="495" y="300" width="200" height="30" rx="4"/><text class="t-item" x="595" y="319">request A: AppDbContext #1</text></g>
+        <g class="state-item" id="s-db-2"><rect class="slot tone-teal" x="495" y="340" width="200" height="30" rx="4"/><text class="t-item" x="595" y="359">request B: AppDbContext #2</text></g>
+        <g class="ghost-label" id="t-captive">
+          <text class="ghost-label" x="800" y="318">CAPTIVE DEPENDENCY</text>
+          <text class="t-kind" x="800" y="336">one AppDbContext shared</text>
+          <text class="t-kind" x="800" y="352">by every request</text>
+        </g>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="get" aria-pressed="true">A GET request</button>
+        <button type="button" data-flow="unauth" aria-pressed="false">No valid token</button>
+        <button type="button" data-flow="error" aria-pressed="false">An exception in the endpoint</button>
+        <button type="button" data-flow="scoped" aria-pressed="false">One DbContext per request</button>
+        <button type="button" data-flow="captive" aria-pressed="false">Captive dependency</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="get" hidden>
+        <li data-highlight="n-client a-client-kestrel n-kestrel">A client sends <code>GET /orders/42</code> with a bearer token. Kestrel reads the HTTP request from the socket and creates an <code>HttpContext</code> for it.</li>
+        <li data-highlight="a-kestrel-pipe n-logging">Request logging takes the <code>X-Correlation-ID</code> header, or the trace ID, puts it in a log scope, starts a timer and calls <code>next</code>.</li>
+        <li data-highlight="a-log-ex n-exception a-ex-https n-https">The exception handler calls <code>next</code> inside a try/catch. HTTPS redirection sees an https request and calls <code>next</code>.</li>
+        <li data-highlight="a-https-routing n-routing">Routing matches <code>/orders/42</code> to the route <code>/orders/{orderId:int}</code> and stores that endpoint on <code>HttpContext</code>. It does not run it yet.</li>
+        <li data-highlight="a-routing-authn n-authn a-authn-authz n-authz">Authentication checks the token and sets <code>HttpContext.User</code>. Authorization reads the endpoint's rule, <code>RequireAuthorization()</code>, and lets the request through.</li>
+        <li data-highlight="a-authz-minimal n-minimal a-minimal-orders n-orders a-orders-db n-db" data-show="s-db-1">The endpoint runs. Model binding turns <code>"42"</code> into <code>int orderId</code>. The DI container creates <code>OrderService</code> and <code>AppDbContext</code> for this request.</li>
+        <li data-highlight="a-reply-ok n-logging n-client" data-show="s-200">The response passes back through every middleware in reverse order. Request logging writes one line with status 200 and the duration. The request's scope ends and <code>AppDbContext</code> is disposed.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="unauth" hidden>
+        <li data-highlight="n-client a-client-kestrel n-kestrel">A client sends <code>GET /orders/42</code> with no <code>Authorization</code> header, or with an expired token.</li>
+        <li data-highlight="a-kestrel-pipe n-logging a-log-ex n-exception a-ex-https n-https a-https-routing n-routing">The request passes logging, the exception handler and HTTPS. Routing picks the <code>GetOrder</code> endpoint.</li>
+        <li data-highlight="a-routing-authn n-authn">Authentication finds no valid token. It sets <code>HttpContext.User</code> to an anonymous user and calls <code>next</code>. It does not reject the request itself.</li>
+        <li data-highlight="a-authn-authz n-authz">The endpoint requires an authenticated user. Authorization asks the JWT scheme for a challenge: status 401 with <code>WWW-Authenticate: Bearer</code>. It does not call <code>next</code>.</li>
+        <li data-highlight="a-reply-401 n-logging n-client t-401">The endpoint never ran and no <code>AppDbContext</code> was created. Request logging records the 401. A valid token without the needed scope gets 403 instead.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="error" hidden>
+        <li data-highlight="n-client a-client-kestrel n-kestrel a-kestrel-pipe n-logging a-log-ex n-exception">A client sends <code>POST /orders</code>. The exception handler calls the rest of the pipeline inside a try/catch.</li>
+        <li data-highlight="a-ex-https n-https a-https-routing n-routing a-routing-authn n-authn a-authn-authz n-authz a-authz-minimal n-minimal">HTTPS, routing, authentication and authorization all pass. The <code>CreateOrder</code> handler runs.</li>
+        <li data-highlight="n-minimal a-minimal-orders n-orders a-orders-db n-db">The database does not answer in time, and <code>SaveChangesAsync</code> throws. Nothing in the handler or the service catches it.</li>
+        <li data-highlight="a-throw n-exception">The exception moves up through each middleware. Their code after <code>await next</code> does not run, except in <code>finally</code> blocks. The exception handler catches it and logs it at Error level with the stack trace.</li>
+        <li data-highlight="a-reply-500 n-logging n-client t-500">It writes a 500 response as problem details JSON with a <code>traceId</code> and no stack trace. Request logging's <code>finally</code> block logs status 500 with the same correlation ID.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="scoped" hidden>
+        <li data-highlight="n-builder">In <code>Program.cs</code>, <code>AddDbContext&lt;AppDbContext&gt;</code> registers the context as scoped, and <code>AddScoped&lt;OrderService&gt;</code> does the same for the service.</li>
+        <li data-highlight="n-minimal a-minimal-orders n-orders a-orders-db n-db" data-show="s-db-1">Request A arrives and gets a new scope, <code>HttpContext.RequestServices</code>. The first service that needs <code>AppDbContext</code> creates #1. Everything else in request A gets the same #1.</li>
+        <li data-highlight="n-minimal a-minimal-orders n-orders a-orders-db n-db" data-show="s-db-1 s-db-2">Request B arrives at the same time on another thread. Its own scope creates <code>AppDbContext</code> #2. The two requests never share tracked entities or a connection.</li>
+        <li data-highlight="n-db" data-show="s-db-2">Request A finishes. Its scope is disposed, which disposes <code>AppDbContext</code> #1 and returns its database connection to the pool.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="captive" hidden>
+        <li data-highlight="n-builder n-cache">A developer registers <code>PriceCacheWithCaptiveDbContext</code> with <code>AddSingleton</code>. Its constructor takes an <code>AppDbContext</code>, which is scoped.</li>
+        <li data-highlight="n-cache a-cache-db n-db t-captive">The container creates the singleton once and gives it one <code>AppDbContext</code>. That context is never disposed. Every request that uses the cache uses this same context.</li>
+        <li data-highlight="n-cache a-cache-db n-db t-captive">Two requests use it at the same moment. <code>DbContext</code> is not thread safe, so EF Core throws "A second operation was started on this context instance". Tracked entities also pile up in memory.</li>
+        <li data-highlight="n-builder n-cache">In Development, <code>builder.Build()</code> fails with "Cannot consume scoped service from singleton". In Production the check is off. The fix in <code>PriceCache</code>: take <code>IServiceScopeFactory</code> and create a scope for each refresh.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Server and setup</span>
+      <span class="chip tone-amber">Middleware</span>
+      <span class="chip tone-blue">Endpoints</span>
+      <span class="chip tone-teal">Services</span>
+      <span>Arrows point the way a request travels. The response goes back up through the same middleware. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">ShopApi/</div>
+      <button type="button" class="tree-row" data-file="requests.http"><span class="path">├─ requests.http</span><span class="chip tone-neutral">Client</span></button>
+      <button type="button" class="tree-row" data-file="Program.cs"><span class="path">├─ Program.cs</span><span class="chip tone-neutral">Builder</span></button>
+      <button type="button" class="tree-row" data-file="appsettings.json"><span class="path">├─ appsettings.json</span><span class="chip tone-neutral">Configuration</span></button>
+      <button type="button" class="tree-row" data-file="appsettings.Production.json"><span class="path">├─ appsettings.Production.json</span><span class="chip tone-neutral">Kestrel</span></button>
+      <button type="button" class="tree-row" data-file="Logging/RequestLoggingMiddleware.cs"><span class="path">├─ Logging/RequestLoggingMiddleware.cs</span><span class="chip tone-amber">Middleware</span></button>
+      <button type="button" class="tree-row" data-file="Errors/ConcurrencyConflictHandler.cs"><span class="path">├─ Errors/ConcurrencyConflictHandler.cs</span><span class="chip tone-amber">Middleware</span></button>
+      <button type="button" class="tree-row" data-file="Hosting/HttpsSetup.cs"><span class="path">├─ Hosting/HttpsSetup.cs</span><span class="chip tone-amber">Middleware</span></button>
+      <button type="button" class="tree-row" data-file="Routing/EndpointInfoMiddleware.cs"><span class="path">├─ Routing/EndpointInfoMiddleware.cs</span><span class="chip tone-amber">Middleware</span></button>
+      <button type="button" class="tree-row" data-file="Auth/AuthenticationSetup.cs"><span class="path">├─ Auth/AuthenticationSetup.cs</span><span class="chip tone-amber">Middleware</span></button>
+      <button type="button" class="tree-row" data-file="Auth/AuthorizationSetup.cs"><span class="path">├─ Auth/AuthorizationSetup.cs</span><span class="chip tone-amber">Middleware</span></button>
+      <button type="button" class="tree-row" data-file="Orders/OrderEndpoints.cs"><span class="path">├─ Orders/OrderEndpoints.cs</span><span class="chip tone-blue">Endpoints</span></button>
+      <button type="button" class="tree-row" data-file="Orders/OrdersController.cs"><span class="path">├─ Orders/OrdersController.cs</span><span class="chip tone-blue">Endpoints</span></button>
+      <button type="button" class="tree-row" data-file="Orders/OrderOptions.cs"><span class="path">├─ Orders/OrderOptions.cs</span><span class="chip tone-neutral">Configuration</span></button>
+      <button type="button" class="tree-row" data-file="Orders/OrderService.cs"><span class="path">├─ Orders/OrderService.cs</span><span class="chip tone-teal">Services</span></button>
+      <button type="button" class="tree-row" data-file="Data/AppDbContext.cs"><span class="path">├─ Data/AppDbContext.cs</span><span class="chip tone-teal">Services</span></button>
+      <button type="button" class="tree-row" data-file="Pricing/PriceCache.cs"><span class="path">└─ Pricing/PriceCache.cs</span><span class="chip tone-teal">Services</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Using every CPU core</strong><span>One process runs requests on a thread pool across all cores. <code>async</code> and <code>await</code> free the thread while a request waits for the database.</span></li>
+        <li><strong>Choosing and wiring many libraries</strong><span>Dependency injection, configuration, logging, authentication and validation ship with the framework.</span></li>
+        <li><strong>Windows and IIS only</strong><span>Runs on Linux in containers, behind any reverse proxy.</span></li>
+        <li><strong>Type errors found at runtime</strong><span>C# checks types at compile time, including route handler parameters and options classes.</span></li>
+        <li><strong>Short support windows</strong><span>Long-term support (LTS) versions get fixes for 3 years.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Middleware order mistakes give no error</strong><span>Putting <code>UseAuthorization</code> before <code>UseRouting</code> compiles and starts, but the rules are not checked as you expect.</span></li>
+        <li><strong>Lifetime mistakes reach production</strong><span>Captive dependencies are only checked in Development.</span></li>
+        <li><strong>Two ways to write endpoints</strong><span>Minimal APIs and controllers differ in filters, conventions and Native AOT support. Teams must pick one.</span></li>
+        <li><strong>Blocking on async code</strong><span>Calling <code>.Result</code> or <code>.Wait()</code> holds a thread pool thread. Under load the pool runs out of threads and all requests slow down.</span></li>
+        <li><strong>Many built-in parts to learn</strong><span>Hosting, options, DI and the pipeline each have their own rules before the first endpoint works.</span></li>
+        <li><strong>Larger process than a small Node.js service</strong><span>Startup time and memory are higher, unless you use Native AOT with minimal APIs.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-http">
+    <div class="file" data-lang="any" data-node="client">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">requests.http</span><span class="why">Requests you can send from Visual Studio, Rider or VS Code. The first is the normal case, the third has no token and gets 401. Get a token from your identity provider and paste it in place of the placeholder.</span></div>
+<pre><code>@baseUrl = https://localhost:7001
+@accessToken = &lt;signed token&gt;
+
+GET {{baseUrl}}/orders/42
+Authorization: Bearer {{accessToken}}
+X-Correlation-ID: checkout-7f3a
+
+###
+
+POST {{baseUrl}}/orders
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "productCode": "MUG-01", "quantity": 2 }
+
+###
+
+GET {{baseUrl}}/orders/42</code></pre>
+    </div>
+  </div>
+
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="kestrel">
+      <div class="file-head"><span class="chip tone-neutral">Kestrel</span><span class="name">appsettings.Production.json</span><span class="why">In a container, Kestrel listens on plain HTTP port 8080. The reverse proxy or load balancer in front handles TLS. The limits reject very large bodies and clients that send headers too slowly.</span></div>
+<pre><code>{
+  "Kestrel": {
+    "Endpoints": {
+      "Http": { "Url": "http://0.0.0.0:8080" }
+    },
+    "Limits": {
+      "MaxRequestBodySize": 1048576,
+      "RequestHeadersTimeout": "00:00:30"
+    }
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="config">
+      <div class="file-head"><span class="chip tone-neutral">Configuration</span><span class="name">appsettings.json</span><span class="why">Shared settings for every environment. The JSON console formatter with <code>IncludeScopes</code> puts the correlation ID on every log line. No passwords here: the connection string password comes from user secrets or an environment variable.</span></div>
+<pre><code>{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore.Database.Command": "Warning"
+    },
+    "Console": {
+      "FormatterName": "json",
+      "FormatterOptions": { "IncludeScopes": true }
+    }
+  },
+  "ConnectionStrings": {
+    "Shop": "Host=localhost;Database=shop;Username=shop_api"
+  },
+  "Orders": {
+    "MaxQuantityPerOrder": 100
+  },
+  "Auth": {
+    "Authority": "https://login.example.com",
+    "Audience": "shop-api"
+  },
+  "AllowedHosts": "*"
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="any" data-node="config">
+      <div class="file-head"><span class="chip tone-neutral">Configuration</span><span class="name">Orders/OrderOptions.cs</span><span class="why">The typed class for the <code>"Orders"</code> section. <code>Program.cs</code> binds it and validates the <code>[Range]</code> at startup. Handlers read it with <code>IOptions&lt;OrderOptions&gt;</code>.</span></div>
+<pre><code>using System.ComponentModel.DataAnnotations;
+
+namespace ShopApi.Orders;
+
+public class OrderOptions
+{
+    public const string SectionName = "Orders";
+
+    [Range(1, 1000)]
+    public int MaxQuantityPerOrder { get; set; } = 100;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="builder">
+      <div class="file-head"><span class="chip tone-neutral">Builder</span><span class="name">Program.cs</span><span class="why">The two phases: register services on <code>builder.Services</code>, then <code>Build()</code> and add middleware in order. The OpenTelemetry lines need the <code>OpenTelemetry.Extensions.Hosting</code>, <code>OpenTelemetry.Instrumentation.AspNetCore</code> and <code>OpenTelemetry.Exporter.OpenTelemetryProtocol</code> packages.</span></div>
+<pre><code>using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using ShopApi.Auth;
+using ShopApi.Data;
+using ShopApi.Errors;
+using ShopApi.Hosting;
+using ShopApi.Logging;
+using ShopApi.Orders;
+using ShopApi.Pricing;
+using ShopApi.Routing;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOptions&lt;OrderOptions&gt;()
+    .Bind(builder.Configuration.GetSection(OrderOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddDbContext&lt;AppDbContext&gt;(options =&gt;
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Shop")));
+builder.Services.AddScoped&lt;OrderService&gt;();
+builder.Services.AddSingleton&lt;PriceCache&gt;();
+builder.Services.AddSingleton(TimeProvider.System);
+
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler&lt;ConcurrencyConflictHandler&gt;();
+builder.Services.AddShopHttps();
+builder.Services.AddShopAuthentication(builder.Configuration);
+builder.Services.AddShopAuthorization();
+builder.Services.AddValidation();
+builder.Services.AddControllers();
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource =&gt; resource.AddService("shop-api"))
+    .WithTracing(tracing =&gt; tracing.AddAspNetCoreInstrumentation().AddOtlpExporter());
+
+var app = builder.Build();
+
+app.UseForwardedHeaders();
+app.UseMiddleware&lt;RequestLoggingMiddleware&gt;();
+app.UseExceptionHandler();
+app.UseShopHttps();
+app.UseRouting();
+app.UseMiddleware&lt;EndpointInfoMiddleware&gt;();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/health", () =&gt; "healthy");
+app.MapOrderEndpoints();
+app.MapControllers();
+
+app.Run();</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="logging">
+      <div class="file-head"><span class="chip tone-amber">Middleware</span><span class="name">Logging/RequestLoggingMiddleware.cs</span><span class="why">Uses the caller's <code>X-Correlation-ID</code> if it is short enough, else the OpenTelemetry trace ID, else <code>TraceIdentifier</code>. The log scope adds the ID to every log line written during the request. The <code>finally</code> block logs even when an exception passes through.</span></div>
+<pre><code>using System.Diagnostics;
+
+namespace ShopApi.Logging;
+
+public class RequestLoggingMiddleware(RequestDelegate next, ILogger&lt;RequestLoggingMiddleware&gt; logger)
+{
+    private const string CorrelationIdHeader = "X-Correlation-ID";
+    private const int MaxCorrelationIdLength = 64;
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        var correlationId = ReadIncomingCorrelationId(context)
+            ?? Activity.Current?.TraceId.ToString()
+            ?? context.TraceIdentifier;
+        context.Response.Headers[CorrelationIdHeader] = correlationId;
+
+        using var logScope = logger.BeginScope(new Dictionary&lt;string, object&gt; { ["CorrelationId"] = correlationId });
+        var startedAt = Stopwatch.GetTimestamp();
+        try
+        {
+            await next(context);
+        }
+        finally
+        {
+            logger.LogInformation(
+                "{Method} {Path} responded {StatusCode} in {ElapsedMilliseconds:0} ms",
+                context.Request.Method,
+                context.Request.Path,
+                context.Response.StatusCode,
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+        }
+    }
+
+    private static string? ReadIncomingCorrelationId(HttpContext context)
+    {
+        var incomingId = context.Request.Headers[CorrelationIdHeader].FirstOrDefault();
+        return incomingId is { Length: &gt; 0 and &lt;= MaxCorrelationIdLength } ? incomingId : null;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="exception">
+      <div class="file-head"><span class="chip tone-amber">Middleware</span><span class="name">Errors/ConcurrencyConflictHandler.cs</span><span class="why"><code>UseExceptionHandler()</code> plus <code>AddProblemDetails()</code> already turns any exception into a 500 problem details response with a <code>traceId</code>. An <code>IExceptionHandler</code> maps chosen exception types to other status codes. Returning <code>false</code> leaves the default 500, and the middleware logs the exception. In .NET 10, an exception that a handler handles (returns <code>true</code>) is not logged by default.</span></div>
+<pre><code>using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+
+namespace ShopApi.Errors;
+
+public class ConcurrencyConflictHandler(IProblemDetailsService problemDetailsService) : IExceptionHandler
+{
+    public async ValueTask&lt;bool&gt; TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
+    {
+        if (exception is not DbUpdateConcurrencyException)
+        {
+            return false;
+        }
+
+        httpContext.Response.StatusCode = StatusCodes.Status409Conflict;
+        return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        {
+            HttpContext = httpContext,
+            Exception = exception,
+            ProblemDetails = { Title = "The order was changed by another request." },
+        });
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="https">
+      <div class="file-head"><span class="chip tone-amber">Middleware</span><span class="name">Hosting/HttpsSetup.cs</span><span class="why">Behind a proxy that handles TLS, the app only sees plain HTTP. <code>UseForwardedHeaders</code>, first in <code>Program.cs</code>, restores the real scheme from <code>X-Forwarded-Proto</code>, or the redirect would loop. Add your proxy's network to <code>KnownIPNetworks</code>: by default only localhost is trusted. HSTS tells browsers to use https for a year, so it is off in Development.</span></div>
+<pre><code>using Microsoft.AspNetCore.HttpOverrides;
+
+namespace ShopApi.Hosting;
+
+public static class HttpsSetup
+{
+    public static IServiceCollection AddShopHttps(this IServiceCollection services)
+    {
+        services.Configure&lt;ForwardedHeadersOptions&gt;(options =&gt;
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("10.0.0.0/8"));
+        });
+        services.AddHttpsRedirection(options =&gt; options.HttpsPort = 443);
+        services.AddHsts(options =&gt; options.MaxAge = TimeSpan.FromDays(365));
+        return services;
+    }
+
+    public static WebApplication UseShopHttps(this WebApplication app)
+    {
+        if (!app.Environment.IsDevelopment())
+        {
+            app.UseHsts();
+        }
+        app.UseHttpsRedirection();
+        return app;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="routing">
+      <div class="file-head"><span class="chip tone-amber">Middleware</span><span class="name">Routing/EndpointInfoMiddleware.cs</span><span class="why">Placed after <code>UseRouting</code>, so <code>GetEndpoint()</code> returns the matched endpoint and <code>RouteValues</code> holds <code>orderId</code>. Authorization reads the same endpoint to find its rules. If no route matches, the endpoint is <code>null</code> and the response is 404.</span></div>
+<pre><code>namespace ShopApi.Routing;
+
+public class EndpointInfoMiddleware(RequestDelegate next, ILogger&lt;EndpointInfoMiddleware&gt; logger)
+{
+    public async Task InvokeAsync(HttpContext context)
+    {
+        var endpoint = context.GetEndpoint();
+        if (endpoint is null)
+        {
+            logger.LogDebug("No endpoint matches {Path}", context.Request.Path);
+        }
+        else
+        {
+            logger.LogDebug("Matched {Endpoint} with route values {RouteValues}", endpoint.DisplayName, context.Request.RouteValues);
+        }
+
+        await next(context);
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="authn">
+      <div class="file-head"><span class="chip tone-amber">Middleware</span><span class="name">Auth/AuthenticationSetup.cs</span><span class="why">Validates bearer tokens from the identity provider at <code>Authority</code>: signature, expiry and audience. <code>MapInboundClaims = false</code> keeps claim names as they are in the token, such as <code>scope</code>. Needs the <code>Microsoft.AspNetCore.Authentication.JwtBearer</code> package.</span></div>
+<pre><code>using Microsoft.AspNetCore.Authentication.JwtBearer;
+
+namespace ShopApi.Auth;
+
+public static class AuthenticationSetup
+{
+    public static IServiceCollection AddShopAuthentication(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =&gt;
+            {
+                options.Authority = configuration["Auth:Authority"];
+                options.Audience = configuration["Auth:Audience"];
+                options.MapInboundClaims = false;
+            });
+        return services;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="authz">
+      <div class="file-head"><span class="chip tone-amber">Middleware</span><span class="name">Auth/AuthorizationSetup.cs</span><span class="why">A named policy. The <code>scope</code> claim is one string with scopes separated by spaces, so the policy splits it. No user: 401. A user without the scope: 403.</span></div>
+<pre><code>namespace ShopApi.Auth;
+
+public static class AuthorizationSetup
+{
+    public const string WriteOrdersPolicy = "orders:write";
+
+    public static IServiceCollection AddShopAuthorization(this IServiceCollection services)
+    {
+        services.AddAuthorizationBuilder()
+            .AddPolicy(WriteOrdersPolicy, policy =&gt; policy
+                .RequireAuthenticatedUser()
+                .RequireAssertion(context =&gt; HasScope(context.User, "orders:write")));
+        return services;
+    }
+
+    private static bool HasScope(System.Security.Claims.ClaimsPrincipal user, string requiredScope)
+    {
+        var grantedScopes = user.FindFirst("scope")?.Value.Split(' ') ?? [];
+        return grantedScopes.Contains(requiredScope);
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="minimal">
+      <div class="file-head"><span class="chip tone-blue">Endpoints</span><span class="name">Orders/OrderEndpoints.cs</span><span class="why">Model binding fills each parameter: <code>orderId</code> from the route, <code>request</code> from the JSON body, services from DI, <code>CancellationToken</code> from the request. <code>AddValidation()</code> checks the attributes on <code>CreateOrderRequest</code> before the handler runs. The maximum comes from options, so the handler checks it and returns a 400 validation problem.</span></div>
+<pre><code>using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Options;
+using ShopApi.Auth;
+
+namespace ShopApi.Orders;
+
+public static class OrderEndpoints
+{
+    public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
+    {
+        var orders = app.MapGroup("/orders").RequireAuthorization();
+
+        orders.MapGet("/{orderId:int}", GetOrder).WithName("GetOrder");
+        orders.MapPost("", CreateOrder).RequireAuthorization(AuthorizationSetup.WriteOrdersPolicy);
+    }
+
+    private static async Task&lt;Results&lt;Ok&lt;OrderResponse&gt;, NotFound&gt;&gt; GetOrder(
+        int orderId, OrderService orderService, CancellationToken cancellationToken)
+    {
+        var order = await orderService.FindAsync(orderId, cancellationToken);
+        return order is null ? TypedResults.NotFound() : TypedResults.Ok(order);
+    }
+
+    private static async Task&lt;Results&lt;CreatedAtRoute&lt;OrderResponse&gt;, ValidationProblem&gt;&gt; CreateOrder(
+        CreateOrderRequest request,
+        OrderService orderService,
+        IOptions&lt;OrderOptions&gt; orderOptions,
+        CancellationToken cancellationToken)
+    {
+        var maxQuantity = orderOptions.Value.MaxQuantityPerOrder;
+        if (request.Quantity &gt; maxQuantity)
+        {
+            return TypedResults.ValidationProblem(new Dictionary&lt;string, string[]&gt;
+            {
+                ["quantity"] = [$"Quantity must be at most {maxQuantity}."],
+            });
+        }
+
+        var order = await orderService.CreateAsync(request, cancellationToken);
+        return TypedResults.CreatedAtRoute(order, "GetOrder", new { orderId = order.Id });
+    }
+}
+
+public record CreateOrderRequest(
+    [Required, StringLength(20)] string ProductCode,
+    [Range(1, 1000)] int Quantity);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="controller">
+      <div class="file-head"><span class="chip tone-blue">Endpoints</span><span class="name">Orders/OrdersController.cs</span><span class="why">The same two endpoints as a controller, at <code>/api/orders</code>. A real app picks one style. <code>[ApiController]</code> checks the <code>[Required]</code> and <code>[Range]</code> attributes before the method runs and returns 400 if they fail.</span></div>
+<pre><code>using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using ShopApi.Auth;
+
+namespace ShopApi.Orders;
+
+[ApiController]
+[Route("api/orders")]
+[Authorize]
+public class OrdersController(OrderService orderService) : ControllerBase
+{
+    [HttpGet("{orderId:int}")]
+    public async Task&lt;ActionResult&lt;OrderResponse&gt;&gt; GetOrder(int orderId, CancellationToken cancellationToken)
+    {
+        var order = await orderService.FindAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound();
+        }
+        return order;
+    }
+
+    [HttpPost]
+    [Authorize(Policy = AuthorizationSetup.WriteOrdersPolicy)]
+    public async Task&lt;ActionResult&lt;OrderResponse&gt;&gt; CreateOrder(CreateOrderForm form, CancellationToken cancellationToken)
+    {
+        var order = await orderService.CreateAsync(new CreateOrderRequest(form.ProductCode, form.Quantity), cancellationToken);
+        return CreatedAtAction(nameof(GetOrder), new { orderId = order.Id }, order);
+    }
+}
+
+public class CreateOrderForm
+{
+    [Required, StringLength(20)]
+    public string ProductCode { get; set; } = "";
+
+    [Range(1, 100)]
+    public int Quantity { get; set; }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="orders">
+      <div class="file-head"><span class="chip tone-teal">Services</span><span class="name">Orders/OrderService.cs</span><span class="why">Scoped, because it uses the scoped <code>AppDbContext</code>. Its dependencies come in through the primary constructor. The log message uses placeholders, so <code>OrderId</code> and <code>ProductCode</code> become JSON fields.</span></div>
+<pre><code>using Microsoft.EntityFrameworkCore;
+using ShopApi.Data;
+
+namespace ShopApi.Orders;
+
+public class OrderService(AppDbContext dbContext, TimeProvider timeProvider, ILogger&lt;OrderService&gt; logger)
+{
+    public async Task&lt;OrderResponse?&gt; FindAsync(int orderId, CancellationToken cancellationToken)
+    {
+        return await dbContext.Orders
+            .Where(order =&gt; order.Id == orderId)
+            .Select(order =&gt; new OrderResponse(order.Id, order.ProductCode, order.Quantity, order.CreatedAt))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task&lt;OrderResponse&gt; CreateAsync(CreateOrderRequest request, CancellationToken cancellationToken)
+    {
+        var order = new Order
+        {
+            ProductCode = request.ProductCode,
+            Quantity = request.Quantity,
+            CreatedAt = timeProvider.GetUtcNow(),
+        };
+        dbContext.Orders.Add(order);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("Order {OrderId} created for product {ProductCode}", order.Id, order.ProductCode);
+        return new OrderResponse(order.Id, order.ProductCode, order.Quantity, order.CreatedAt);
+    }
+}
+
+public record OrderResponse(int Id, string ProductCode, int Quantity, DateTimeOffset CreatedAt);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="db">
+      <div class="file-head"><span class="chip tone-teal">Services</span><span class="name">Data/AppDbContext.cs</span><span class="why">An Entity Framework Core context. <code>AddDbContext</code> registers it as scoped: one per request, disposed when the request ends. It tracks every entity it loads, and it is not thread safe.</span></div>
+<pre><code>using Microsoft.EntityFrameworkCore;
+
+namespace ShopApi.Data;
+
+public class AppDbContext(DbContextOptions&lt;AppDbContext&gt; options) : DbContext(options)
+{
+    public DbSet&lt;Order&gt; Orders =&gt; Set&lt;Order&gt;();
+    public DbSet&lt;Product&gt; Products =&gt; Set&lt;Product&gt;();
+}
+
+public class Order
+{
+    public int Id { get; set; }
+    public string ProductCode { get; set; } = "";
+    public int Quantity { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+public class Product
+{
+    public int Id { get; set; }
+    public string Code { get; set; } = "";
+    public decimal Price { get; set; }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cache">
+      <div class="file-head"><span class="chip tone-teal">Services</span><span class="name">Pricing/PriceCache.cs</span><span class="why">The first class is the captive dependency: registered as a singleton, it keeps one <code>AppDbContext</code> forever. The second is the fix: it creates a short scope for each refresh, so each refresh gets a new context that is disposed afterwards.</span></div>
+<pre><code>using Microsoft.EntityFrameworkCore;
+using ShopApi.Data;
+
+namespace ShopApi.Pricing;
+
+public class PriceCacheWithCaptiveDbContext(AppDbContext dbContext)
+{
+    public Task&lt;decimal&gt; FindPriceAsync(string productCode, CancellationToken cancellationToken) =&gt;
+        dbContext.Products
+            .Where(product =&gt; product.Code == productCode)
+            .Select(product =&gt; product.Price)
+            .SingleAsync(cancellationToken);
+}
+
+public class PriceCache(IServiceScopeFactory scopeFactory, TimeProvider timeProvider)
+{
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(5);
+    private Dictionary&lt;string, decimal&gt; pricesByProductCode = [];
+    private DateTimeOffset loadedAt = DateTimeOffset.MinValue;
+
+    public async Task&lt;decimal?&gt; FindPriceAsync(string productCode, CancellationToken cancellationToken)
+    {
+        if (timeProvider.GetUtcNow() - loadedAt &gt; RefreshInterval)
+        {
+            await RefreshAsync(cancellationToken);
+        }
+        return pricesByProductCode.TryGetValue(productCode, out var price) ? price : null;
+    }
+
+    private async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService&lt;AppDbContext&gt;();
+        pricesByProductCode = await dbContext.Products.ToDictionaryAsync(product =&gt; product.Code, product =&gt; product.Price, cancellationToken);
+        loadedAt = timeProvider.GetUtcNow();
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-http.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
