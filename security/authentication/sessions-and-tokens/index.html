@@ -20,7 +20,7 @@
     <h2>What it is</h2>
     <p>HTTP keeps nothing between requests. After a user logs in, every later request must carry something that proves who is calling. There are two common ways to do this.</p>
     <p>With a <strong>session</strong>, the server saves the login in a session store, such as Redis, under a long random ID. The browser keeps only that ID, usually in a cookie, and sends it with each request. The server looks the ID up.</p>
-    <p>With a <strong>token</strong>, the server puts the user ID and an expiry time inside the token and signs it with a secret key. The client sends the token with each request. The server checks the signature with its key, without looking anything up. The most common token format is the <a href="../jwt/">JWT</a>.</p>
+    <p>With a <strong>token</strong>, the server puts the user ID and an expiry time inside the token and signs it with a secret key. The client sends the token with each request. The server checks the signature with its key, without looking anything up. The most common token format is the JWT.</p>
     <p>Both answer one question: who is calling? That is <strong>authentication</strong>. Deciding what that caller is allowed to do is a separate step, called <strong>authorization</strong>.</p>
     <div class="table-wrap">
       <table class="terms">
@@ -202,7 +202,7 @@
       <ol class="flow-steps" data-flow="stolen" hidden>
         <li data-highlight="c-attacker g-attacker-api n-api">An attacker copies a token, for example from a log file that recorded request headers.</li>
         <li data-highlight="n-api a-api-key n-key">The signature is correct and the token has not expired, so the server accepts it. The server cannot tell the attacker from the user.</li>
-        <li data-highlight="n-api">The server has no saved record to delete, so it cannot cancel the token. The token works until it expires, which is why access tokens should last minutes, not days. The <a href="../access-and-refresh-tokens/">access and refresh tokens</a> page shows how users stay logged in anyway.</li>
+        <li data-highlight="n-api">The server has no saved record to delete, so it cannot cancel the token. The token works until it expires, which is why access tokens should last minutes, not days. The access and refresh tokens page shows how users stay logged in anyway.</li>
       </ol>
     </div>
     <div class="legend">
@@ -282,7 +282,7 @@ HTTP/1.1 200 OK</code></pre>
     </div>
 
     <div class="file" data-lang="any" data-node="mobile">
-      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/token-requests.http</span><span class="why">The token comes back in the response body. The app must add the <code>Authorization</code> header to each request itself. A real token is about 200 characters, made of three parts separated by dots; the <a href="../jwt/">JWT</a> page takes one apart.</span></div>
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/token-requests.http</span><span class="why">The token comes back in the response body. The app must add the <code>Authorization</code> header to each request itself. A real token is about 200 characters, made of three parts separated by dots; the JWT page takes one apart.</span></div>
 <pre><code>POST /token HTTP/1.1
 Host: api.shop.example.com
 Content-Type: application/json
@@ -408,7 +408,7 @@ export function requireSession(redis: Redis) {
     </div>
 
     <div class="file" data-lang="ts" data-node="api">
-      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking a token needs only the key: no store, no database. The token cannot be cancelled before it expires, so it lives 15 minutes. Issuer and audience checks are covered on the <a href="../jwt/">JWT</a> page.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking a token needs only the key: no store, no database. The token cannot be cancelled before it expires, so it lives 15 minutes. Issuer and audience checks are covered on the JWT page.</span></div>
 <pre><code>import { NextFunction, Request, Response, Router } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import { Logger } from "pino";
@@ -560,7 +560,7 @@ public static class SessionAuth
     </div>
 
     <div class="file" data-lang="cs" data-node="api">
-      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Checking needs only the key. The token cannot be cancelled before it expires, so it lives 15 minutes. Issuer and audience checks are covered on the <a href="../jwt/">JWT</a> page.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Checking needs only the key. The token cannot be cancelled before it expires, so it lives 15 minutes. Issuer and audience checks are covered on the JWT page.</span></div>
 <pre><code>using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
