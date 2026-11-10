@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Node Streams</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Node</div>
+    <h1>Node Streams</h1>
+    <p class="aka">Data processed in small chunks as it arrives, instead of loaded into memory all at once. Module: <code>node:stream</code>.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A stream moves data in pieces called <strong>chunks</strong>. A file read with <code>fs.readFile</code> is loaded into memory whole before your code sees it. A file read with <code>fs.createReadStream</code> arrives 64 KiB at a time, and each chunk can be processed and dropped before the next one is read.</p>
+    <p>This keeps memory use about the same for a 5 MB file and a 5 GB file. It also lets work start before all the data has arrived: the first rows of an upload can be saved while the rest is still on the network.</p>
+    <p>Many parts of <a href="../how-nodejs-works/">Node.js</a> are streams. Files, HTTP requests and responses, sockets, <code>zlib</code> compression and <code>process.stdout</code> are all streams.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Chunk</span></td><td>One piece of data passed through a stream. A <code>Buffer</code> or string, or any object in object mode.</td><td>64 KiB of <code>orders.csv</code></td></tr>
+          <tr><td><span class="chip tone-amber">Readable</span></td><td>A stream you read chunks from.</td><td><code>fs.createReadStream</code></td></tr>
+          <tr><td><span class="chip tone-blue">Writable</span></td><td>A stream you write chunks to.</td><td><code>fs.createWriteStream</code>, an HTTP response</td></tr>
+          <tr><td><span class="chip tone-teal">Transform</span></td><td>Readable and writable at once. Each chunk written in comes out changed.</td><td><code>zlib.createGzip()</code>, a CSV row parser</td></tr>
+          <tr><td><span class="chip tone-neutral"><code>highWaterMark</code></span></td><td>How much a stream buffers before it asks the writer to stop. 64 KiB by default in Node.js 22, or 16 objects in object mode.</td><td><code>writableHighWaterMark</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Backpressure</span></td><td>A slow writer telling a fast reader to pause, so chunks do not pile up in memory.</td><td><code>write()</code> returns <code>false</code></td></tr>
+          <tr><td><span class="chip tone-neutral"><code>pipeline()</code></span></td><td>Connects streams in order, handles backpressure, passes errors on, and closes every stream at the end.</td><td><code>node:stream/promises</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> connect streams with <code>await pipeline(...)</code> from <code>node:stream/promises</code>. It handles backpressure, errors and cleanup for every stream in the chain.</div>
+  </section>
+
+  <section>
+    <h2>The four stream types</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Type</th><th>What it does</th><th>Examples in Node.js</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-amber">Readable</span></td><td>Produces chunks. You read from it.</td><td><code>fs.createReadStream</code>, the HTTP request on a server (<code>req</code>), <code>process.stdin</code>, <code>Readable.from(array)</code></td></tr>
+          <tr><td><span class="chip tone-blue">Writable</span></td><td>Takes chunks. You write to it.</td><td><code>fs.createWriteStream</code>, the HTTP response on a server (<code>res</code>), <code>process.stdout</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Duplex</span></td><td>Readable and writable, with two separate directions. What you write does not come back out.</td><td>A TCP socket from <code>node:net</code>: you send bytes and receive other bytes</td></tr>
+          <tr><td><span class="chip tone-teal">Transform</span></td><td>A Duplex whose output is computed from its input.</td><td><code>zlib.createGzip()</code>, <code>crypto.createHash()</code>, your own parser</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why <code>pipeline()</code> and not <code>.pipe()</code></h2>
+    <p><code>source.pipe(destination)</code> is the older way to connect two streams. It handles backpressure, but not errors. If one stream fails, the others stay open, and the error is not passed along the chain.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Situation</th><th><code>a.pipe(b).pipe(c)</code></th><th><code>await pipeline(a, b, c)</code></th></tr></thead>
+        <tbody>
+          <tr><td>A stream emits an error</td><td>Only that stream's own <code>error</code> listeners hear it. Without one, the process crashes.</td><td>The returned promise rejects. One <code>try/catch</code> covers every stream.</td></tr>
+          <tr><td>Cleanup after an error</td><td>The other streams stay open. File handles and sockets leak.</td><td>Every stream is destroyed, which closes files and sockets.</td></tr>
+          <tr><td>HTTP client disconnects mid-download</td><td>The file stream stays open. Its file handle leaks.</td><td>The file stream and gzip are destroyed. The error is <code>ERR_STREAM_PREMATURE_CLOSE</code>.</td></tr>
+          <tr><td>Knowing when it finished</td><td>Listen for <code>finish</code> on the last stream.</td><td><code>await</code> the promise.</td></tr>
+          <tr><td>Async generator steps</td><td>Not supported</td><td>Supported: <code>pipeline(file, async function* (chunks) { ... }, output)</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Backpressure step by step</h2>
+    <p>A disk reads far faster than a phone downloads. Without backpressure, every chunk read waits in the writer's buffer, and memory grows until the process crashes.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>1. Write</td><td><code>writable.write(chunk)</code> adds the chunk to the writer's buffer.</td></tr>
+          <tr><td>2. Buffer full</td><td>When buffered data reaches <code>highWaterMark</code>, <code>write()</code> returns <code>false</code>. The chunk is still accepted. <code>false</code> means "stop sending for now".</td></tr>
+          <tr><td>3. Pause</td><td>The reader pauses. <code>pipeline()</code> does this for you. In your own loop, <code>await once(writable, "drain")</code>.</td></tr>
+          <tr><td>4. Drain</td><td>When the destination has taken the buffered data, the writer emits <code>drain</code>.</td></tr>
+          <tr><td>5. Resume</td><td>The reader continues. Memory stays near <code>highWaterMark</code> for each stream in the chain.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Object mode and <code>for await</code></h2>
+    <p>By default a stream carries bytes, as <code>Buffer</code> or string chunks. With <code>objectMode: true</code>, each chunk is one JavaScript value, such as a parsed order. <code>highWaterMark</code> then counts objects, 16 by default, not bytes.</p>
+    <p>Every Readable is an async iterable. <code>for await (const chunk of readable)</code> reads one chunk at a time, and the stream does not read ahead further than <code>highWaterMark</code> while your loop body awaits. If the loop body throws, or you <code>break</code>, the stream is destroyed. This is often the shortest correct way to consume a stream.</p>
+  </section>
+
+  <section>
+    <h2>Node.js streams and web streams</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Node.js streams</th><th>Web streams</th></tr></thead>
+        <tbody>
+          <tr><td>Module</td><td><code>node:stream</code></td><td><code>node:stream/web</code>, and global in Node.js 18 and later</td></tr>
+          <tr><td>Classes</td><td><code>Readable</code>, <code>Writable</code>, <code>Duplex</code>, <code>Transform</code></td><td><code>ReadableStream</code>, <code>WritableStream</code>, <code>TransformStream</code></td></tr>
+          <tr><td>Where you meet them</td><td><code>fs</code>, <code>http</code>, <code>zlib</code>, <code>net</code>, most npm packages</td><td><code>fetch()</code> response bodies, browsers, Deno, Cloudflare Workers</td></tr>
+          <tr><td>Connecting</td><td><code>pipeline()</code></td><td><code>readable.pipeTo(writable)</code>, <code>pipeThrough(transform)</code></td></tr>
+          <tr><td>Converting</td><td colspan="2"><code>Readable.fromWeb(response.body)</code> and <code>Readable.toWeb(nodeReadable)</code>. <code>pipeline()</code> also accepts web streams directly.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where streams are used</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Task</th><th>Streams in the chain</th></tr></thead>
+        <tbody>
+          <tr><td>Copy or compress a large file</td><td><code>createReadStream</code>, <code>createGzip()</code>, <code>createWriteStream</code></td></tr>
+          <tr><td>Import a CSV file line by line</td><td>File stream, split into lines, parse each row (object mode), insert rows into the database in batches</td></tr>
+          <tr><td>Send a file as an HTTP download</td><td>File stream, optional gzip, the response <code>res</code></td></tr>
+          <tr><td>Receive an upload without holding it in memory</td><td>The request <code>req</code>, then a file stream or cloud storage upload stream</td></tr>
+          <tr><td>Process a large <code>fetch()</code> response</td><td><code>Readable.fromWeb(response.body)</code>, then your Transform steps</td></tr>
+          <tr><td>Database result sets too big for memory</td><td>A cursor stream, such as <code>pg-query-stream</code>, then a Writable</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Start of a stream job</td><td>Request ID or job ID, file name, file size</td><td>info</td></tr>
+          <tr><td>Progress, every 10 seconds</td><td>Bytes read (<code>readStream.bytesRead</code>), rows processed</td><td>info. Alert if a job makes no progress for several minutes.</td></tr>
+          <tr><td>End of the job</td><td>Bytes read, rows written, duration</td><td>info</td></tr>
+          <tr><td>Error from <code>pipeline()</code></td><td>The error, the row number or byte offset where it failed, rows already written, request ID</td><td>error</td></tr>
+          <tr><td>Client disconnected mid-download</td><td><code>ERR_STREAM_PREMATURE_CLOSE</code>, bytes sent so far</td><td>warn, not error: the client chose to leave</td></tr>
+          <tr><td>Metric: memory</td><td>RSS from <code>process.memoryUsage()</code>. It should stay flat during a stream job.</td><td>Alert if it grows with file size: something buffers the whole file</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 335" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A source file is read by a Readable stream, changed by a Transform stream, and written by a Writable stream to its destination. pipeline() connects the three. The Writable has a buffer limited by highWaterMark. Reading the whole file with readFile is shown as the alternative.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-pipeline" tabindex="0" role="button" aria-label="Show the order import that uses pipeline" data-title="pipeline(): the order import" data-node="pipeline">
+          <rect class="shape tone-neutral" x="205" y="92" width="520" height="46" rx="6"/>
+          <text class="t-name" x="465" y="111">pipeline()</text>
+          <text class="t-kind" x="465" y="128">connects the streams, passes errors on, closes every stream at the end</text>
+        </g>
+
+        <g class="node" id="n-source" tabindex="0" role="button" aria-label="Show how to compress a large file" data-title="Source file: compress a 5 GB file" data-node="source">
+          <rect class="shape tone-neutral" x="20" y="168" width="150" height="70" rx="6"/>
+          <text class="t-name" x="95" y="198">Source file</text>
+          <text class="t-kind" x="95" y="216">orders.csv, 5 GB</text>
+        </g>
+        <g class="node" id="n-readable" tabindex="0" role="button" aria-label="Show reading a file line by line" data-title="Readable: read a file line by line" data-node="readable">
+          <rect class="shape tone-amber" x="205" y="168" width="150" height="70" rx="6"/>
+          <text class="t-name" x="280" y="198">Readable</text>
+          <text class="t-kind" x="280" y="216">64 KiB chunks</text>
+        </g>
+        <g class="node" id="n-transform" tabindex="0" role="button" aria-label="Show the CSV row parser" data-title="Transform: parse each CSV row" data-node="transform">
+          <rect class="shape tone-teal" x="390" y="168" width="150" height="70" rx="6"/>
+          <text class="t-name" x="465" y="198">Transform</text>
+          <text class="t-kind" x="465" y="216">gzip, or parse rows</text>
+        </g>
+        <g class="node" id="n-writable" tabindex="0" role="button" aria-label="Show the database writer" data-title="Writable: insert rows into the database" data-node="writable">
+          <rect class="shape tone-blue" x="575" y="168" width="150" height="70" rx="6"/>
+          <text class="t-name" x="650" y="198">Writable</text>
+          <text class="t-kind" x="650" y="216">file, response, database</text>
+        </g>
+        <g class="node" id="n-dest" tabindex="0" role="button" aria-label="Show HTTP requests and responses as streams" data-title="Destination: HTTP request and response" data-node="dest">
+          <rect class="shape tone-neutral" x="760" y="168" width="150" height="70" rx="6"/>
+          <text class="t-name" x="835" y="198">Destination</text>
+          <text class="t-kind" x="835" y="216">file, client or database</text>
+        </g>
+
+        <g class="node" id="n-readfile" tabindex="0" role="button" aria-label="Show reading the whole file with readFile" data-title="readFile(): the whole file in memory" data-node="readfile">
+          <rect class="shape tone-neutral" x="20" y="275" width="335" height="110" rx="6"/>
+          <text class="t-name" x="187" y="300">readFile() instead of a stream</text>
+          <text class="t-kind" x="187" y="318">loads the whole file into memory first</text>
+          <text class="t-kind" x="187" y="334">memory grows with the file size</text>
+        </g>
+
+        <g class="node" id="n-buffer" tabindex="0" role="button" aria-label="Show backpressure with write and drain" data-title="Writable buffer: backpressure" data-node="buffer">
+          <rect class="shape tone-blue" x="575" y="275" width="335" height="110" rx="6"/>
+          <text class="t-name" x="742" y="296">Writable buffer</text>
+          <text class="t-kind" x="742" y="313">highWaterMark: 64 KiB, or 16 objects</text>
+          <rect class="slot" x="595" y="327" width="68" height="28" rx="4"/>
+          <rect class="slot" x="669" y="327" width="68" height="28" rx="4"/>
+          <rect class="slot" x="743" y="327" width="68" height="28" rx="4"/>
+          <rect class="slot" x="817" y="327" width="68" height="28" rx="4"/>
+          <text class="t-kind" x="742" y="374">waiting for the destination</text>
+        </g>
+
+        <g class="state-item" id="c-1"><rect class="slot tone-blue" x="595" y="327" width="68" height="28" rx="4"/><text class="t-item" x="629" y="345">chunk 1</text></g>
+        <g class="state-item" id="c-2"><rect class="slot tone-blue" x="669" y="327" width="68" height="28" rx="4"/><text class="t-item" x="703" y="345">chunk 2</text></g>
+        <g class="state-item" id="c-3"><rect class="slot tone-blue" x="743" y="327" width="68" height="28" rx="4"/><text class="t-item" x="777" y="345">chunk 3</text></g>
+        <g class="state-item" id="c-4"><rect class="slot tone-blue" x="817" y="327" width="68" height="28" rx="4"/><text class="t-item" x="851" y="345">chunk 4</text></g>
+
+        <path class="flow async" id="a-pipe-readable" d="M280,138 L280,166" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-pipe-transform" d="M465,138 L465,166" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-pipe-writable" d="M650,138 L650,166" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-source-readable" d="M170,203 L203,203" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-readable-transform" d="M355,203 L388,203" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-transform-writable" d="M540,203 L573,203" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-writable-buffer" d="M650,238 L650,273" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-buffer-dest" d="M835,275 L835,240" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-source-readfile" d="M95,238 L95,273" marker-end="url(#arrow)"/>
+
+        <text class="ghost-label" id="t-memory" x="187" y="365">5 GB FILE: ERR_FS_FILE_TOO_LARGE</text>
+        <text class="ghost-label" id="t-error" x="465" y="262">ROW 48213 FAILS</text>
+        <text class="ghost-label" id="t-cleanup" x="465" y="280">ALL STREAMS CLOSED</text>
+        <text class="ghost-label" id="t-full" x="742" y="403">FULL: write() RETURNS false</text>
+        <text class="ghost-label" id="t-drain" x="742" y="403">EMPTY: 'drain' EVENT</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="compress" aria-pressed="true">Compress a 5 GB file</button>
+        <button type="button" data-flow="backpressure" aria-pressed="false">A slow writer</button>
+        <button type="button" data-flow="error" aria-pressed="false">A bad row mid-import</button>
+        <button type="button" data-flow="readfile" aria-pressed="false">Using readFile instead</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="compress" hidden>
+        <li data-highlight="n-pipeline a-pipe-readable a-pipe-transform a-pipe-writable n-readable n-transform n-writable">Your code calls <code>await pipeline(createReadStream("orders.csv"), createGzip(), createWriteStream("orders.csv.gz"))</code>.</li>
+        <li data-highlight="n-source a-source-readable n-readable">The Readable reads the first 64 KiB from disk. The other 4.99 GB stay on disk.</li>
+        <li data-highlight="n-readable a-readable-transform n-transform">The gzip Transform compresses the chunk. Its output is smaller than its input.</li>
+        <li data-highlight="n-transform a-transform-writable n-writable a-writable-buffer n-buffer a-buffer-dest n-dest" data-show="c-1">The Writable buffers the compressed chunk and writes it to <code>orders.csv.gz</code>. The chunk is then dropped from memory.</li>
+        <li data-highlight="n-source a-source-readable n-readable a-readable-transform n-transform a-transform-writable n-writable" data-show="c-1 c-2">This repeats about 80 000 times. Only a few chunks are in memory at any moment, so memory use is the same for a 5 MB file and a 5 GB file.</li>
+        <li data-highlight="n-pipeline">After the last chunk, every stream finishes and the promise resolves. Log the bytes read and the duration.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="backpressure" hidden>
+        <li data-highlight="n-dest">A user downloads the export on a slow phone connection at 1 MB per second. The disk can read 500 MB per second.</li>
+        <li data-highlight="n-readable a-readable-transform n-transform a-transform-writable n-writable a-writable-buffer n-buffer" data-show="c-1 c-2">Chunks arrive at the Writable faster than the response can send them. They wait in its buffer.</li>
+        <li data-highlight="n-writable n-buffer t-full" data-show="c-1 c-2 c-3 c-4">The buffer reaches <code>highWaterMark</code>. <code>write()</code> returns <code>false</code>: stop sending for now.</li>
+        <li data-highlight="n-pipeline a-pipe-readable n-readable" data-show="c-1 c-2 c-3 c-4"><code>pipeline()</code> sees <code>false</code> and pauses the Readable. No more file reads happen.</li>
+        <li data-highlight="n-buffer a-buffer-dest n-dest t-drain">The phone takes the buffered data. The buffer is empty, so the Writable emits <code>drain</code>.</li>
+        <li data-highlight="n-pipeline a-pipe-readable n-readable a-readable-transform n-transform a-transform-writable n-writable" data-show="c-1"><code>pipeline()</code> resumes the Readable. The download runs at the phone's speed, and memory stays near <code>highWaterMark</code> per stream.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="error" hidden>
+        <li data-highlight="n-source a-source-readable n-readable a-readable-transform n-transform">An import reads <code>orders.csv</code>, splits it into lines, and parses each line into an order object in object mode.</li>
+        <li data-highlight="n-transform a-transform-writable n-writable a-writable-buffer n-buffer a-buffer-dest n-dest" data-show="c-1 c-2">The Writable inserts rows into the database in batches of 500. 48 000 rows are saved.</li>
+        <li data-highlight="n-transform t-error" data-show="c-1 c-2">Row 48 213 has an empty date. The Transform calls its callback with an <code>InvalidOrderRowError</code> that holds the row number.</li>
+        <li data-highlight="n-pipeline a-pipe-readable a-pipe-transform a-pipe-writable n-readable n-transform n-writable t-cleanup"><code>pipeline()</code> destroys all streams. The file handle closes and the buffered rows are dropped. With <code>.pipe()</code>, the file would stay open.</li>
+        <li data-highlight="n-pipeline">The promise rejects. Your <code>catch</code> logs the error, row 48 213, the rows already inserted and the request ID. Those 48 000 rows stay in the table unless the import uses a transaction or a staging table.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="readfile" hidden>
+        <li data-highlight="n-source a-source-readfile n-readfile">Your code calls <code>await readFile("orders.csv", "utf8")</code> on a 200 MB file. Nothing runs until the whole file is in memory.</li>
+        <li data-highlight="n-readfile">Memory holds the 200 MB buffer, then the decoded string, then <code>split("\n")</code> creates millions of small strings. Memory use is several times the file size.</li>
+        <li data-highlight="n-readfile">Ten users start an import at the same time. Ten copies are in memory, and the container is killed for going over its memory limit.</li>
+        <li data-highlight="n-source a-source-readfile n-readfile t-memory">With the 5 GB file, <code>readFile</code> fails at once with <code>ERR_FS_FILE_TOO_LARGE</code>: its limit is 2 GiB.</li>
+        <li data-highlight="n-pipeline n-readable n-transform n-writable">The fix is a stream: memory stays near <code>highWaterMark</code> per stream, whatever the file size. See the first flow.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-amber">Readable</span>
+      <span class="chip tone-teal">Transform</span>
+      <span class="chip tone-blue">Writable</span>
+      <span class="chip tone-neutral">Your code, files and clients</span>
+      <span>Solid arrows show data moving. Dotted arrows show <code>pipeline()</code> controlling a stream: pausing, resuming and closing it. Click a box to see a program that shows it.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">order-import/</div>
+      <button type="button" class="tree-row" data-file="src/import-orders.js"><span class="path">├─ src/import-orders.js</span><span class="chip tone-neutral">pipeline()</span></button>
+      <button type="button" class="tree-row" data-file="src/csv-lines.js"><span class="path">├─ src/csv-lines.js</span><span class="chip tone-amber">Readable</span></button>
+      <button type="button" class="tree-row" data-file="src/order-row-parser.js"><span class="path">├─ src/order-row-parser.js</span><span class="chip tone-teal">Transform</span></button>
+      <button type="button" class="tree-row" data-file="src/order-database-writer.js"><span class="path">├─ src/order-database-writer.js</span><span class="chip tone-blue">Writable</span></button>
+      <button type="button" class="tree-row" data-file="src/server.js"><span class="path">├─ src/server.js</span><span class="chip tone-neutral">HTTP</span></button>
+      <button type="button" class="tree-row" data-file="examples/compress-file.js"><span class="path">├─ examples/compress-file.js</span><span class="chip tone-neutral">File copy</span></button>
+      <button type="button" class="tree-row" data-file="examples/backpressure.js"><span class="path">├─ examples/backpressure.js</span><span class="chip tone-blue">Backpressure</span></button>
+      <button type="button" class="tree-row" data-file="examples/read-whole-file.js"><span class="path">└─ examples/read-whole-file.js</span><span class="chip tone-neutral">Problem</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Memory grows with file size</strong><span>A stream holds a few chunks at a time, so a 5 GB file needs about as much memory as a 5 MB one.</span></li>
+        <li><strong>Waiting for all data before starting</strong><span>The first rows are processed while the rest is still being read or uploaded.</span></li>
+        <li><strong>Fast producers and slow consumers</strong><span>Backpressure pauses the reader until the writer has room again.</span></li>
+        <li><strong>Reusable steps</strong><span>Gzip, hashing and parsing are separate Transforms that fit into any chain.</span></li>
+        <li><strong>Files over 2 GiB</strong><span><code>readFile</code> refuses them. Streams have no size limit.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>More code than <code>readFile</code></strong><span>For small files, such as config, <code>readFile</code> is shorter and fine.</span></li>
+        <li><strong>Partial results after an error</strong><span>Rows written before the failure stay written. Plan for a transaction, a staging table or a restart point.</span></li>
+        <li><strong>Data split across chunks</strong><span>A line, a multi-byte character or a JSON value can be cut between two chunks. Your Transform must handle it.</span></li>
+        <li><strong>Leaks with <code>.pipe()</code></strong><span>Errors are not passed on and streams are not closed. Use <code>pipeline()</code>.</span></li>
+        <li><strong>Two stream APIs</strong><span>Node.js streams and web streams differ. Convert with <code>Readable.fromWeb</code> and <code>Readable.toWeb</code>.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="pipeline">
+      <div class="file-head"><span class="chip tone-neutral">pipeline()</span><span class="name">src/import-orders.js</span><span class="why">Connects the file, the line splitter, the row parser and the database writer. Logs progress every 10 seconds, and on failure logs how many rows were saved. The request handler logs the error itself once, with the row number. One <code>try/catch</code> covers all four steps.</span></div>
+<pre><code>import { pipeline } from "node:stream/promises";
+import pg from "pg";
+import pino from "pino";
+import { openOrdersFile, splitIntoLines } from "./csv-lines.js";
+import { OrderRowParser } from "./order-row-parser.js";
+import { OrderDatabaseWriter } from "./order-database-writer.js";
+
+const logger = pino();
+const database = new pg.Pool();
+
+export async function importOrders(filePath, requestId) {
+  const importLogger = logger.child({ requestId, filePath });
+  const ordersFile = openOrdersFile(filePath);
+  const databaseWriter = new OrderDatabaseWriter(database);
+  const startedAt = Date.now();
+  const progress = () =&gt; ({ bytesRead: ordersFile.bytesRead, rowsInserted: databaseWriter.rowsInserted });
+
+  importLogger.info("order import started");
+  const progressTimer = setInterval(() =&gt; importLogger.info(progress(), "order import progress"), 10_000);
+
+  try {
+    await pipeline(ordersFile, splitIntoLines, new OrderRowParser(), databaseWriter);
+    importLogger.info({ ...progress(), durationMs: Date.now() - startedAt }, "order import finished");
+  } catch (error) {
+    importLogger.info(progress(), "order import stopped");
+    throw error;
+  } finally {
+    clearInterval(progressTimer);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="readable">
+      <div class="file-head"><span class="chip tone-amber">Readable</span><span class="name">src/csv-lines.js</span><span class="why">The file stream reads 64 KiB at a time. <code>encoding: "utf8"</code> makes it return strings and keeps characters that are split between two chunks intact. <code>splitIntoLines</code> is an async generator: <code>for await</code> reads one chunk, and a line cut off at the end of a chunk is kept until the next chunk arrives. <code>pipeline()</code> accepts it as a step.</span></div>
+<pre><code>import { createReadStream } from "node:fs";
+
+export function openOrdersFile(filePath) {
+  return createReadStream(filePath, { encoding: "utf8", highWaterMark: 64 * 1024 });
+}
+
+export async function* splitIntoLines(textChunks) {
+  let unfinishedLine = "";
+  for await (const textChunk of textChunks) {
+    const lines = (unfinishedLine + textChunk).split("\n");
+    unfinishedLine = lines.pop();
+    yield* lines;
+  }
+  if (unfinishedLine !== "") yield unfinishedLine;
+}
+
+export async function countOrderRows(filePath) {
+  let lineCount = 0;
+  for await (const line of splitIntoLines(openOrdersFile(filePath))) {
+    if (line.trim() !== "") lineCount += 1;
+  }
+  return lineCount - 1;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="transform">
+      <div class="file-head"><span class="chip tone-teal">Transform</span><span class="name">src/order-row-parser.js</span><span class="why">A Transform in object mode: a line string goes in, an order object comes out. A bad row is passed to <code>callback</code> as an error with its row number, so <code>pipeline()</code> stops and the log says which row failed. This parser splits on commas only. Real CSV with quoted fields needs a parser such as <code>csv-parse</code>.</span></div>
+<pre><code>import { Transform } from "node:stream";
+
+export class InvalidOrderRowError extends Error {
+  constructor(rowNumber, line) {
+    super(`Order row ${rowNumber} is invalid.`);
+    this.rowNumber = rowNumber;
+    this.line = line;
+  }
+}
+
+export class OrderRowParser extends Transform {
+  #rowNumber = 0;
+
+  constructor() {
+    super({ objectMode: true });
+  }
+
+  _transform(line, encoding, callback) {
+    this.#rowNumber += 1;
+    const isHeaderRow = this.#rowNumber === 1;
+    if (isHeaderRow || line.trim() === "") return callback();
+
+    const [orderId, customerId, totalText, orderedAtText] = line.trimEnd().split(",");
+    const total = Number(totalText);
+    const orderedAt = new Date(orderedAtText);
+
+    if (!orderId || Number.isNaN(total) || Number.isNaN(orderedAt.getTime())) {
+      return callback(new InvalidOrderRowError(this.#rowNumber, line));
+    }
+    callback(null, { orderId, customerId, total, orderedAt });
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="writable">
+      <div class="file-head"><span class="chip tone-blue">Writable</span><span class="name">src/order-database-writer.js</span><span class="why">A Writable in object mode that collects 500 orders, then inserts them in one query. It calls <code>callback</code> only after the insert, so the stream does not take more rows while the database is busy: that is backpressure. <code>_final</code> inserts the last, smaller batch.</span></div>
+<pre><code>import { Writable } from "node:stream";
+
+const rowsPerInsert = 500;
+
+export class OrderDatabaseWriter extends Writable {
+  #database;
+  #pendingOrders = [];
+  rowsInserted = 0;
+
+  constructor(database) {
+    super({ objectMode: true });
+    this.#database = database;
+  }
+
+  _write(order, encoding, callback) {
+    this.#pendingOrders.push(order);
+    if (this.#pendingOrders.length &lt; rowsPerInsert) return callback();
+    this.#insertPendingOrders().then(() =&gt; callback(), callback);
+  }
+
+  _final(callback) {
+    this.#insertPendingOrders().then(() =&gt; callback(), callback);
+  }
+
+  async #insertPendingOrders() {
+    if (this.#pendingOrders.length === 0) return;
+    const orders = this.#pendingOrders;
+    this.#pendingOrders = [];
+
+    await this.#database.query(
+      `INSERT INTO orders (order_id, customer_id, total, ordered_at)
+       SELECT * FROM unnest($1::text[], $2::text[], $3::numeric[], $4::timestamptz[])`,
+      [
+        orders.map((order) =&gt; order.orderId),
+        orders.map((order) =&gt; order.customerId),
+        orders.map((order) =&gt; order.total),
+        orders.map((order) =&gt; order.orderedAt),
+      ],
+    );
+    this.rowsInserted += orders.length;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="dest">
+      <div class="file-head"><span class="chip tone-neutral">HTTP</span><span class="name">src/server.js</span><span class="why">On a server, <code>req</code> is a Readable and <code>res</code> is a Writable. The upload goes to disk without being held in memory. The download is gzipped on the way out. If the client disconnects, <code>pipeline()</code> closes the file and logs a warning, because the client chose to leave.</span></div>
+<pre><code>import http from "node:http";
+import { createReadStream, createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
+import { randomUUID } from "node:crypto";
+import pino from "pino";
+import { importOrders } from "./import-orders.js";
+
+const logger = pino();
+const exportFilePath = "/data/exports/orders.csv";
+
+async function receiveUpload(req, res, requestLogger, requestId) {
+  const uploadPath = `/data/uploads/${requestId}.csv`;
+  await pipeline(req, createWriteStream(uploadPath));
+  requestLogger.info({ uploadPath }, "upload saved");
+  await importOrders(uploadPath, requestId);
+  res.statusCode = 201;
+  res.end();
+}
+
+async function sendExport(req, res, requestLogger) {
+  const exportFile = createReadStream(exportFilePath);
+  res.writeHead(200, { "Content-Type": "text/csv", "Content-Encoding": "gzip" });
+  try {
+    await pipeline(exportFile, createGzip(), res);
+    requestLogger.info({ bytesRead: exportFile.bytesRead }, "export sent");
+  } catch (error) {
+    requestLogger.warn({ err: error, bytesRead: exportFile.bytesRead }, "export stopped before the end");
+  }
+}
+
+http
+  .createServer(async (req, res) =&gt; {
+    const requestId = req.headers["x-request-id"] ?? randomUUID();
+    const requestLogger = logger.child({ requestId, method: req.method, url: req.url });
+    try {
+      if (req.method === "PUT" &amp;&amp; req.url === "/imports/orders") return await receiveUpload(req, res, requestLogger, requestId);
+      if (req.method === "GET" &amp;&amp; req.url === "/exports/orders") return await sendExport(req, res, requestLogger);
+      res.statusCode = 404;
+      res.end();
+    } catch (error) {
+      requestLogger.error({ err: error, rowNumber: error.rowNumber }, "request failed");
+      if (!res.headersSent) res.statusCode = error.rowNumber ? 422 : 500;
+      res.end();
+    }
+  })
+  .listen(3000);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="source">
+      <div class="file-head"><span class="chip tone-neutral">File copy</span><span class="name">examples/compress-file.js</span><span class="why">Run it with <code>node compress-file.js orders.csv</code> on a 5 MB file and on a 5 GB file. The peak memory is about the same for both. <code>maxRSS</code> is the most memory the process used, in kilobytes.</span></div>
+<pre><code>import { createReadStream, createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
+
+const sourcePath = process.argv[2];
+const sourceFile = createReadStream(sourcePath);
+const startedAt = Date.now();
+
+await pipeline(sourceFile, createGzip(), createWriteStream(`${sourcePath}.gz`));
+
+console.log({
+  bytesRead: sourceFile.bytesRead,
+  durationSeconds: Math.round((Date.now() - startedAt) / 1000),
+  peakMemoryMegabytes: Math.round(process.resourceUsage().maxRSS / 1024),
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="buffer">
+      <div class="file-head"><span class="chip tone-blue">Backpressure</span><span class="name">examples/backpressure.js</span><span class="why">Writes 5 million lines by hand, without <code>pipeline()</code>. When <code>write()</code> returns <code>false</code>, the loop waits for <code>drain</code>. Remove the <code>await once(...)</code> and all 5 million lines wait in the stream's buffer, and memory grows to hundreds of MB.</span></div>
+<pre><code>import { createWriteStream } from "node:fs";
+import { once } from "node:events";
+
+const logFile = createWriteStream("five-million-lines.txt");
+let drainWaits = 0;
+
+for (let lineNumber = 1; lineNumber &lt;= 5_000_000; lineNumber++) {
+  const bufferHasRoom = logFile.write(`line ${lineNumber}\n`);
+  if (!bufferHasRoom) {
+    drainWaits += 1;
+    await once(logFile, "drain");
+  }
+}
+
+logFile.end();
+await once(logFile, "finish");
+
+console.log({
+  highWaterMark: logFile.writableHighWaterMark,
+  drainWaits,
+  memoryMegabytes: Math.round(process.memoryUsage().rss / 1024 / 1024),
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="readfile">
+      <div class="file-head"><span class="chip tone-neutral">Problem</span><span class="name">examples/read-whole-file.js</span><span class="why">The approach to avoid for large files. On a 200 MB file, memory grows by several times the file size before the first row is counted. On a file over 2 GiB, <code>readFile</code> throws <code>ERR_FS_FILE_TOO_LARGE</code>. Compare it with <code>countOrderRows</code> in <code>src/csv-lines.js</code>.</span></div>
+<pre><code>import { readFile } from "node:fs/promises";
+
+const bytesPerMegabyte = 1024 * 1024;
+const logMemory = (label) =&gt; console.log(label, Math.round(process.memoryUsage().rss / bytesPerMegabyte), "MB");
+
+logMemory("before reading");
+const fileContents = await readFile(process.argv[2], "utf8");
+const lines = fileContents.split("\n");
+logMemory("after reading and splitting");
+
+console.log({ rowCount: lines.length - 1 });</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
