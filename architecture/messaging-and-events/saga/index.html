@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saga</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Architecture</a> / Messaging and events</div>
+    <h1>Saga</h1>
+    <p class="aka">Also called the <strong>saga pattern</strong>. Described by Hector Garcia-Molina and Kenneth Salem in 1987, for long-running database transactions.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A way to run one business action across several services when no single database transaction can cover them all. Placing an order needs stock from Inventory, a charge from Payment and a pickup from Shipping, and each has its own database.</p>
+    <p>A saga splits the action into steps. Each step is a <strong>local transaction</strong> in one service. If a later step fails, the saga runs <strong>compensating actions</strong> for the steps that already succeeded, in reverse order: refund the payment, then release the stock.</p>
+    <p>There are two ways to run a saga. In <strong>choreography</strong>, each service reacts to the others' events, as on the <a href="../event-driven/">event-driven architecture</a> page. In <strong>orchestration</strong>, one orchestrator sends a command to each service and saves where the saga is after every reply. This page shows orchestration. Every command and reply is sent through an <a href="../outbox/">outbox</a>.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Saga</span></td><td>One business action made of steps in several services, each with an undo step.</td><td>Order saga</td></tr>
+          <tr><td><span class="chip tone-teal">Local transaction</span></td><td>One step, saved in one service's own database.</td><td>Inventory reserves stock</td></tr>
+          <tr><td><span class="chip tone-teal">Compensating action</span></td><td>A new action that cancels the effect of an earlier step. It does not erase the earlier step.</td><td><code>RefundPayment</code>, <code>ReleaseStock</code></td></tr>
+          <tr><td><span class="chip tone-blue">Orchestrator</span></td><td>The component that sends each command, waits for the reply and decides the next step.</td><td>Order saga in the order service</td></tr>
+          <tr><td><span class="chip tone-blue">Command</span></td><td>A message that asks one service to do something. It has one receiver.</td><td><code>ChargePayment</code></td></tr>
+          <tr><td><span class="chip tone-blue">Reply</span></td><td>The message a service sends back with the result of a command.</td><td><code>PaymentCharged</code>, <code>PaymentDeclined</code></td></tr>
+          <tr><td><span class="chip tone-amber">Saga state</span></td><td>A saved record of which step each saga is at.</td><td><code>order_sagas</code> table</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> every step that can succeed needs a compensating action, and the orchestrator saves its state in the same transaction as the next command.</div>
+  </section>
+
+  <section>
+    <h2>Choreography compared with orchestration</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Choreography</th><th>Orchestration</th></tr></thead>
+        <tbody>
+          <tr><td>Who decides the next step</td><td>Each service, by reacting to events</td><td>The orchestrator</td></tr>
+          <tr><td>Where the whole flow is written</td><td>Nowhere in one place. It is spread across consumers.</td><td>In one state machine</td></tr>
+          <tr><td>What services know</td><td>Only the event names they react to</td><td>Services know nothing about the saga. The orchestrator knows every command.</td></tr>
+          <tr><td>Finding a stuck order</td><td>Check the logs of each service</td><td>Query the saga state table</td></tr>
+          <tr><td>Good for</td><td>Short flows with 2 or 3 steps</td><td>Longer flows with compensations</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Rules for compensating actions</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Rule</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Safe to run twice</td><td>A retry or a duplicate message can send <code>RefundPayment</code> twice. The refund uses the saga ID as an idempotency key, so the card is refunded once.</td></tr>
+          <tr><td>A new action, not an erase</td><td>The customer sees both the charge and the refund on their bank statement. Other services may already have acted on the first step.</td></tr>
+          <tr><td>Steps that cannot be undone come last</td><td>A sent email cannot be taken back, so the confirmation email is sent only when the saga is completed.</td></tr>
+          <tr><td>Others can see half-done work</td><td>While the saga runs, reserved stock is already gone for other customers. The order shows as "pending" until the saga ends.</td></tr>
+          <tr><td>Compensations can fail too</td><td>They are retried like any step. If one keeps failing, a person must fix it, so it raises an alert.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <p>The saga ID is also the correlation ID, so every log line from every service for one order shares it. The state table is the first place to look when an order is stuck.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Orchestrator, on every state change</td><td>Saga ID, order ID, old state, new state, the reply that caused it, the command sent next</td><td>info</td></tr>
+          <tr><td>Orchestrator, when a reply does not match the state</td><td>Saga ID, current state, reply type. Usually a duplicate, safe to ignore.</td><td>info</td></tr>
+          <tr><td>Service, when it handles a command</td><td>Saga ID, command type, outcome, duration</td><td>info</td></tr>
+          <tr><td>Service, when a compensation fails</td><td>Saga ID, command type, error, attempt number</td><td>error</td></tr>
+          <tr><td>Metric: sagas stuck in one state</td><td>Sagas not completed or cancelled, with no change for 2 minutes</td><td>Alert if above 0</td></tr>
+          <tr><td>Metric: cancelled sagas by reason</td><td>Count of "card declined", "out of stock", "pickup failed"</td><td>Alert on a sudden rise</td></tr>
+          <tr><td>Never log</td><td>Card details, payment method IDs or customer contact details</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 300" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The order service starts the order saga. The saga orchestrator saves its state in the order_sagas table and sends commands to the inventory, payment and shipping services, which send replies back.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="140" y="150" width="380" height="225" rx="10"/>
+        <text class="t-label" x="330" y="170">ORDER SERVICE AND ITS DATABASE</text>
+
+        <g id="c-client">
+          <rect class="shape tone-neutral" x="12" y="200" width="104" height="44" rx="6"/>
+          <text class="t-name" x="64" y="227">Client</text>
+        </g>
+
+        <g class="node" id="n-order" tabindex="0" role="button" aria-label="Show code that starts the saga" data-title="Order service: starts the saga" data-node="order">
+          <rect class="shape tone-teal" x="160" y="192" width="140" height="60" rx="6"/>
+          <text class="t-name" x="230" y="217">Place order</text>
+          <text class="t-kind" x="230" y="235">starts the saga</text>
+        </g>
+        <g class="node" id="n-orchestrator" tabindex="0" role="button" aria-label="Show code for the saga orchestrator" data-title="Order saga: orchestrator" data-node="orchestrator">
+          <rect class="shape tone-blue" x="330" y="180" width="170" height="84" rx="6"/>
+          <text class="t-name" x="415" y="216">Order saga</text>
+          <text class="t-kind" x="415" y="234">orchestrator</text>
+        </g>
+        <g class="node" id="n-state" tabindex="0" role="button" aria-label="Show the saga state table" data-title="Saga state table" data-node="state">
+          <rect class="shape tone-amber" x="340" y="305" width="150" height="50" rx="6"/>
+          <text class="t-name" x="415" y="326">order_sagas</text>
+          <text class="t-kind" x="415" y="343">saga state table</text>
+        </g>
+
+        <g class="node" id="n-inventory" tabindex="0" role="button" aria-label="Show code for the inventory service" data-title="Inventory service: reserve and release stock" data-node="inventory">
+          <rect class="shape tone-teal" x="660" y="96" width="200" height="56" rx="6"/>
+          <text class="t-name" x="760" y="120">Inventory service</text>
+          <text class="t-kind" x="760" y="138">ReserveStock, ReleaseStock</text>
+        </g>
+        <g class="node" id="n-payment" tabindex="0" role="button" aria-label="Show code for the payment service" data-title="Payment service: charge and refund" data-node="payment">
+          <rect class="shape tone-teal" x="660" y="194" width="200" height="56" rx="6"/>
+          <text class="t-name" x="760" y="218">Payment service</text>
+          <text class="t-kind" x="760" y="236">ChargePayment, RefundPayment</text>
+        </g>
+        <g class="node" id="n-shipping" tabindex="0" role="button" aria-label="Show code for the shipping service" data-title="Shipping service: book pickup" data-node="shipping">
+          <rect class="shape tone-teal" x="660" y="292" width="200" height="56" rx="6"/>
+          <text class="t-name" x="760" y="316">Shipping service</text>
+          <text class="t-kind" x="760" y="334">BookPickup</text>
+        </g>
+
+        <path class="flow" id="a-client-order" d="M116,222 L158,222" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-orchestrator" d="M300,214 L328,214" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-orchestrator-order" d="M328,236 L302,236" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orchestrator-state" d="M415,264 L415,303" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-command-inventory" d="M500,196 L658,118" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-inventory" d="M658,138 L502,210" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-command-payment" d="M500,216 L658,214" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-payment" d="M658,232 L502,230" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-command-shipping" d="M500,240 L658,312" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-shipping" d="M658,330 L502,254" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="success" aria-pressed="true">Every step succeeds</button>
+        <button type="button" data-flow="declined" aria-pressed="false">The card is declined</button>
+        <button type="button" data-flow="pickup-failed" aria-pressed="false">Shipping fails after payment</button>
+        <button type="button" data-flow="crash" aria-pressed="false">The orchestrator stops halfway</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="success" hidden>
+        <li data-highlight="c-client a-client-order n-order a-order-orchestrator n-orchestrator a-orchestrator-state n-state">The order service saves the order as "pending" and starts a saga in the same transaction. The saga's first state, <code>AwaitingStock</code>, is saved in <code>order_sagas</code>. The client gets <code>202 Accepted</code>.</li>
+        <li data-highlight="n-orchestrator a-command-inventory n-inventory">The orchestrator sends <code>ReserveStock</code> to Inventory.</li>
+        <li data-highlight="n-inventory r-inventory n-orchestrator a-orchestrator-state n-state">Inventory replies <code>StockReserved</code>. The orchestrator saves the state <code>AwaitingPayment</code> and, in the same transaction, queues <code>ChargePayment</code>.</li>
+        <li data-highlight="n-orchestrator a-command-payment n-payment r-payment">Payment charges the card and replies <code>PaymentCharged</code>. The state becomes <code>AwaitingPickup</code>.</li>
+        <li data-highlight="n-orchestrator a-command-shipping n-shipping r-shipping">Shipping books a pickup with the carrier and replies <code>PickupBooked</code>.</li>
+        <li data-highlight="n-orchestrator a-orchestrator-state n-state r-orchestrator-order n-order">The orchestrator saves the state <code>Completed</code> and marks the order as confirmed. Only now is the confirmation email sent, because an email cannot be undone.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="declined" hidden>
+        <li data-highlight="n-orchestrator a-command-payment n-payment r-payment">Stock is already reserved. Payment tries to charge the card, the bank declines it, and Payment replies <code>PaymentDeclined</code>.</li>
+        <li data-highlight="n-orchestrator a-orchestrator-state n-state">The orchestrator saves the state <code>ReleasingStock</code>. It now runs the compensating actions for the steps that succeeded.</li>
+        <li data-highlight="n-orchestrator a-command-inventory n-inventory r-inventory">It sends <code>ReleaseStock</code>. Inventory releases the reserved stock and replies <code>StockReleased</code>.</li>
+        <li data-highlight="n-orchestrator a-orchestrator-state n-state r-orchestrator-order n-order">The orchestrator saves the state <code>Cancelled</code> with the reason "card declined", and marks the order as cancelled.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="pickup-failed" hidden>
+        <li data-highlight="n-orchestrator a-command-shipping n-shipping r-shipping">Stock is reserved and the card is charged. Shipping cannot book a pickup, even after its retries, and replies <code>PickupFailed</code>.</li>
+        <li data-highlight="n-orchestrator a-command-payment n-payment r-payment">The orchestrator undoes the most recent successful step first. It sends <code>RefundPayment</code>, and Payment replies <code>PaymentRefunded</code>.</li>
+        <li data-highlight="n-orchestrator a-command-inventory n-inventory r-inventory">Then it sends <code>ReleaseStock</code>, and Inventory replies <code>StockReleased</code>.</li>
+        <li data-highlight="n-orchestrator a-orchestrator-state n-state r-orchestrator-order n-order">The saga ends as <code>Cancelled</code>. Each state was saved on the way, so a crash in the middle continues where it stopped.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="crash" hidden>
+        <li data-highlight="n-orchestrator a-orchestrator-state n-state a-command-payment n-payment">The orchestrator saves the state <code>AwaitingPayment</code> and queues <code>ChargePayment</code>. Then its process stops.</li>
+        <li data-highlight="n-payment r-payment">Payment charges the card and replies <code>PaymentCharged</code>. The reply waits in the broker, because no orchestrator is running.</li>
+        <li data-highlight="n-orchestrator a-orchestrator-state n-state">A new orchestrator copy starts and reads the reply. It loads saga 42 from <code>order_sagas</code>, sees <code>AwaitingPayment</code>, and continues with <code>BookPickup</code>. Nothing was kept only in memory.</li>
+        <li data-highlight="n-state">If a reply never arrives, a check finds sagas with no change for 2 minutes and sends the command again. That is safe because every service handles each command only once.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-blue">Orchestrator</span>
+      <span class="chip tone-teal">Service</span>
+      <span class="chip tone-amber">State table</span>
+      <span>Dotted arrows are commands. Replies show during a flow. Commands and replies go through Kafka topics and the outbox. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="contracts/orderSaga.ts"><span class="path">├─ contracts/orderSaga.ts</span><span class="chip tone-blue">Commands and replies</span></button>
+      <button type="button" class="tree-row" data-file="db/order_sagas.sql"><span class="path">├─ db/order_sagas.sql</span><span class="chip tone-amber">Saga state</span></button>
+      <button type="button" class="tree-row" data-file="db/stuck-sagas.sql"><span class="path">├─ db/stuck-sagas.sql</span><span class="chip tone-amber">Monitoring</span></button>
+      <button type="button" class="tree-row" data-file="order-service/src/placeOrder.ts"><span class="path">├─ order-service/src/placeOrder.ts</span><span class="chip tone-teal">Starts the saga</span></button>
+      <button type="button" class="tree-row" data-file="order-service/src/orderSaga.ts"><span class="path">├─ order-service/src/orderSaga.ts</span><span class="chip tone-blue">Orchestrator</span></button>
+      <button type="button" class="tree-row" data-file="inventory-service/src/inventoryCommands.ts"><span class="path">├─ inventory-service/src/inventoryCommands.ts</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="payment-service/src/paymentCommands.ts"><span class="path">├─ payment-service/src/paymentCommands.ts</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="shipping-service/src/shippingCommands.ts"><span class="path">└─ shipping-service/src/shippingCommands.ts</span><span class="chip tone-teal">Service</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="src/Shop.Contracts/OrderSagaMessages.cs"><span class="path">├─ src/Shop.Contracts/OrderSagaMessages.cs</span><span class="chip tone-blue">Commands and replies</span></button>
+      <button type="button" class="tree-row" data-file="db/order_sagas.sql"><span class="path">├─ db/order_sagas.sql</span><span class="chip tone-amber">Saga state</span></button>
+      <button type="button" class="tree-row" data-file="db/stuck-sagas.sql"><span class="path">├─ db/stuck-sagas.sql</span><span class="chip tone-amber">Monitoring</span></button>
+      <button type="button" class="tree-row" data-file="src/OrderService/PlaceOrderHandler.cs"><span class="path">├─ src/OrderService/PlaceOrderHandler.cs</span><span class="chip tone-teal">Starts the saga</span></button>
+      <button type="button" class="tree-row" data-file="src/OrderService/OrderSaga.cs"><span class="path">├─ src/OrderService/OrderSaga.cs</span><span class="chip tone-blue">Orchestrator</span></button>
+      <button type="button" class="tree-row" data-file="src/InventoryService/InventoryCommandsConsumer.cs"><span class="path">├─ src/InventoryService/InventoryCommandsConsumer.cs</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="src/PaymentService/PaymentCommandsConsumer.cs"><span class="path">├─ src/PaymentService/PaymentCommandsConsumer.cs</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="src/ShippingService/BookPickupConsumer.cs"><span class="path">└─ src/ShippingService/BookPickupConsumer.cs</span><span class="chip tone-teal">Service</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>No transaction across services</strong><span>Each service saves its own step. Compensations bring the whole action back to a consistent end when a step fails.</span></li>
+        <li><strong>Half-finished orders after a failure</strong><span>Every saga ends in a known state, <code>Completed</code> or <code>Cancelled</code>, with the reason saved.</span></li>
+        <li><strong>Lost progress after a crash</strong><span>The state is saved after every reply, so a new orchestrator copy continues where the old one stopped.</span></li>
+        <li><strong>A flow spread across many services</strong><span>With orchestration, the whole flow is written in one state machine you can read top to bottom.</span></li>
+        <li><strong>Finding stuck orders</strong><span>A query on the saga state table lists every saga that has not moved for a while.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Every step needs an undo</strong><span>You write and test a compensating action for each step, and each must be safe to run twice.</span></li>
+        <li><strong>Others see half-done work</strong><span>Unlike a database transaction, a saga does not hide its steps. Reserved stock is unavailable to others before the saga ends.</span></li>
+        <li><strong>Some steps cannot be undone</strong><span>Emails, shipped parcels and bank transfers need careful ordering, or a human to fix them.</span></li>
+        <li><strong>Many messages for one action</strong><span>A successful order takes 6 messages. A cancelled one takes up to 10. Each one can be delayed or duplicated.</span></li>
+        <li><strong>The orchestrator knows every service</strong><span>Adding or changing a step means changing the orchestrator, and it must handle every reply in every state.</span></li>
+        <li><strong>Harder to test</strong><span>Each combination of failure and state needs a test, including duplicate and late replies.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="state">
+      <div class="file-head"><span class="chip tone-amber">Saga state</span><span class="name">db/order_sagas.sql</span><span class="why">One row per saga, in the order service's database. It holds everything the orchestrator needs to send the next command, so nothing is kept only in memory. The partial index makes the stuck-saga check fast. In C#, MassTransit's EF Core saga repository creates a similar table from <code>OrderSagaState</code>.</span></div>
+<pre><code>CREATE TABLE order_sagas (
+  saga_id            UUID PRIMARY KEY,
+  order_id           UUID NOT NULL UNIQUE,
+  state              TEXT NOT NULL,
+  amount             NUMERIC(10, 2) NOT NULL,
+  payment_method_id  TEXT NOT NULL,
+  items              JSONB NOT NULL,
+  failure_reason     TEXT,
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX order_sagas_unfinished ON order_sagas (updated_at)
+  WHERE state NOT IN ('Completed', 'Cancelled');</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="stuck">
+      <div class="file-head"><span class="chip tone-amber">Monitoring</span><span class="name">db/stuck-sagas.sql</span><span class="why">Feeds the "sagas stuck in one state" alert. A job runs it every minute and sends the last command again for each saga it finds.</span></div>
+<pre><code>SELECT saga_id, order_id, state, updated_at
+FROM order_sagas
+WHERE state NOT IN ('Completed', 'Cancelled')
+  AND updated_at &lt; now() - INTERVAL '2 minutes'
+ORDER BY updated_at;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="messages">
+      <div class="file-head"><span class="chip tone-blue">Commands and replies</span><span class="name">contracts/orderSaga.ts</span><span class="why">Commands go to one service each. Replies go back to the orchestrator. Every message carries the saga ID, which is also the correlation ID.</span></div>
+<pre><code>type OrderItem = { productId: string; quantity: number };
+
+export type SagaCommand =
+  | { type: "ReserveStock"; sagaId: string; orderId: string; items: OrderItem[] }
+  | { type: "ReleaseStock"; sagaId: string; orderId: string }
+  | { type: "ChargePayment"; sagaId: string; orderId: string; amount: number; paymentMethodId: string }
+  | { type: "RefundPayment"; sagaId: string; orderId: string }
+  | { type: "BookPickup"; sagaId: string; orderId: string };
+
+export type SagaReply =
+  | { type: "StockReserved"; sagaId: string }
+  | { type: "StockUnavailable"; sagaId: string }
+  | { type: "StockReleased"; sagaId: string }
+  | { type: "PaymentCharged"; sagaId: string }
+  | { type: "PaymentDeclined"; sagaId: string; reason: string }
+  | { type: "PaymentRefunded"; sagaId: string }
+  | { type: "PickupBooked"; sagaId: string }
+  | { type: "PickupFailed"; sagaId: string; reason: string };</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="order">
+      <div class="file-head"><span class="chip tone-teal">Starts the saga</span><span class="name">order-service/src/placeOrder.ts</span><span class="why">One transaction saves three things: the pending order, the saga's first state, and the first command in the outbox. The client gets <code>202 Accepted</code>, because the order is not confirmed yet.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import { Logger } from "pino";
+import { saveCommandToOutbox } from "./orderSaga";
+
+export type PlaceOrderRequest = {
+  items: { productId: string; quantity: number }[];
+  total: number;
+  paymentMethodId: string;
+};
+
+export async function placeOrder(db: Pool, logger: Logger, request: PlaceOrderRequest): Promise&lt;string&gt; {
+  const orderId = randomUUID();
+  const sagaId = randomUUID();
+
+  const transaction = await db.connect();
+  try {
+    await transaction.query("BEGIN");
+    await transaction.query(
+      "INSERT INTO orders (id, total, status) VALUES ($1, $2, 'pending')",
+      [orderId, request.total],
+    );
+    await transaction.query(
+      `INSERT INTO order_sagas (saga_id, order_id, state, amount, payment_method_id, items)
+       VALUES ($1, $2, 'AwaitingStock', $3, $4, $5)`,
+      [sagaId, orderId, request.total, request.paymentMethodId, JSON.stringify(request.items)],
+    );
+    await saveCommandToOutbox(transaction, { type: "ReserveStock", sagaId, orderId, items: request.items });
+    await transaction.query("COMMIT");
+  } catch (error) {
+    await transaction.query("ROLLBACK");
+    throw error;
+  } finally {
+    transaction.release();
+  }
+
+  logger.info({ correlationId: sagaId, sagaId, orderId, toState: "AwaitingStock" }, "started order saga");
+  return orderId;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="orchestrator">
+      <div class="file-head"><span class="chip tone-blue">Orchestrator</span><span class="name">order-service/src/orderSaga.ts</span><span class="why">The <code>transitions</code> table is the whole saga: for each state and reply, the next state and the command to send. <code>FOR UPDATE</code> locks the saga row, so two orchestrator copies cannot handle replies for the same saga at once. A reply with no matching transition, such as a duplicate, is logged and ignored.</span></div>
+<pre><code>import { Kafka } from "kafkajs";
+import { Pool, PoolClient } from "pg";
+import { Logger } from "pino";
+import { SagaCommand, SagaReply } from "../../contracts/orderSaga";
+
+type SagaState =
+  | "AwaitingStock" | "AwaitingPayment" | "AwaitingPickup"
+  | "RefundingPayment" | "ReleasingStock" | "Completed" | "Cancelled";
+
+type Transition = { nextState: SagaState; command?: SagaCommand["type"] };
+
+const transitions: Record&lt;string, Transition&gt; = {
+  "AwaitingStock:StockReserved": { nextState: "AwaitingPayment", command: "ChargePayment" },
+  "AwaitingStock:StockUnavailable": { nextState: "Cancelled" },
+  "AwaitingPayment:PaymentCharged": { nextState: "AwaitingPickup", command: "BookPickup" },
+  "AwaitingPayment:PaymentDeclined": { nextState: "ReleasingStock", command: "ReleaseStock" },
+  "AwaitingPickup:PickupBooked": { nextState: "Completed" },
+  "AwaitingPickup:PickupFailed": { nextState: "RefundingPayment", command: "RefundPayment" },
+  "RefundingPayment:PaymentRefunded": { nextState: "ReleasingStock", command: "ReleaseStock" },
+  "ReleasingStock:StockReleased": { nextState: "Cancelled" },
+};
+
+const commandTopics: Record&lt;SagaCommand["type"], string&gt; = {
+  ReserveStock: "inventory-commands",
+  ReleaseStock: "inventory-commands",
+  ChargePayment: "payment-commands",
+  RefundPayment: "payment-commands",
+  BookPickup: "shipping-commands",
+};
+
+type SagaRow = {
+  saga_id: string;
+  order_id: string;
+  state: SagaState;
+  amount: string;
+  payment_method_id: string;
+  items: { productId: string; quantity: number }[];
+};
+
+export async function saveCommandToOutbox(transaction: PoolClient, command: SagaCommand): Promise&lt;void&gt; {
+  await transaction.query(
+    `INSERT INTO outbox (event_id, topic, message_key, event_type, payload, correlation_id)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [`${command.sagaId}-${command.type}`, commandTopics[command.type], command.orderId, command.type, JSON.stringify(command), command.sagaId],
+  );
+}
+
+function buildCommand(type: SagaCommand["type"], saga: SagaRow): SagaCommand {
+  const ids = { sagaId: saga.saga_id, orderId: saga.order_id };
+  switch (type) {
+    case "ReserveStock": return { type, ...ids, items: saga.items };
+    case "ChargePayment": return { type, ...ids, amount: Number(saga.amount), paymentMethodId: saga.payment_method_id };
+    case "ReleaseStock": return { type, ...ids };
+    case "RefundPayment": return { type, ...ids };
+    case "BookPickup": return { type, ...ids };
+  }
+}
+
+async function handleReply(db: Pool, logger: Logger, reply: SagaReply): Promise&lt;void&gt; {
+  const transaction = await db.connect();
+  try {
+    await transaction.query("BEGIN");
+    const { rows: [saga] } = await transaction.query&lt;SagaRow&gt;(
+      "SELECT * FROM order_sagas WHERE saga_id = $1 FOR UPDATE",
+      [reply.sagaId],
+    );
+    const sagaLog = logger.child({ correlationId: saga.saga_id, sagaId: saga.saga_id, orderId: saga.order_id });
+    const transition = transitions[`${saga.state}:${reply.type}`];
+
+    if (!transition) {
+      await transaction.query("ROLLBACK");
+      sagaLog.info({ state: saga.state, reply: reply.type }, "ignored a reply that does not match the current state");
+      return;
+    }
+
+    await transaction.query(
+      `UPDATE order_sagas
+       SET state = $2, failure_reason = COALESCE($3, failure_reason), updated_at = now()
+       WHERE saga_id = $1`,
+      [saga.saga_id, transition.nextState, "reason" in reply ? reply.reason : null],
+    );
+    if (transition.command) {
+      await saveCommandToOutbox(transaction, buildCommand(transition.command, saga));
+    }
+    if (transition.nextState === "Completed" || transition.nextState === "Cancelled") {
+      const orderStatus = transition.nextState === "Completed" ? "confirmed" : "cancelled";
+      await transaction.query("UPDATE orders SET status = $2 WHERE id = $1", [saga.order_id, orderStatus]);
+    }
+    await transaction.query("COMMIT");
+
+    sagaLog.info(
+      { fromState: saga.state, toState: transition.nextState, reply: reply.type, command: transition.command },
+      "saga moved to a new state",
+    );
+  } catch (error) {
+    await transaction.query("ROLLBACK");
+    throw error;
+  } finally {
+    transaction.release();
+  }
+}
+
+export async function startSagaReplyConsumer(kafka: Kafka, db: Pool, logger: Logger): Promise&lt;void&gt; {
+  const consumer = kafka.consumer({ groupId: "order-saga" });
+  await consumer.connect();
+  await consumer.subscribe({ topic: "order-saga-replies" });
+  await consumer.run({
+    eachMessage: async ({ message }) =&gt; handleReply(db, logger, JSON.parse(message.value!.toString())),
+  });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="inventory">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">inventory-service/src/inventoryCommands.ts</span><span class="why">Each reservation is saved as a row, so <code>ReleaseStock</code> knows what to give back. Releasing is safe to run twice: it only touches reservations not released yet. The consumer around this function uses the inbox and writes the reply to the outbox for <code>order-saga-replies</code>, as on the outbox page.</span></div>
+<pre><code>import { PoolClient } from "pg";
+import { SagaCommand, SagaReply } from "../../contracts/orderSaga";
+
+type ReserveStock = Extract&lt;SagaCommand, { type: "ReserveStock" }&gt;;
+
+async function reserveStock(transaction: PoolClient, command: ReserveStock): Promise&lt;boolean&gt; {
+  await transaction.query("SAVEPOINT reserve");
+  for (const item of command.items) {
+    const updated = await transaction.query(
+      "UPDATE stock SET reserved = reserved + $2 WHERE product_id = $1 AND on_hand - reserved &gt;= $2",
+      [item.productId, item.quantity],
+    );
+    if (updated.rowCount === 0) {
+      await transaction.query("ROLLBACK TO SAVEPOINT reserve");
+      return false;
+    }
+    await transaction.query(
+      "INSERT INTO reservations (order_id, product_id, quantity) VALUES ($1, $2, $3)",
+      [command.orderId, item.productId, item.quantity],
+    );
+  }
+  return true;
+}
+
+export async function handleInventoryCommand(transaction: PoolClient, command: SagaCommand): Promise&lt;SagaReply&gt; {
+  switch (command.type) {
+    case "ReserveStock": {
+      const reserved = await reserveStock(transaction, command);
+      return { type: reserved ? "StockReserved" : "StockUnavailable", sagaId: command.sagaId };
+    }
+    case "ReleaseStock": {
+      await transaction.query(
+        `WITH released AS (
+           UPDATE reservations SET released_at = now()
+           WHERE order_id = $1 AND released_at IS NULL
+           RETURNING product_id, quantity
+         )
+         UPDATE stock SET reserved = stock.reserved - released.quantity
+         FROM released
+         WHERE stock.product_id = released.product_id`,
+        [command.orderId],
+      );
+      return { type: "StockReleased", sagaId: command.sagaId };
+    }
+    default:
+      throw new Error(`Inventory does not handle ${command.type}.`);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="payment">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">payment-service/src/paymentCommands.ts</span><span class="why">Both the charge and the refund pass an idempotency key built from the saga ID, so Stripe acts only once even if the command arrives twice. A declined card is a normal reply, not an error.</span></div>
+<pre><code>import { PoolClient } from "pg";
+import Stripe from "stripe";
+import { SagaCommand, SagaReply } from "../../contracts/orderSaga";
+
+export async function handlePaymentCommand(transaction: PoolClient, stripe: Stripe, command: SagaCommand): Promise&lt;SagaReply&gt; {
+  switch (command.type) {
+    case "ChargePayment":
+      try {
+        const paymentIntent = await stripe.paymentIntents.create(
+          { amount: Math.round(command.amount * 100), currency: "eur", payment_method: command.paymentMethodId, confirm: true },
+          { idempotencyKey: `${command.sagaId}-charge` },
+        );
+        await transaction.query(
+          "INSERT INTO payments (order_id, provider_id, amount) VALUES ($1, $2, $3) ON CONFLICT (order_id) DO NOTHING",
+          [command.orderId, paymentIntent.id, command.amount],
+        );
+        return { type: "PaymentCharged", sagaId: command.sagaId };
+      } catch (error) {
+        if (error instanceof Stripe.errors.StripeCardError) {
+          return { type: "PaymentDeclined", sagaId: command.sagaId, reason: error.message };
+        }
+        throw error;
+      }
+
+    case "RefundPayment": {
+      const { rows: [payment] } = await transaction.query(
+        "SELECT provider_id FROM payments WHERE order_id = $1",
+        [command.orderId],
+      );
+      await stripe.refunds.create(
+        { payment_intent: payment.provider_id },
+        { idempotencyKey: `${command.sagaId}-refund` },
+      );
+      await transaction.query("UPDATE payments SET refunded_at = now() WHERE order_id = $1", [command.orderId]);
+      return { type: "PaymentRefunded", sagaId: command.sagaId };
+    }
+
+    default:
+      throw new Error(`Payment does not handle ${command.type}.`);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="shipping">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">shipping-service/src/shippingCommands.ts</span><span class="why">The consumer around this function retries a few times first, as on the event-driven page. When it gives up, it replies <code>PickupFailed</code> instead of throwing, so the saga can run its compensations.</span></div>
+<pre><code>import { SagaCommand, SagaReply } from "../../contracts/orderSaga";
+
+export type CarrierClient = { bookPickup(orderId: string): Promise&lt;void&gt; };
+
+export async function handleShippingCommand(carrier: CarrierClient, command: SagaCommand): Promise&lt;SagaReply&gt; {
+  if (command.type !== "BookPickup") {
+    throw new Error(`Shipping does not handle ${command.type}.`);
+  }
+
+  try {
+    await carrier.bookPickup(command.orderId);
+    return { type: "PickupBooked", sagaId: command.sagaId };
+  } catch (error) {
+    return { type: "PickupFailed", sagaId: command.sagaId, reason: String(error) };
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="messages">
+      <div class="file-head"><span class="chip tone-blue">Commands and replies</span><span class="name">src/Shop.Contracts/OrderSagaMessages.cs</span><span class="why">Commands go to one service each. Replies and the two final events go back to the saga. Every message carries the saga ID, which MassTransit uses to find the right saga.</span></div>
+<pre><code>namespace Shop.Contracts;
+
+public record OrderItem(string ProductId, int Quantity);
+
+public record OrderSubmitted(Guid SagaId, Guid OrderId, decimal Amount, string PaymentMethodId, List&lt;OrderItem&gt; Items);
+
+public record ReserveStock(Guid SagaId, Guid OrderId, List&lt;OrderItem&gt; Items);
+public record ReleaseStock(Guid SagaId, Guid OrderId);
+public record ChargePayment(Guid SagaId, Guid OrderId, decimal Amount, string PaymentMethodId);
+public record RefundPayment(Guid SagaId, Guid OrderId);
+public record BookPickup(Guid SagaId, Guid OrderId);
+
+public record StockReserved(Guid SagaId);
+public record StockUnavailable(Guid SagaId);
+public record StockReleased(Guid SagaId);
+public record PaymentCharged(Guid SagaId);
+public record PaymentDeclined(Guid SagaId, string Reason);
+public record PaymentRefunded(Guid SagaId);
+public record PickupBooked(Guid SagaId);
+public record PickupFailed(Guid SagaId, string Reason);
+
+public record OrderConfirmed(Guid OrderId);
+public record OrderCancelled(Guid OrderId, string Reason);</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="order">
+      <div class="file-head"><span class="chip tone-teal">Starts the saga</span><span class="name">src/OrderService/PlaceOrderHandler.cs</span><span class="why">With MassTransit's Entity Framework outbox turned on, <code>Publish</code> does not send right away. It adds the message to the outbox, and <code>SaveChangesAsync</code> saves the order and the message in one transaction.</span></div>
+<pre><code>using MassTransit;
+using Shop.Contracts;
+
+namespace OrderService;
+
+public record PlaceOrderRequest(List&lt;OrderItem&gt; Items, decimal Total, string PaymentMethodId);
+
+public class PlaceOrderHandler(ShopDbContext db, IPublishEndpoint publishEndpoint, ILogger&lt;PlaceOrderHandler&gt; logger)
+{
+    public async Task&lt;Guid&gt; HandleAsync(PlaceOrderRequest request)
+    {
+        var order = new Order { Id = Guid.NewGuid(), Total = request.Total, Status = "pending" };
+        var sagaId = Guid.NewGuid();
+        db.Orders.Add(order);
+
+        await publishEndpoint.Publish(new OrderSubmitted(sagaId, order.Id, request.Total, request.PaymentMethodId, request.Items));
+        await db.SaveChangesAsync();
+
+        logger.LogInformation("Started order saga {SagaId} for order {OrderId}, correlation {CorrelationId}",
+            sagaId, order.Id, sagaId);
+        return order.Id;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="orchestrator">
+      <div class="file-head"><span class="chip tone-blue">Orchestrator</span><span class="name">src/OrderService/OrderSaga.cs</span><span class="why">A MassTransit state machine. Each <code>During</code> block lists the replies a state accepts, the command to send and the next state. MassTransit saves <code>OrderSagaState</code> after each message, together with the outgoing commands through its outbox. A reply that does not fit the current state is not handled.</span></div>
+<pre><code>using MassTransit;
+using Shop.Contracts;
+
+namespace OrderService;
+
+public class OrderSagaState : SagaStateMachineInstance
+{
+    public Guid CorrelationId { get; set; }
+    public string CurrentState { get; set; } = "";
+    public Guid OrderId { get; set; }
+    public decimal Amount { get; set; }
+    public string PaymentMethodId { get; set; } = "";
+    public List&lt;OrderItem&gt; Items { get; set; } = [];
+    public string? FailureReason { get; set; }
+}
+
+public class OrderSaga : MassTransitStateMachine&lt;OrderSagaState&gt;
+{
+    private static readonly Uri InventoryCommands = new("queue:inventory-commands");
+    private static readonly Uri PaymentCommands = new("queue:payment-commands");
+    private static readonly Uri ShippingCommands = new("queue:shipping-commands");
+
+    public State AwaitingStock { get; private set; } = null!;
+    public State AwaitingPayment { get; private set; } = null!;
+    public State AwaitingPickup { get; private set; } = null!;
+    public State RefundingPayment { get; private set; } = null!;
+    public State ReleasingStock { get; private set; } = null!;
+    public State Completed { get; private set; } = null!;
+    public State Cancelled { get; private set; } = null!;
+
+    public Event&lt;OrderSubmitted&gt; OrderSubmitted { get; private set; } = null!;
+    public Event&lt;StockReserved&gt; StockReserved { get; private set; } = null!;
+    public Event&lt;StockUnavailable&gt; StockUnavailable { get; private set; } = null!;
+    public Event&lt;StockReleased&gt; StockReleased { get; private set; } = null!;
+    public Event&lt;PaymentCharged&gt; PaymentCharged { get; private set; } = null!;
+    public Event&lt;PaymentDeclined&gt; PaymentDeclined { get; private set; } = null!;
+    public Event&lt;PaymentRefunded&gt; PaymentRefunded { get; private set; } = null!;
+    public Event&lt;PickupBooked&gt; PickupBooked { get; private set; } = null!;
+    public Event&lt;PickupFailed&gt; PickupFailed { get; private set; } = null!;
+
+    public OrderSaga(ILogger&lt;OrderSaga&gt; logger)
+    {
+        InstanceState(saga =&gt; saga.CurrentState);
+
+        Event(() =&gt; OrderSubmitted, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+        Event(() =&gt; StockReserved, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+        Event(() =&gt; StockUnavailable, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+        Event(() =&gt; StockReleased, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+        Event(() =&gt; PaymentCharged, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+        Event(() =&gt; PaymentDeclined, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+        Event(() =&gt; PaymentRefunded, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+        Event(() =&gt; PickupBooked, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+        Event(() =&gt; PickupFailed, configure =&gt; configure.CorrelateById(context =&gt; context.Message.SagaId));
+
+        Initially(
+            When(OrderSubmitted)
+                .Then(context =&gt;
+                {
+                    context.Saga.OrderId = context.Message.OrderId;
+                    context.Saga.Amount = context.Message.Amount;
+                    context.Saga.PaymentMethodId = context.Message.PaymentMethodId;
+                    context.Saga.Items = context.Message.Items;
+                })
+                .Send(InventoryCommands, context =&gt; new ReserveStock(context.Saga.CorrelationId, context.Saga.OrderId, context.Saga.Items))
+                .TransitionTo(AwaitingStock));
+
+        During(AwaitingStock,
+            When(StockReserved)
+                .Send(PaymentCommands, context =&gt; new ChargePayment(context.Saga.CorrelationId, context.Saga.OrderId, context.Saga.Amount, context.Saga.PaymentMethodId))
+                .TransitionTo(AwaitingPayment),
+            When(StockUnavailable)
+                .Then(context =&gt; context.Saga.FailureReason = "out of stock")
+                .Publish(context =&gt; new OrderCancelled(context.Saga.OrderId, "out of stock"))
+                .TransitionTo(Cancelled));
+
+        During(AwaitingPayment,
+            When(PaymentCharged)
+                .Send(ShippingCommands, context =&gt; new BookPickup(context.Saga.CorrelationId, context.Saga.OrderId))
+                .TransitionTo(AwaitingPickup),
+            When(PaymentDeclined)
+                .Then(context =&gt; context.Saga.FailureReason = context.Message.Reason)
+                .Send(InventoryCommands, context =&gt; new ReleaseStock(context.Saga.CorrelationId, context.Saga.OrderId))
+                .TransitionTo(ReleasingStock));
+
+        During(AwaitingPickup,
+            When(PickupBooked)
+                .Publish(context =&gt; new OrderConfirmed(context.Saga.OrderId))
+                .TransitionTo(Completed),
+            When(PickupFailed)
+                .Then(context =&gt; context.Saga.FailureReason = context.Message.Reason)
+                .Send(PaymentCommands, context =&gt; new RefundPayment(context.Saga.CorrelationId, context.Saga.OrderId))
+                .TransitionTo(RefundingPayment));
+
+        During(RefundingPayment,
+            When(PaymentRefunded)
+                .Send(InventoryCommands, context =&gt; new ReleaseStock(context.Saga.CorrelationId, context.Saga.OrderId))
+                .TransitionTo(ReleasingStock));
+
+        During(ReleasingStock,
+            When(StockReleased)
+                .Publish(context =&gt; new OrderCancelled(context.Saga.OrderId, context.Saga.FailureReason ?? "unknown"))
+                .TransitionTo(Cancelled));
+
+        BeforeEnterAny(binder =&gt; binder.Then(context =&gt;
+            logger.LogInformation("Saga {SagaId} for order {OrderId} moved to {State}, correlation {CorrelationId}",
+                context.Saga.CorrelationId, context.Saga.OrderId, context.Message.Name, context.Saga.CorrelationId)));
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="inventory">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">src/InventoryService/InventoryCommandsConsumer.cs</span><span class="why">Each reservation is saved as a row, so <code>ReleaseStock</code> knows what to give back. Releasing is safe to run twice: it only touches reservations not released yet. MassTransit's inbox and outbox, turned on in the service setup, skip duplicate commands and keep the reply from being lost.</span></div>
+<pre><code>using Dapper;
+using MassTransit;
+using Npgsql;
+using Shop.Contracts;
+
+namespace InventoryService;
+
+public class InventoryCommandsConsumer(NpgsqlDataSource db) : IConsumer&lt;ReserveStock&gt;, IConsumer&lt;ReleaseStock&gt;
+{
+    public async Task Consume(ConsumeContext&lt;ReserveStock&gt; context)
+    {
+        var command = context.Message;
+        await using var connection = await db.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        var reserved = await ReserveStockAsync(connection, transaction, command);
+        await transaction.CommitAsync();
+
+        if (reserved)
+            await context.Publish(new StockReserved(command.SagaId));
+        else
+            await context.Publish(new StockUnavailable(command.SagaId));
+    }
+
+    public async Task Consume(ConsumeContext&lt;ReleaseStock&gt; context)
+    {
+        await using var connection = await db.OpenConnectionAsync();
+        await connection.ExecuteAsync(
+            """
+            WITH released AS (
+              UPDATE reservations SET released_at = now()
+              WHERE order_id = @OrderId AND released_at IS NULL
+              RETURNING product_id, quantity
+            )
+            UPDATE stock SET reserved = stock.reserved - released.quantity
+            FROM released
+            WHERE stock.product_id = released.product_id
+            """,
+            new { context.Message.OrderId });
+
+        await context.Publish(new StockReleased(context.Message.SagaId));
+    }
+
+    private static async Task&lt;bool&gt; ReserveStockAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, ReserveStock command)
+    {
+        await transaction.SaveAsync("reserve");
+        foreach (var item in command.Items)
+        {
+            var updated = await connection.ExecuteAsync(
+                "UPDATE stock SET reserved = reserved + @Quantity WHERE product_id = @ProductId AND on_hand - reserved &gt;= @Quantity",
+                item, transaction);
+            if (updated == 0)
+            {
+                await transaction.RollbackAsync("reserve");
+                return false;
+            }
+
+            await connection.ExecuteAsync(
+                "INSERT INTO reservations (order_id, product_id, quantity) VALUES (@OrderId, @ProductId, @Quantity)",
+                new { command.OrderId, item.ProductId, item.Quantity }, transaction);
+        }
+        return true;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="payment">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">src/PaymentService/PaymentCommandsConsumer.cs</span><span class="why">Both the charge and the refund pass an idempotency key built from the saga ID, so Stripe acts only once even if the command arrives twice. A declined card is a normal reply, not an error.</span></div>
+<pre><code>using Dapper;
+using MassTransit;
+using Npgsql;
+using Shop.Contracts;
+using Stripe;
+
+namespace PaymentService;
+
+public class PaymentCommandsConsumer(
+    PaymentIntentService paymentIntents,
+    RefundService refunds,
+    NpgsqlDataSource db) : IConsumer&lt;ChargePayment&gt;, IConsumer&lt;RefundPayment&gt;
+{
+    public async Task Consume(ConsumeContext&lt;ChargePayment&gt; context)
+    {
+        var command = context.Message;
+        try
+        {
+            var paymentIntent = await paymentIntents.CreateAsync(
+                new PaymentIntentCreateOptions
+                {
+                    Amount = (long)Math.Round(command.Amount * 100),
+                    Currency = "eur",
+                    PaymentMethod = command.PaymentMethodId,
+                    Confirm = true,
+                },
+                new RequestOptions { IdempotencyKey = $"{command.SagaId}-charge" });
+
+            await using var connection = await db.OpenConnectionAsync();
+            await connection.ExecuteAsync(
+                "INSERT INTO payments (order_id, provider_id, amount) VALUES (@OrderId, @ProviderId, @Amount) ON CONFLICT (order_id) DO NOTHING",
+                new { command.OrderId, ProviderId = paymentIntent.Id, command.Amount });
+
+            await context.Publish(new PaymentCharged(command.SagaId));
+        }
+        catch (StripeException error) when (error.StripeError?.Type == "card_error")
+        {
+            await context.Publish(new PaymentDeclined(command.SagaId, error.Message));
+        }
+    }
+
+    public async Task Consume(ConsumeContext&lt;RefundPayment&gt; context)
+    {
+        var command = context.Message;
+        await using var connection = await db.OpenConnectionAsync();
+        var providerId = await connection.QuerySingleAsync&lt;string&gt;(
+            "SELECT provider_id FROM payments WHERE order_id = @OrderId", new { command.OrderId });
+
+        await refunds.CreateAsync(
+            new RefundCreateOptions { PaymentIntent = providerId },
+            new RequestOptions { IdempotencyKey = $"{command.SagaId}-refund" });
+
+        await connection.ExecuteAsync("UPDATE payments SET refunded_at = now() WHERE order_id = @OrderId", new { command.OrderId });
+        await context.Publish(new PaymentRefunded(command.SagaId));
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="shipping">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">src/ShippingService/BookPickupConsumer.cs</span><span class="why">MassTransit's retry setting tries the carrier a few times first. When the carrier still fails, the consumer replies <code>PickupFailed</code> instead of throwing, so the saga can run its compensations.</span></div>
+<pre><code>using MassTransit;
+using Shop.Contracts;
+
+namespace ShippingService;
+
+public interface ICarrierClient
+{
+    Task BookPickupAsync(Guid orderId);
+}
+
+public class BookPickupConsumer(ICarrierClient carrier) : IConsumer&lt;BookPickup&gt;
+{
+    public async Task Consume(ConsumeContext&lt;BookPickup&gt; context)
+    {
+        try
+        {
+            await carrier.BookPickupAsync(context.Message.OrderId);
+            await context.Publish(new PickupBooked(context.Message.SagaId));
+        }
+        catch (HttpRequestException error)
+        {
+            await context.Publish(new PickupFailed(context.Message.SagaId, error.Message));
+        }
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

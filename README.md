@@ -18,3 +18,4 @@ What each category covers: [architecture/README.md](architecture/README.md)
 | Domain-Driven Design | Domain modeling | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/domain-modeling/domain-driven-design/) | [index.html](architecture/domain-modeling/domain-driven-design/index.html) |
 | Event-Driven Architecture | Messaging and events | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/messaging-and-events/event-driven/) | [index.html](architecture/messaging-and-events/event-driven/index.html) |
 | Transactional Outbox | Messaging and events | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/messaging-and-events/outbox/) | [index.html](architecture/messaging-and-events/outbox/index.html) |
+| Saga | Messaging and events | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/messaging-and-events/saga/) | [index.html](architecture/messaging-and-events/saga/index.html) |
