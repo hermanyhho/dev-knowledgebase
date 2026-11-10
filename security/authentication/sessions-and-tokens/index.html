@@ -33,6 +33,7 @@
           <tr><td><span class="chip tone-blue">Cookie</span></td><td>A value the browser stores for a site and sends back with every request to that site.</td><td><code>sid</code></td></tr>
           <tr><td><span class="chip tone-blue">Bearer token</span></td><td>A token sent in the <code>Authorization</code> header. Whoever holds it is treated as the user.</td><td><code>Authorization: Bearer &lt;token&gt;</code></td></tr>
           <tr><td><span class="chip tone-blue">Signature</span></td><td>A value computed from the token's content and a secret key. Changing the content breaks it.</td><td>HMAC-SHA256 with the signing key</td></tr>
+          <tr><td><span class="chip tone-amber">Refresh token</span></td><td>A long-lived random value, saved on the server, that the client trades for a new access token when the old one expires.</td><td>Valid 30 days, can be revoked</td></tr>
           <tr><td><span class="chip tone-neutral">Revocation</span></td><td>Ending a login before it expires.</td><td>Logout, or "log out all devices"</td></tr>
         </tbody>
       </table>
@@ -49,7 +50,7 @@
           <tr><td>Where the login is saved</td><td>On the server, in a session store</td><td>Inside the token, which the client holds</td></tr>
           <tr><td>What the client holds</td><td>A random session ID</td><td>A signed token with the user ID and expiry</td></tr>
           <tr><td>How the server checks a request</td><td>Looks up the ID in the store</td><td>Checks the signature and expiry with its key</td></tr>
-          <tr><td>Logging out</td><td>Delete the session. Works at once.</td><td>The token stays valid until it expires, unless the server keeps a list of blocked tokens</td></tr>
+          <tr><td>Logging out</td><td>Delete the session. Works at once.</td><td>The access token stays valid until it expires, usually within minutes. The refresh token is saved on the server, so revoking it stops new access tokens at once.</td></tr>
           <tr><td>Several server copies</td><td>All copies must reach the same store</td><td>Any copy with the key can check it</td></tr>
           <tr><td>Calling other services</td><td>Each service must reach the store</td><td>The token can be passed on and checked by any service with the key</td></tr>
           <tr><td>Typical clients</td><td>Web pages served from the same site</td><td>Mobile apps, apps on other domains, service-to-service calls</td></tr>
@@ -101,8 +102,8 @@
       </div>
     </div>
     <div class="diagram">
-      <svg viewBox="0 80 920 290" role="img" aria-labelledby="diagram-title">
-        <title id="diagram-title">A web browser and a mobile app call the API server. The server checks passwords against the users table. For sessions it uses a Redis session store. For tokens it uses a signing key.</title>
+      <svg viewBox="0 80 920 385" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A web browser and a mobile app call the API server. The server checks passwords against the users table. For sessions it uses a Redis session store. For tokens it uses a signing key and a refresh tokens table.</title>
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
@@ -150,6 +151,12 @@
           <text class="t-kind" x="800" y="338">secret, held only by servers</text>
         </g>
 
+        <g class="node" id="n-refresh" tabindex="0" role="button" aria-label="Show the refresh tokens table" data-title="Refresh tokens table" data-node="refresh">
+          <rect class="shape tone-amber" x="700" y="400" width="200" height="50" rx="6"/>
+          <text class="t-name" x="800" y="421">Refresh tokens</text>
+          <text class="t-kind" x="800" y="438">table, each one can be revoked</text>
+        </g>
+
         <path class="flow" id="a-browser-api" d="M172,128 L328,195" marker-end="url(#arrow)"/>
         <path class="flow reply" id="r-api-browser" d="M328,212 L174,146" marker-end="url(#arrow)"/>
         <path class="flow" id="a-mobile-api" d="M172,300 L328,262" marker-end="url(#arrow)"/>
@@ -158,6 +165,8 @@
         <path class="flow" id="a-api-users" d="M520,190 L698,128" marker-end="url(#arrow)"/>
         <path class="flow" id="a-api-sessions" d="M520,225 L698,225" marker-end="url(#arrow)"/>
         <path class="flow" id="a-api-key" d="M520,262 L698,322" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-api-refresh" d="M490,290 L698,420" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-expired" x="250" y="212">REJECTED AFTER 15 MIN</text>
       </svg>
     </div>
     <div class="flow-player">
@@ -167,6 +176,7 @@
         <button type="button" data-flow="session-request" aria-pressed="false">Requests and logout with a session</button>
         <button type="button" data-flow="token-login" aria-pressed="false">Log in with a token</button>
         <button type="button" data-flow="token-request" aria-pressed="false">Requests with a token</button>
+        <button type="button" data-flow="refresh" aria-pressed="false">Refresh the access token</button>
         <button type="button" data-flow="stolen" aria-pressed="false">A token is copied</button>
       </div>
       <div class="flow-controls">
@@ -191,18 +201,28 @@
       <ol class="flow-steps" data-flow="token-login" hidden>
         <li data-highlight="n-mobile a-mobile-api n-api">The mobile app sends <code>POST /token</code> with the email and password.</li>
         <li data-highlight="n-api a-api-users n-users-db">The server checks the password the same way.</li>
-        <li data-highlight="n-api a-api-key n-key">It builds a token holding the user ID and an expiry 15 minutes ahead, and signs it with its secret key. Nothing is saved on the server.</li>
-        <li data-highlight="n-api r-api-mobile n-mobile">It returns the token in the response body. The app keeps it in the phone's secure storage.</li>
+        <li data-highlight="n-api a-api-key n-key">It builds an access token holding the user ID and an expiry 15 minutes ahead, and signs it with its secret key. Nothing about the access token is saved on the server.</li>
+        <li data-highlight="n-api a-api-refresh n-refresh">It also creates a refresh token: a long random value, valid for 30 days. It saves only a hash of it in the refresh tokens table.</li>
+        <li data-highlight="n-api r-api-mobile n-mobile">It returns both tokens in the response body. The app keeps them in the phone's secure storage.</li>
       </ol>
       <ol class="flow-steps" data-flow="token-request" hidden>
         <li data-highlight="n-mobile a-mobile-api n-api">On every request, the app sends <code>Authorization: Bearer &lt;token&gt;</code>.</li>
         <li data-highlight="n-api a-api-key n-key">The server checks the signature with its key and checks that the token has not expired. It does not call the session store or the database.</li>
         <li data-highlight="n-api r-api-mobile n-mobile">Any server copy with the key can do this check, so adding copies needs nothing shared.</li>
       </ol>
+      <ol class="flow-steps" data-flow="refresh" hidden>
+        <li data-highlight="n-mobile a-mobile-api n-api">15 minutes after login, the access token expires and a request gets <code>401</code>. The app sends <code>POST /token/refresh</code> with its refresh token.</li>
+        <li data-highlight="n-api a-api-refresh n-refresh">The server looks up the refresh token's hash. Because refresh tokens are saved, the server can check that this one is not expired, not revoked and not used before. It marks it as used.</li>
+        <li data-highlight="n-api a-api-key n-key a-api-refresh n-refresh">It signs a new access token for another 15 minutes and saves a new refresh token in place of the old one.</li>
+        <li data-highlight="n-api r-api-mobile n-mobile">The app gets both new tokens and repeats the failed request. The user notices nothing.</li>
+      </ol>
       <ol class="flow-steps" data-flow="stolen" hidden>
-        <li data-highlight="c-attacker g-attacker-api n-api">An attacker copies a token, for example from a log file that recorded request headers.</li>
+        <li data-highlight="c-attacker g-attacker-api n-api">An attacker copies an access token, for example from a log file that recorded request headers.</li>
         <li data-highlight="n-api a-api-key n-key">The signature is correct and the token has not expired, so the server accepts it. The server cannot tell the attacker from the user.</li>
-        <li data-highlight="n-api">The server has no saved record to delete, so it cannot cancel the token. The token works until it expires, which is why access tokens should last minutes, not days. The access and refresh tokens page shows how users stay logged in anyway.</li>
+        <li data-highlight="n-api">Nothing about the access token is saved on the server, so the server cannot cancel it. This is why access tokens should last minutes, not days.</li>
+        <li data-highlight="c-attacker g-attacker-api t-expired n-api">After 15 minutes the copied token expires, and every request with it gets <code>401</code>. The attacker has no refresh token, because the app sends it only to <code>/token/refresh</code> and never logs it.</li>
+        <li data-highlight="n-mobile a-mobile-api n-api a-api-refresh n-refresh">The real app is not affected. It uses its refresh token to get a new access token, as in the "Refresh the access token" flow.</li>
+        <li data-highlight="n-api a-api-refresh n-refresh">If the user reports the problem or presses "log out on all devices", the server marks all their refresh tokens as revoked. No one can get a new access token, so within 15 minutes every copied access token is useless. If a refresh token was copied too, the "used before" check spots it when both copies are used.</li>
       </ol>
     </div>
     <div class="legend">
@@ -210,7 +230,7 @@
       <span class="chip tone-teal">Server</span>
       <span class="chip tone-amber">Stored data</span>
       <span class="chip tone-blue">Key</span>
-      <span>Replies show during a flow. Click a box to see its code or the HTTP requests.</span>
+      <span>Replies and the attacker show during a flow. Click a box to see its code or the HTTP requests.</span>
     </div>
 
     <h3>Files</h3>
@@ -220,6 +240,7 @@
       <button type="button" class="tree-row" data-file="examples/token-requests.http"><span class="path">├─ examples/token-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
       <button type="button" class="tree-row" data-file="examples/redis-session.txt"><span class="path">├─ examples/redis-session.txt</span><span class="chip tone-amber">Stored session</span></button>
       <button type="button" class="tree-row" data-file="deploy/create-signing-key.sh"><span class="path">├─ deploy/create-signing-key.sh</span><span class="chip tone-blue">Signing key</span></button>
+      <button type="button" class="tree-row" data-file="db/refresh_tokens.sql"><span class="path">├─ db/refresh_tokens.sql</span><span class="chip tone-amber">Refresh tokens</span></button>
       <button type="button" class="tree-row" data-file="api/src/users.ts"><span class="path">├─ api/src/users.ts</span><span class="chip tone-amber">Password check</span></button>
       <button type="button" class="tree-row" data-file="api/src/sessionAuth.ts"><span class="path">├─ api/src/sessionAuth.ts</span><span class="chip tone-teal">Sessions</span></button>
       <button type="button" class="tree-row" data-file="api/src/tokenAuth.ts"><span class="path">└─ api/src/tokenAuth.ts</span><span class="chip tone-teal">Tokens</span></button>
@@ -230,6 +251,7 @@
       <button type="button" class="tree-row" data-file="examples/token-requests.http"><span class="path">├─ examples/token-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
       <button type="button" class="tree-row" data-file="examples/redis-session.txt"><span class="path">├─ examples/redis-session.txt</span><span class="chip tone-amber">Stored session</span></button>
       <button type="button" class="tree-row" data-file="deploy/create-signing-key.sh"><span class="path">├─ deploy/create-signing-key.sh</span><span class="chip tone-blue">Signing key</span></button>
+      <button type="button" class="tree-row" data-file="db/refresh_tokens.sql"><span class="path">├─ db/refresh_tokens.sql</span><span class="chip tone-amber">Refresh tokens</span></button>
       <button type="button" class="tree-row" data-file="src/Api/Auth/Users.cs"><span class="path">├─ src/Api/Auth/Users.cs</span><span class="chip tone-amber">Password check</span></button>
       <button type="button" class="tree-row" data-file="src/Api/Auth/SessionAuth.cs"><span class="path">├─ src/Api/Auth/SessionAuth.cs</span><span class="chip tone-teal">Sessions</span></button>
       <button type="button" class="tree-row" data-file="src/Api/Auth/TokenAuth.cs"><span class="path">└─ src/Api/Auth/TokenAuth.cs</span><span class="chip tone-teal">Tokens</span></button>
@@ -252,8 +274,9 @@
       <ul>
         <li><strong>A shared store to run (sessions)</strong><span>Redis must stay up and be reachable from every server copy. If it is down, nobody is logged in.</span></li>
         <li><strong>Requests sent from other sites (cookies)</strong><span>The browser adds cookies automatically, so another site can trigger requests. <code>SameSite</code> and CSRF tokens prevent this.</span></li>
-        <li><strong>Tokens cannot be cancelled early</strong><span>A copied token works until it expires. Short lifetimes or a list of blocked tokens limit the damage.</span></li>
+        <li><strong>Tokens cannot be cancelled early</strong><span>A copied access token works until it expires. Short lifetimes, plus refresh tokens the server can revoke, limit the damage.</span></li>
         <li><strong>Bigger requests (tokens)</strong><span>A token holds data and a signature, so it is much larger than a session ID, and it is sent with every request.</span></li>
+        <li><strong>Two tokens to manage (tokens)</strong><span>Short-lived access tokens need refresh tokens, which bring back a server-side table and their own rules for rotation and theft.</span></li>
         <li><strong>Key handling (tokens)</strong><span>Anyone with the signing key can create valid tokens for any user. The key must be secret and changed from time to time.</span></li>
       </ul>
     </div>
@@ -282,7 +305,7 @@ HTTP/1.1 200 OK</code></pre>
     </div>
 
     <div class="file" data-lang="any" data-node="mobile">
-      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/token-requests.http</span><span class="why">The token comes back in the response body. The app must add the <code>Authorization</code> header to each request itself. A real token is about 200 characters, made of three parts separated by dots; the JWT page takes one apart.</span></div>
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/token-requests.http</span><span class="why">The tokens come back in the response body. The app adds the <code>Authorization</code> header to each request itself, and sends the refresh token only to <code>/token/refresh</code>. A real access token is about 200 characters, made of three parts separated by dots.</span></div>
 <pre><code>POST /token HTTP/1.1
 Host: api.shop.example.com
 Content-Type: application/json
@@ -292,14 +315,33 @@ Content-Type: application/json
 HTTP/1.1 200 OK
 Content-Type: application/json
 
-{ "accessToken": "&lt;signed token&gt;", "expiresIn": 900 }
+{ "accessToken": "&lt;signed token&gt;", "refreshToken": "&lt;random value&gt;", "expiresIn": 900 }
 
 
 GET /orders HTTP/1.1
 Host: api.shop.example.com
 Authorization: Bearer &lt;signed token&gt;
 
-HTTP/1.1 200 OK</code></pre>
+HTTP/1.1 200 OK
+
+
+GET /orders HTTP/1.1
+Host: api.shop.example.com
+Authorization: Bearer &lt;signed token, now expired&gt;
+
+HTTP/1.1 401 Unauthorized
+
+
+POST /token/refresh HTTP/1.1
+Host: api.shop.example.com
+Content-Type: application/json
+
+{ "refreshToken": "&lt;random value&gt;" }
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{ "accessToken": "&lt;new signed token&gt;", "refreshToken": "&lt;new random value&gt;", "expiresIn": 900 }</code></pre>
     </div>
   </div>
 
@@ -311,6 +353,22 @@ HTTP/1.1 200 OK</code></pre>
 
 127.0.0.1:6379&gt; TTL session:&lt;random session ID&gt;
 (integer) 28740</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="refresh">
+      <div class="file-head"><span class="chip tone-amber">Refresh tokens</span><span class="name">db/refresh_tokens.sql</span><span class="why">Only a SHA-256 hash of each refresh token is saved, so a copy of this table cannot be used to log in. <code>used_at</code> makes each refresh token work once. <code>revoked_at</code> lets the server end all logins for a user at once.</span></div>
+<pre><code>CREATE TABLE refresh_tokens (
+  token_hash  TEXT PRIMARY KEY,
+  user_id     UUID NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used_at     TIMESTAMPTZ,
+  revoked_at  TIMESTAMPTZ
+);
+
+CREATE INDEX refresh_tokens_by_user ON refresh_tokens (user_id) WHERE revoked_at IS NULL;</code></pre>
     </div>
   </div>
 
@@ -408,16 +466,41 @@ export function requireSession(redis: Redis) {
     </div>
 
     <div class="file" data-lang="ts" data-node="api">
-      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking a token needs only the key: no store, no database. The token cannot be cancelled before it expires, so it lives 15 minutes. Issuer and audience checks are covered on the JWT page.</span></div>
-<pre><code>import { NextFunction, Request, Response, Router } from "express";
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking an access token needs only the key. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>revokeAllRefreshTokens</code> is what "log out on all devices" calls. Rotation details and theft detection are covered on the access and refresh tokens page.</span></div>
+<pre><code>import { createHash, randomBytes } from "node:crypto";
+import { NextFunction, Request, Response, Router } from "express";
 import { SignJWT, jwtVerify } from "jose";
+import { Pool } from "pg";
 import { Logger } from "pino";
 import { findUserByEmail, isPasswordCorrect } from "./users";
 
 const signingKey = new TextEncoder().encode(process.env.AUTH_TOKEN_KEY);
-const tokenLifetimeSeconds = 15 * 60;
+const accessTokenLifetimeSeconds = 15 * 60;
+const refreshTokenLifetimeDays = 30;
 
-export function tokenRoutes(logger: Logger): Router {
+function hashRefreshToken(refreshToken: string): string {
+  return createHash("sha256").update(refreshToken).digest("hex");
+}
+
+async function issueTokens(db: Pool, userId: string) {
+  const accessToken = await new SignJWT({})
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(userId)
+    .setIssuedAt()
+    .setExpirationTime(`${accessTokenLifetimeSeconds}s`)
+    .sign(signingKey);
+
+  const refreshToken = randomBytes(32).toString("base64url");
+  await db.query(
+    `INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+     VALUES ($1, $2, now() + make_interval(days =&gt; $3))`,
+    [hashRefreshToken(refreshToken), userId, refreshTokenLifetimeDays],
+  );
+
+  return { accessToken, refreshToken, expiresIn: accessTokenLifetimeSeconds };
+}
+
+export function tokenRoutes(db: Pool, logger: Logger): Router {
   const router = Router();
 
   router.post("/token", async (req, res) =&gt; {
@@ -427,18 +510,35 @@ export function tokenRoutes(logger: Logger): Router {
       return res.status(401).json({ error: "The email or password is wrong." });
     }
 
-    const accessToken = await new SignJWT({})
-      .setProtectedHeader({ alg: "HS256" })
-      .setSubject(user.id)
-      .setIssuedAt()
-      .setExpirationTime(`${tokenLifetimeSeconds}s`)
-      .sign(signingKey);
-
     logger.info({ userId: user.id, ip: req.ip, method: "token" }, "login succeeded");
-    res.json({ accessToken, expiresIn: tokenLifetimeSeconds });
+    res.json(await issueTokens(db, user.id));
+  });
+
+  router.post("/token/refresh", async (req, res) =&gt; {
+    const { rows: [storedToken] } = await db.query(
+      `UPDATE refresh_tokens SET used_at = now()
+       WHERE token_hash = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at &gt; now()
+       RETURNING user_id`,
+      [hashRefreshToken(req.body.refreshToken ?? "")],
+    );
+    if (!storedToken) {
+      logger.warn({ ip: req.ip }, "refresh token rejected");
+      return res.status(401).json({ error: "The refresh token is not valid." });
+    }
+
+    logger.info({ userId: storedToken.user_id }, "access token refreshed");
+    res.json(await issueTokens(db, storedToken.user_id));
   });
 
   return router;
+}
+
+export async function revokeAllRefreshTokens(db: Pool, logger: Logger, userId: string): Promise&lt;void&gt; {
+  const revoked = await db.query(
+    "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+    [userId],
+  );
+  logger.info({ userId, revokedCount: revoked.rowCount }, "revoked all refresh tokens");
 }
 
 export async function requireToken(req: Request, res: Response, next: NextFunction) {
@@ -560,21 +660,31 @@ public static class SessionAuth
     </div>
 
     <div class="file" data-lang="cs" data-node="api">
-      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Checking needs only the key. The token cannot be cancelled before it expires, so it lives 15 minutes. Issuer and audience checks are covered on the JWT page.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>RevokeAllRefreshTokensAsync</code> is what "log out on all devices" calls. Rotation details and theft detection are covered on the access and refresh tokens page.</span></div>
 <pre><code>using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
+using Dapper;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 
 namespace Api.Auth;
 
+public record RefreshRequest(string RefreshToken);
+
 public static class TokenAuth
 {
-    private static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(15);
+    private const int RefreshTokenLifetimeDays = 30;
 
     private static SymmetricSecurityKey SigningKey(IConfiguration configuration) =&gt;
         new(Encoding.UTF8.GetBytes(configuration["AUTH_TOKEN_KEY"]!));
+
+    private static string HashRefreshToken(string refreshToken) =&gt;
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken)));
 
     public static void AddTokenAuthentication(this IServiceCollection services, IConfiguration configuration) =&gt;
         services
@@ -588,8 +698,30 @@ public static class TokenAuth
                 ClockSkew = TimeSpan.FromSeconds(30),
             });
 
-    public static void MapTokenEndpoint(this WebApplication app) =&gt;
-        app.MapPost("/token", async (LoginRequest request, Users users, IConfiguration configuration, HttpContext http, ILogger&lt;Users&gt; logger) =&gt;
+    private static async Task&lt;object&gt; IssueTokensAsync(NpgsqlDataSource db, IConfiguration configuration, Guid userId)
+    {
+        var accessToken = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity([new Claim(JwtRegisteredClaimNames.Sub, userId.ToString())]),
+            Expires = DateTime.UtcNow.Add(AccessTokenLifetime),
+            SigningCredentials = new SigningCredentials(SigningKey(configuration), SecurityAlgorithms.HmacSha256),
+        });
+
+        var refreshToken = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        await using var connection = await db.OpenConnectionAsync();
+        await connection.ExecuteAsync(
+            """
+            INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+            VALUES (@TokenHash, @userId, now() + make_interval(days =&gt; @RefreshTokenLifetimeDays))
+            """,
+            new { TokenHash = HashRefreshToken(refreshToken), userId, RefreshTokenLifetimeDays });
+
+        return new { accessToken, refreshToken, expiresIn = (int)AccessTokenLifetime.TotalSeconds };
+    }
+
+    public static void MapTokenEndpoints(this WebApplication app)
+    {
+        app.MapPost("/token", async (LoginRequest request, Users users, NpgsqlDataSource db, IConfiguration configuration, HttpContext http, ILogger&lt;Users&gt; logger) =&gt;
         {
             var user = await users.FindByEmailAsync(request.Email);
             if (user is null || !Users.IsPasswordCorrect(user, request.Password))
@@ -599,16 +731,40 @@ public static class TokenAuth
                 return Results.Json(new { error = "The email or password is wrong." }, statusCode: 401);
             }
 
-            var accessToken = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity([new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString())]),
-                Expires = DateTime.UtcNow.Add(TokenLifetime),
-                SigningCredentials = new SigningCredentials(SigningKey(configuration), SecurityAlgorithms.HmacSha256),
-            });
-
             logger.LogInformation("Login succeeded for user {UserId} with a token", user.Id);
-            return Results.Ok(new { accessToken, expiresIn = (int)TokenLifetime.TotalSeconds });
+            return Results.Ok(await IssueTokensAsync(db, configuration, user.Id));
         });
+
+        app.MapPost("/token/refresh", async (RefreshRequest request, NpgsqlDataSource db, IConfiguration configuration, HttpContext http, ILogger&lt;Users&gt; logger) =&gt;
+        {
+            await using var connection = await db.OpenConnectionAsync();
+            var userId = await connection.QuerySingleOrDefaultAsync&lt;Guid?&gt;(
+                """
+                UPDATE refresh_tokens SET used_at = now()
+                WHERE token_hash = @TokenHash AND used_at IS NULL AND revoked_at IS NULL AND expires_at &gt; now()
+                RETURNING user_id
+                """,
+                new { TokenHash = HashRefreshToken(request.RefreshToken) });
+
+            if (userId is null)
+            {
+                logger.LogWarning("Refresh token rejected from {Ip}", http.Connection.RemoteIpAddress);
+                return Results.Json(new { error = "The refresh token is not valid." }, statusCode: 401);
+            }
+
+            logger.LogInformation("Access token refreshed for user {UserId}", userId);
+            return Results.Ok(await IssueTokensAsync(db, configuration, userId.Value));
+        });
+    }
+
+    public static async Task RevokeAllRefreshTokensAsync(NpgsqlDataSource db, ILogger logger, Guid userId)
+    {
+        await using var connection = await db.OpenConnectionAsync();
+        var revokedCount = await connection.ExecuteAsync(
+            "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = @userId AND revoked_at IS NULL",
+            new { userId });
+        logger.LogInformation("Revoked {RevokedCount} refresh tokens for user {UserId}", revokedCount, userId);
+    }
 }</code></pre>
     </div>
   </div>
