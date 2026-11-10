@@ -21,3 +21,4 @@ security/<category>/<topic>/
 
 - [Sessions and Tokens](authentication/sessions-and-tokens/index.html) - authentication
 - [JWT](authentication/jwt/index.html) - authentication
+- [Access and Refresh Tokens](authentication/access-and-refresh-tokens/index.html) - authentication

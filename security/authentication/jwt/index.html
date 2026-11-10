@@ -98,7 +98,7 @@
         <tbody>
           <tr><td>Putting an email, address or secret in the payload</td><td>Anyone can decode it. Put only IDs and the claims APIs need.</td></tr>
           <tr><td>Reading the payload without checking the signature, for example with a <code>decode</code> function</td><td>Always use the library's <code>verify</code> function.</td></tr>
-          <tr><td>Lifetimes of hours or days</td><td>5 to 15 minutes, with refresh tokens to get new ones.</td></tr>
+          <tr><td>Lifetimes of hours or days</td><td>5 to 15 minutes, with <a href="../access-and-refresh-tokens/">refresh tokens</a> to get new ones.</td></tr>
           <tr><td>Adding every role and permission to the token</td><td>The token is sent with every request and grows fast. Keep it small and look up details on the server.</td></tr>
           <tr><td>Using the same signing key forever</td><td>Rotate keys. The <code>kid</code> header and the JWKS URL let old and new keys work side by side.</td></tr>
           <tr><td>Storing the token in <code>localStorage</code> in a browser</td><td>Any injected script can read it. Keep it in memory or use an <code>HttpOnly</code> cookie.</td></tr>
@@ -274,7 +274,7 @@
     <div class="introduces">
       <h2><span class="mark"></span>Problems it introduces</h2>
       <ul>
-        <li><strong>No way to cancel a token early</strong><span>A JWT works until <code>exp</code>. Short lifetimes and refresh tokens are needed.</span></li>
+        <li><strong>No way to cancel a token early</strong><span>A JWT works until <code>exp</code>. Short lifetimes and <a href="../access-and-refresh-tokens/">refresh tokens</a> are needed.</span></li>
         <li><strong>The payload is public</strong><span>Anyone with the token can read it, so it must hold no secrets or personal data.</span></li>
         <li><strong>Easy to check wrongly</strong><span>Skipping the algorithm or audience check opens real attacks. Use a library and set every check.</span></li>
         <li><strong>Size</strong><span>A JWT is often 300 to 1000 bytes, sent with every request.</span></li>

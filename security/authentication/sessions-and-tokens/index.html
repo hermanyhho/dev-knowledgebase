@@ -221,7 +221,7 @@
         <li data-highlight="n-api a-api-key n-key">The signature is correct and the token has not expired, so the server accepts it. The server cannot tell the attacker from the user.</li>
         <li data-highlight="n-api">Nothing about the access token is saved on the server, so the server cannot cancel it. This is why access tokens should last minutes, not days.</li>
         <li data-highlight="c-attacker g-attacker-api t-expired n-api">After 15 minutes the copied token expires, and every request with it gets <code>401</code>. The attacker has no refresh token, because the app sends it only to <code>/token/refresh</code> and never logs it.</li>
-        <li data-highlight="n-mobile a-mobile-api n-api a-api-refresh n-refresh">The real app is not affected. It uses its refresh token to get a new access token, as in the "Refresh the access token" flow.</li>
+        <li data-highlight="n-mobile a-mobile-api n-api a-api-refresh n-refresh">The real app is not affected. It uses its refresh token to get a new access token, as in the "Refresh the access token" flow. The <a href="../access-and-refresh-tokens/">access and refresh tokens</a> page shows rotation and theft detection in full.</li>
         <li data-highlight="n-api a-api-refresh n-refresh">If the user reports the problem or presses "log out on all devices", the server marks all their refresh tokens as revoked. No one can get a new access token, so within 15 minutes every copied access token is useless. If a refresh token was copied too, the "used before" check spots it when both copies are used.</li>
       </ol>
     </div>
@@ -466,7 +466,7 @@ export function requireSession(redis: Redis) {
     </div>
 
     <div class="file" data-lang="ts" data-node="api">
-      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking an access token needs only the key. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>revokeAllRefreshTokens</code> is what "log out on all devices" calls. The <a href="../jwt/">JWT</a> page covers what a token contains and every check an API should run. Rotation details and theft detection are covered on the access and refresh tokens page.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking an access token needs only the key. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>revokeAllRefreshTokens</code> is what "log out on all devices" calls. The <a href="../jwt/">JWT</a> page covers what a token contains and every check an API should run. Rotation details and theft detection are covered on the <a href="../access-and-refresh-tokens/">access and refresh tokens</a> page.</span></div>
 <pre><code>import { createHash, randomBytes } from "node:crypto";
 import { NextFunction, Request, Response, Router } from "express";
 import { SignJWT, jwtVerify } from "jose";
@@ -660,7 +660,7 @@ public static class SessionAuth
     </div>
 
     <div class="file" data-lang="cs" data-node="api">
-      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>RevokeAllRefreshTokensAsync</code> is what "log out on all devices" calls. The <a href="../jwt/">JWT</a> page covers what a token contains and every check an API should run. Rotation details and theft detection are covered on the access and refresh tokens page.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>RevokeAllRefreshTokensAsync</code> is what "log out on all devices" calls. The <a href="../jwt/">JWT</a> page covers what a token contains and every check an API should run. Rotation details and theft detection are covered on the <a href="../access-and-refresh-tokens/">access and refresh tokens</a> page.</span></div>
 <pre><code>using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;

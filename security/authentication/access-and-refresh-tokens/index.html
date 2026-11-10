@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access and Refresh Tokens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Security</a> / Authentication</div>
+    <h1>Access and Refresh Tokens</h1>
+    <p class="aka">Two tokens with different jobs: one short-lived for calling APIs, one long-lived for getting new access tokens.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>An <a href="../jwt/">access token</a> cannot be cancelled before it expires, so it should live only minutes. Asking the user for their password every 15 minutes is not acceptable, so the auth server also hands out a <strong>refresh token</strong>.</p>
+    <p>The refresh token is a long random value, saved on the server as a hash. The client sends it only to the auth server's refresh endpoint, and gets a new access token back. Because the server saves it, the server can revoke it at any time.</p>
+    <p>With <strong>rotation</strong>, every refresh also replaces the refresh token, so each one works once. All refresh tokens that come from one login form a <strong>family</strong>. If a refresh token that was already used shows up again, someone has a copy, and the server revokes the whole family.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-blue">Access token</span></td><td>A short-lived JWT sent to APIs with every request.</td><td>15 minutes</td></tr>
+          <tr><td><span class="chip tone-amber">Refresh token</span></td><td>A long-lived random value, sent only to the auth server to get a new access token.</td><td>Ends at most 30 days after login</td></tr>
+          <tr><td><span class="chip tone-amber">Rotation</span></td><td>Each refresh returns a new refresh token and marks the old one as used.</td><td>R1, then R2, then R3</td></tr>
+          <tr><td><span class="chip tone-amber">Token family</span></td><td>All refresh tokens that came from one login, on one device.</td><td><code>family_id</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Reuse detection</span></td><td>Seeing an already used refresh token again, which means a copy exists.</td><td>The whole family is revoked</td></tr>
+          <tr><td><span class="chip tone-neutral">Grace period</span></td><td>A few seconds in which a used refresh token is still accepted, for requests that crossed in flight.</td><td>10 seconds</td></tr>
+          <tr><td><span class="chip tone-neutral">Absolute expiry</span></td><td>The latest time a family can last, however often it is refreshed.</td><td>30 days after login</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> access tokens are short-lived and go to every API. Refresh tokens are long-lived, go only to the auth server, and work once.</div>
+  </section>
+
+  <section>
+    <h2>How the two tokens differ</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Access token</th><th>Refresh token</th></tr></thead>
+        <tbody>
+          <tr><td>Format</td><td>Signed JWT</td><td>Random value with no meaning</td></tr>
+          <tr><td>Lifetime</td><td>5 to 15 minutes</td><td>Days to weeks, ending at most 30 days after login</td></tr>
+          <tr><td>Sent to</td><td>Every API, on every request</td><td>Only <code>POST /auth/refresh</code> on the auth server</td></tr>
+          <tr><td>Saved on the server</td><td>No</td><td>Yes, as a hash</td></tr>
+          <tr><td>Can be revoked at once</td><td>No, it expires</td><td>Yes</td></tr>
+          <tr><td>Where a web app keeps it</td><td>In memory, in a JavaScript variable</td><td>In a cookie: <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Strict</code>, <code>Path=/auth</code></td></tr>
+          <tr><td>Where a mobile app keeps it</td><td>In memory</td><td>The phone's secure storage (Keychain, Keystore)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The cookie's <code>Path=/auth</code> means the browser sends the refresh token only to the auth endpoints, not with every API request. <code>HttpOnly</code> keeps page scripts from reading it.</p>
+  </section>
+
+  <section>
+    <h2>Cases that need care</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Case</th><th>What happens</th><th>How to handle it</th></tr></thead>
+        <tbody>
+          <tr><td>Two browser tabs refresh at the same moment</td><td>Both send R1. The second looks like reuse, and the user is logged out.</td><td>The client lets only one refresh run at a time (Web Locks API). The server also accepts reuse within a 10-second grace period.</td></tr>
+          <tr><td>The network drops after the server rotated</td><td>The client never got R2 and sends R1 again later.</td><td>Within the grace period it works. After it, the user logs in again. That is the price of reuse detection.</td></tr>
+          <tr><td>A user stays active for months</td><td>Each refresh would extend the login forever.</td><td>The family has an absolute expiry, 30 days after login. After that, the user logs in again.</td></tr>
+          <tr><td>Logout</td><td>The access token in memory is thrown away, but a copy would still work until it expires.</td><td>Revoke the family and clear the cookie. A copied access token stops within 15 minutes.</td></tr>
+          <tr><td>"Log out on all devices"</td><td>Each device has its own family.</td><td>Revoke every family of the user.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Tokens refreshed</td><td>User ID, family ID, client type, IP address</td><td>info</td></tr>
+          <tr><td>Used token sent again within the grace period</td><td>Family ID, seconds since first use</td><td>info</td></tr>
+          <tr><td>Used token sent again after the grace period</td><td>User ID, family ID, IP address, user agent. The family is revoked.</td><td>error, alert</td></tr>
+          <tr><td>Unknown, revoked or expired refresh token</td><td>IP address, reason</td><td>info</td></tr>
+          <tr><td>Logout or family revoked</td><td>User ID, family ID, reason</td><td>info</td></tr>
+          <tr><td>Metric: reuse detections per hour</td><td>Each one may be a stolen token</td><td>Alert on any rise</td></tr>
+          <tr><td>Never log</td><td>Refresh tokens, access tokens, or the <code>Cookie</code> header. Log the family ID instead.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 300" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The web app sends access tokens to the orders API and sends its refresh token to the auth server's refresh endpoint. The auth server keeps refresh tokens in a table, grouped into families.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-client" tabindex="0" role="button" aria-label="Show the web app's token code" data-title="Web app: keeps and refreshes tokens" data-node="client">
+          <rect class="shape tone-neutral" x="12" y="185" width="180" height="70" rx="6"/>
+          <text class="t-name" x="102" y="212">Web app</text>
+          <text class="t-kind" x="102" y="230">access token in memory</text>
+          <text class="t-kind" x="102" y="246">refresh token in a cookie</text>
+        </g>
+        <g class="ghost-label" id="c-attacker">
+          <rect class="shape tone-neutral" x="12" y="310" width="180" height="50" rx="6"/>
+          <text class="t-name" x="102" y="331">Attacker</text>
+          <text class="t-kind" x="102" y="348">has a copy of refresh token R1</text>
+        </g>
+
+        <g class="node" id="n-auth" tabindex="0" role="button" aria-label="Show the refresh endpoint code" data-title="Auth server: refresh, rotation and reuse detection" data-node="auth">
+          <rect class="shape tone-teal" x="360" y="95" width="200" height="70" rx="6"/>
+          <text class="t-name" x="460" y="125">Auth server</text>
+          <text class="t-kind" x="460" y="143">POST /auth/refresh</text>
+        </g>
+        <g class="node" id="n-table" tabindex="0" role="button" aria-label="Show the refresh tokens table" data-title="Refresh tokens table" data-node="table">
+          <rect class="shape tone-amber" x="360" y="295" width="200" height="60" rx="6"/>
+          <text class="t-name" x="460" y="320">refresh_tokens</text>
+          <text class="t-kind" x="460" y="338">hash, family, used, revoked</text>
+        </g>
+        <g class="node" id="n-api" tabindex="0" role="button" aria-label="Show the API's reply to an expired token" data-title="Orders API: expired access token" data-node="api">
+          <rect class="shape tone-teal" x="700" y="185" width="200" height="70" rx="6"/>
+          <text class="t-name" x="800" y="212">Orders API</text>
+          <text class="t-kind" x="800" y="230">checks access tokens only</text>
+        </g>
+
+        <path class="flow" id="a-client-api" d="M192,212 L698,212" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-api-client" d="M698,232 L194,232" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-client-auth" d="M160,185 L358,128" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-auth-client" d="M358,148 L180,198" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-auth-table" d="M460,165 L460,293" marker-end="url(#arrow)"/>
+        <path class="flow ghost blocked" id="g-attacker-auth" d="M192,330 L380,167" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-reuse" x="740" y="320">REUSE DETECTED: FAMILY REVOKED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="refresh" aria-pressed="true">Refresh an expired access token</button>
+        <button type="button" data-flow="reuse" aria-pressed="false">A copied refresh token is used</button>
+        <button type="button" data-flow="tabs" aria-pressed="false">Two tabs refresh at once</button>
+        <button type="button" data-flow="logout" aria-pressed="false">Log out</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="refresh" hidden>
+        <li data-highlight="n-client a-client-api n-api">The web app calls the orders API with its access token, kept in a JavaScript variable.</li>
+        <li data-highlight="n-api r-api-client n-client">15 minutes after it was issued, the access token has expired. The API replies <code>401</code>.</li>
+        <li data-highlight="n-client a-client-auth n-auth">The app calls <code>POST /auth/refresh</code>. The browser adds the refresh token cookie R1 by itself, because the path matches <code>/auth</code>.</li>
+        <li data-highlight="n-auth a-auth-table n-table">The auth server finds the hash of R1. It is unused, not revoked, and its family is less than 30 days old. The server marks R1 as used and saves a new token, R2, in the same family.</li>
+        <li data-highlight="n-auth r-auth-client n-client">It returns a new access token in the body and sets R2 as the new cookie.</li>
+        <li data-highlight="n-client a-client-api n-api">The app repeats the failed request with the new access token. The user notices nothing.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="reuse" hidden>
+        <li data-highlight="c-attacker">An attacker gets a copy of refresh token R1, for example through malware on the user's computer.</li>
+        <li data-highlight="n-client a-client-auth n-auth a-auth-table n-table">The real app refreshes first. R1 is marked as used, and the app gets R2.</li>
+        <li data-highlight="c-attacker g-attacker-auth n-auth a-auth-table n-table">The attacker sends R1. It was used more than 10 seconds ago, so the server knows a copy exists.</li>
+        <li data-highlight="n-auth a-auth-table n-table t-reuse">The server revokes the whole family, R2 included, and logs an error. The attacker gets <code>401</code>, and the real user must log in again.</li>
+        <li data-highlight="c-attacker g-attacker-auth n-auth n-client a-client-auth">If the attacker had refreshed first instead, the real app's next refresh with R1 would trigger the same check, and the attacker's new token would be revoked with the family. Either way, the copy stops working at the next refresh.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="tabs" hidden>
+        <li data-highlight="n-client a-client-api n-api r-api-client">The user has two tabs open. Both get <code>401</code> at the same moment, because they share the expired access token.</li>
+        <li data-highlight="n-client">Without care, both tabs would send R1. The second request would look like reuse, and the user would be logged out.</li>
+        <li data-highlight="n-client a-client-auth n-auth">The client takes a browser lock (Web Locks API) before refreshing. Tab A refreshes and receives R2 in the shared cookie. Tab B waits, then refreshes with R2.</li>
+        <li data-highlight="n-auth a-auth-table n-table">The server also accepts a used token for 10 seconds, for clients without the lock or requests that crossed in flight. It still rotates, but does not revoke the family.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="logout" hidden>
+        <li data-highlight="n-client a-client-auth n-auth">The user presses "Log out". The app calls <code>POST /auth/logout</code>, and the browser adds the refresh token cookie.</li>
+        <li data-highlight="n-auth a-auth-table n-table">The server revokes every token in that family.</li>
+        <li data-highlight="n-auth r-auth-client n-client">It clears the cookie. The app throws away the access token in memory.</li>
+        <li data-highlight="n-api">A copied access token would still work for up to 15 minutes, because APIs do not look up tokens. That limit is why access tokens are short.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Client</span>
+      <span class="chip tone-teal">Server</span>
+      <span class="chip tone-amber">Refresh tokens</span>
+      <span>Replies and the attacker show during a flow. Click a box to see its code or data.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="db/refresh_tokens.sql"><span class="path">├─ db/refresh_tokens.sql</span><span class="chip tone-amber">Refresh tokens</span></button>
+      <button type="button" class="tree-row" data-file="examples/refresh-requests.http"><span class="path">├─ examples/refresh-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/expired-access-token.http"><span class="path">├─ examples/expired-access-token.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="web-app/src/tokenClient.ts"><span class="path">├─ web-app/src/tokenClient.ts</span><span class="chip tone-neutral">Client</span></button>
+      <button type="button" class="tree-row" data-file="auth-server/src/refreshTokens.ts"><span class="path">└─ auth-server/src/refreshTokens.ts</span><span class="chip tone-teal">Auth server</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="db/refresh_tokens.sql"><span class="path">├─ db/refresh_tokens.sql</span><span class="chip tone-amber">Refresh tokens</span></button>
+      <button type="button" class="tree-row" data-file="examples/refresh-requests.http"><span class="path">├─ examples/refresh-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/expired-access-token.http"><span class="path">├─ examples/expired-access-token.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="web-app/src/tokenClient.ts"><span class="path">├─ web-app/src/tokenClient.ts</span><span class="chip tone-neutral">Client</span></button>
+      <button type="button" class="tree-row" data-file="src/AuthServer/RefreshTokenEndpoints.cs"><span class="path">└─ src/AuthServer/RefreshTokenEndpoints.cs</span><span class="chip tone-teal">Auth server</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Long-lived tokens that cannot be cancelled</strong><span>Access tokens last minutes. Logging out revokes the refresh token, and nothing new can be issued.</span></li>
+        <li><strong>Asking for the password often</strong><span>The client gets new access tokens in the background, for up to 30 days.</span></li>
+        <li><strong>Not knowing a token was copied</strong><span>With rotation, a used refresh token showing up again proves a copy exists.</span></li>
+        <li><strong>The long-lived secret going everywhere</strong><span>The refresh token goes only to the auth server, never to APIs or their logs.</span></li>
+        <li><strong>APIs looking up every token</strong><span>APIs still check access tokens with a public key only. Lookups happen only on refresh, every 15 minutes per user.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>A server-side table again</strong><span>Refresh tokens must be saved, looked up and cleaned up, much like sessions.</span></li>
+        <li><strong>Race conditions</strong><span>Parallel refreshes from tabs or retries can look like theft. Locks and a grace period are needed.</span></li>
+        <li><strong>A short gap after logout</strong><span>A copied access token keeps working until it expires.</span></li>
+        <li><strong>More client code</strong><span>The client must spot <code>401</code>, refresh once, retry the request and handle a failed refresh by sending the user to log in.</span></li>
+        <li><strong>Users logged out by mistake</strong><span>A lost response outside the grace period looks like reuse and ends the login.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="table">
+      <div class="file-head"><span class="chip tone-amber">Refresh tokens</span><span class="name">db/refresh_tokens.sql</span><span class="why">One row per refresh token. Only a hash is saved, so a copy of the table cannot be used. <code>family_id</code> groups the tokens from one login, so one statement can revoke them all. <code>family_expires_at</code> is copied to each row, so the 30-day limit holds however often the family is refreshed.</span></div>
+<pre><code>CREATE TABLE refresh_tokens (
+  token_hash         TEXT PRIMARY KEY,
+  family_id          UUID NOT NULL,
+  user_id            UUID NOT NULL,
+  family_expires_at  TIMESTAMPTZ NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  used_at            TIMESTAMPTZ,
+  revoked_at         TIMESTAMPTZ
+);
+
+CREATE INDEX refresh_tokens_by_family ON refresh_tokens (family_id);
+CREATE INDEX refresh_tokens_by_user ON refresh_tokens (user_id) WHERE revoked_at IS NULL;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-http">
+    <div class="file" data-lang="any" data-node="requests">
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/refresh-requests.http</span><span class="why">The refresh token travels only as a cookie on <code>/auth</code> requests. The access token comes back in the body, because page code needs to read it.</span></div>
+<pre><code>POST /auth/refresh HTTP/1.1
+Host: auth.shop.example.com
+Cookie: refresh_token=&lt;R1&gt;
+
+HTTP/1.1 200 OK
+Set-Cookie: refresh_token=&lt;R2&gt;; Path=/auth; Max-Age=2592000; HttpOnly; Secure; SameSite=Strict
+Content-Type: application/json
+
+{ "accessToken": "&lt;new JWT&gt;", "expiresIn": 900 }
+
+
+POST /auth/refresh HTTP/1.1
+Host: auth.shop.example.com
+Cookie: refresh_token=&lt;R1, already used a minute ago&gt;
+
+HTTP/1.1 401 Unauthorized
+Set-Cookie: refresh_token=; Path=/auth; Max-Age=0; HttpOnly; Secure; SameSite=Strict
+Content-Type: application/json
+
+{ "error": "The login has ended. Log in again." }</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="api">
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/expired-access-token.http</span><span class="why">The API only checks access tokens, as on the <a href="../jwt/">JWT</a> page. The <code>WWW-Authenticate</code> header tells the client the token expired, which is its signal to refresh.</span></div>
+<pre><code>GET /orders HTTP/1.1
+Host: orders.shop.example.com
+Authorization: Bearer &lt;JWT issued 16 minutes ago&gt;
+
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="The token expired at '11/10/2026 09:15:00'"</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="client">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">web-app/src/tokenClient.ts</span><span class="why">The access token lives only in a variable, so it is gone on reload; the first call then refreshes. <code>navigator.locks</code> lets one tab refresh at a time across all tabs, and <code>refreshInFlight</code> makes calls in one tab share a single refresh. The same code serves the TypeScript and C# servers.</span></div>
+<pre><code>let accessToken: string | null = null;
+let refreshInFlight: Promise&lt;string&gt; | null = null;
+
+async function refreshAccessToken(): Promise&lt;string&gt; {
+  const response = await fetch("https://auth.shop.example.com/auth/refresh", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    accessToken = null;
+    window.location.assign("/login");
+    throw new Error("The login has ended.");
+  }
+
+  const body: { accessToken: string } = await response.json();
+  accessToken = body.accessToken;
+  return body.accessToken;
+}
+
+function refreshOnce(): Promise&lt;string&gt; {
+  refreshInFlight ??= navigator.locks
+    .request("token-refresh", refreshAccessToken)
+    .finally(() =&gt; {
+      refreshInFlight = null;
+    });
+  return refreshInFlight;
+}
+
+function withAccessToken(init: RequestInit, token: string): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  return { ...init, headers };
+}
+
+export async function callApi(url: string, init: RequestInit = {}): Promise&lt;Response&gt; {
+  const token = accessToken ?? (await refreshOnce());
+  const response = await fetch(url, withAccessToken(init, token));
+  if (response.status !== 401) return response;
+
+  const newToken = await refreshOnce();
+  return fetch(url, withAccessToken(init, newToken));
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="auth">
+      <div class="file-head"><span class="chip tone-teal">Auth server</span><span class="name">auth-server/src/refreshTokens.ts</span><span class="why"><code>FOR UPDATE</code> locks the token's row, so two refreshes with the same token are handled one after the other. A token used more than 10 seconds ago revokes its whole family. <code>issueAccessToken</code> is the function from the JWT page.</span></div>
+<pre><code>import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { Router, Response } from "express";
+import { Pool, PoolClient } from "pg";
+import { Logger } from "pino";
+import { issueAccessToken } from "./tokens";
+
+const cookieName = "refresh_token";
+const familyLifetimeDays = 30;
+const gracePeriodSeconds = 10;
+
+type StoredRefreshToken = {
+  token_hash: string;
+  family_id: string;
+  user_id: string;
+  family_expires_at: Date;
+  used_at: Date | null;
+  revoked_at: Date | null;
+};
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+async function saveNewRefreshToken(
+  transaction: Pool | PoolClient,
+  family: { familyId: string; userId: string; familyExpiresAt: Date },
+): Promise&lt;string&gt; {
+  const refreshToken = randomBytes(32).toString("base64url");
+  await transaction.query(
+    `INSERT INTO refresh_tokens (token_hash, family_id, user_id, family_expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [hashToken(refreshToken), family.familyId, family.userId, family.familyExpiresAt],
+  );
+  return refreshToken;
+}
+
+function setRefreshCookie(res: Response, refreshToken: string, familyExpiresAt: Date): void {
+  res.cookie(cookieName, refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    path: "/auth",
+    expires: familyExpiresAt,
+  });
+}
+
+export async function startTokenFamily(db: Pool, res: Response, userId: string): Promise&lt;string&gt; {
+  const family = {
+    familyId: randomUUID(),
+    userId,
+    familyExpiresAt: new Date(Date.now() + familyLifetimeDays * 24 * 60 * 60 * 1000),
+  };
+  setRefreshCookie(res, await saveNewRefreshToken(db, family), family.familyExpiresAt);
+  return issueAccessToken(userId, "orders-api", "orders:read orders:write");
+}
+
+export function refreshRoutes(db: Pool, logger: Logger): Router {
+  const router = Router();
+
+  router.post("/auth/refresh", async (req, res) =&gt; {
+    const presentedToken: string | undefined = req.cookies[cookieName];
+    const transaction = await db.connect();
+    try {
+      await transaction.query("BEGIN");
+      const { rows: [stored] } = await transaction.query&lt;StoredRefreshToken&gt;(
+        "SELECT * FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE",
+        [hashToken(presentedToken ?? "")],
+      );
+
+      if (!stored || stored.revoked_at || stored.family_expires_at &lt; new Date()) {
+        await transaction.query("ROLLBACK");
+        logger.info({ ip: req.ip, reason: stored ? "revoked or expired" : "unknown" }, "refresh rejected");
+        res.clearCookie(cookieName, { path: "/auth" });
+        return res.status(401).json({ error: "The login has ended. Log in again." });
+      }
+
+      const secondsSinceUse = stored.used_at ? (Date.now() - stored.used_at.getTime()) / 1000 : null;
+      if (secondsSinceUse !== null &amp;&amp; secondsSinceUse &gt; gracePeriodSeconds) {
+        await transaction.query(
+          "UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL",
+          [stored.family_id],
+        );
+        await transaction.query("COMMIT");
+        logger.error(
+          { userId: stored.user_id, familyId: stored.family_id, ip: req.ip, userAgent: req.get("user-agent") },
+          "refresh token used again after the grace period, family revoked",
+        );
+        res.clearCookie(cookieName, { path: "/auth" });
+        return res.status(401).json({ error: "The login has ended. Log in again." });
+      }
+
+      if (!stored.used_at) {
+        await transaction.query("UPDATE refresh_tokens SET used_at = now() WHERE token_hash = $1", [stored.token_hash]);
+      }
+      const family = { familyId: stored.family_id, userId: stored.user_id, familyExpiresAt: stored.family_expires_at };
+      const newRefreshToken = await saveNewRefreshToken(transaction, family);
+      await transaction.query("COMMIT");
+
+      setRefreshCookie(res, newRefreshToken, stored.family_expires_at);
+      const accessToken = await issueAccessToken(stored.user_id, "orders-api", "orders:read orders:write");
+      logger.info(
+        { userId: stored.user_id, familyId: stored.family_id, withinGracePeriod: secondsSinceUse !== null },
+        "tokens refreshed",
+      );
+      res.json({ accessToken, expiresIn: 900 });
+    } catch (error) {
+      await transaction.query("ROLLBACK");
+      throw error;
+    } finally {
+      transaction.release();
+    }
+  });
+
+  router.post("/auth/logout", async (req, res) =&gt; {
+    const presentedToken: string | undefined = req.cookies[cookieName];
+    const revoked = await db.query(
+      `UPDATE refresh_tokens SET revoked_at = now()
+       WHERE family_id = (SELECT family_id FROM refresh_tokens WHERE token_hash = $1)
+         AND revoked_at IS NULL
+       RETURNING user_id, family_id`,
+      [hashToken(presentedToken ?? "")],
+    );
+    if (revoked.rows[0]) {
+      logger.info({ userId: revoked.rows[0].user_id, familyId: revoked.rows[0].family_id, reason: "logout" }, "family revoked");
+    }
+    res.clearCookie(cookieName, { path: "/auth" });
+    res.status(204).end();
+  });
+
+  return router;
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="auth">
+      <div class="file-head"><span class="chip tone-teal">Auth server</span><span class="name">src/AuthServer/RefreshTokenEndpoints.cs</span><span class="why"><code>FOR UPDATE</code> locks the token's row, so two refreshes with the same token are handled one after the other. A token used more than 10 seconds ago revokes its whole family. <code>TokenIssuer</code> is the class from the JWT page.</span></div>
+<pre><code>using System.Security.Cryptography;
+using System.Text;
+using Dapper;
+using Microsoft.AspNetCore.WebUtilities;
+using Npgsql;
+
+namespace AuthServer;
+
+record StoredRefreshToken(
+    string TokenHash, Guid FamilyId, Guid UserId, DateTime FamilyExpiresAt, DateTime? UsedAt, DateTime? RevokedAt);
+
+public static class RefreshTokenEndpoints
+{
+    private const string CookieName = "refresh_token";
+    private const int FamilyLifetimeDays = 30;
+    private static readonly TimeSpan GracePeriod = TimeSpan.FromSeconds(10);
+
+    private static string HashToken(string token) =&gt;
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+
+    private static async Task&lt;string&gt; SaveNewRefreshTokenAsync(
+        NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid familyId, Guid userId, DateTime familyExpiresAt)
+    {
+        var refreshToken = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        await connection.ExecuteAsync(
+            """
+            INSERT INTO refresh_tokens (token_hash, family_id, user_id, family_expires_at)
+            VALUES (@TokenHash, @familyId, @userId, @familyExpiresAt)
+            """,
+            new { TokenHash = HashToken(refreshToken), familyId, userId, familyExpiresAt }, transaction);
+        return refreshToken;
+    }
+
+    private static void SetRefreshCookie(HttpResponse response, string refreshToken, DateTime familyExpiresAt) =&gt;
+        response.Cookies.Append(CookieName, refreshToken, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/auth",
+            Expires = familyExpiresAt,
+        });
+
+    private static void ClearRefreshCookie(HttpResponse response) =&gt;
+        response.Cookies.Delete(CookieName, new CookieOptions { Path = "/auth" });
+
+    public static async Task&lt;string&gt; StartTokenFamilyAsync(NpgsqlDataSource db, TokenIssuer issuer, HttpResponse response, Guid userId)
+    {
+        var familyExpiresAt = DateTime.UtcNow.AddDays(FamilyLifetimeDays);
+        await using var connection = await db.OpenConnectionAsync();
+        var refreshToken = await SaveNewRefreshTokenAsync(connection, null, Guid.NewGuid(), userId, familyExpiresAt);
+        SetRefreshCookie(response, refreshToken, familyExpiresAt);
+        return issuer.IssueAccessToken(userId, "orders-api", "orders:read orders:write");
+    }
+
+    public static void MapRefreshTokenEndpoints(this WebApplication app)
+    {
+        app.MapPost("/auth/refresh", async (HttpContext http, NpgsqlDataSource db, TokenIssuer issuer, ILogger&lt;TokenIssuer&gt; logger) =&gt;
+        {
+            var presentedToken = http.Request.Cookies[CookieName] ?? "";
+            await using var connection = await db.OpenConnectionAsync();
+            await using var transaction = await connection.BeginTransactionAsync();
+
+            var stored = await connection.QuerySingleOrDefaultAsync&lt;StoredRefreshToken&gt;(
+                """
+                SELECT token_hash AS TokenHash, family_id AS FamilyId, user_id AS UserId,
+                       family_expires_at AS FamilyExpiresAt, used_at AS UsedAt, revoked_at AS RevokedAt
+                FROM refresh_tokens WHERE token_hash = @TokenHash FOR UPDATE
+                """,
+                new { TokenHash = HashToken(presentedToken) }, transaction);
+
+            if (stored is null || stored.RevokedAt is not null || stored.FamilyExpiresAt &lt; DateTime.UtcNow)
+            {
+                logger.LogInformation("Refresh rejected from {Ip}: {Reason}",
+                    http.Connection.RemoteIpAddress, stored is null ? "unknown" : "revoked or expired");
+                ClearRefreshCookie(http.Response);
+                return Results.Json(new { error = "The login has ended. Log in again." }, statusCode: 401);
+            }
+
+            var timeSinceUse = DateTime.UtcNow - stored.UsedAt;
+            if (timeSinceUse &gt; GracePeriod)
+            {
+                await connection.ExecuteAsync(
+                    "UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = @FamilyId AND revoked_at IS NULL",
+                    new { stored.FamilyId }, transaction);
+                await transaction.CommitAsync();
+                logger.LogError("Refresh token for user {UserId} used again after the grace period, family {FamilyId} revoked, IP {Ip}",
+                    stored.UserId, stored.FamilyId, http.Connection.RemoteIpAddress);
+                ClearRefreshCookie(http.Response);
+                return Results.Json(new { error = "The login has ended. Log in again." }, statusCode: 401);
+            }
+
+            if (stored.UsedAt is null)
+                await connection.ExecuteAsync("UPDATE refresh_tokens SET used_at = now() WHERE token_hash = @TokenHash",
+                    new { stored.TokenHash }, transaction);
+
+            var newRefreshToken = await SaveNewRefreshTokenAsync(connection, transaction, stored.FamilyId, stored.UserId, stored.FamilyExpiresAt);
+            await transaction.CommitAsync();
+
+            SetRefreshCookie(http.Response, newRefreshToken, stored.FamilyExpiresAt);
+            logger.LogInformation("Tokens refreshed for user {UserId}, family {FamilyId}, within grace period: {WithinGracePeriod}",
+                stored.UserId, stored.FamilyId, stored.UsedAt is not null);
+            return Results.Ok(new
+            {
+                accessToken = issuer.IssueAccessToken(stored.UserId, "orders-api", "orders:read orders:write"),
+                expiresIn = 900,
+            });
+        });
+
+        app.MapPost("/auth/logout", async (HttpContext http, NpgsqlDataSource db, ILogger&lt;TokenIssuer&gt; logger) =&gt;
+        {
+            var presentedToken = http.Request.Cookies[CookieName] ?? "";
+            await using var connection = await db.OpenConnectionAsync();
+            var familyId = await connection.QuerySingleOrDefaultAsync&lt;Guid?&gt;(
+                """
+                UPDATE refresh_tokens SET revoked_at = now()
+                WHERE family_id = (SELECT family_id FROM refresh_tokens WHERE token_hash = @TokenHash)
+                  AND revoked_at IS NULL
+                RETURNING family_id
+                """,
+                new { TokenHash = HashToken(presentedToken) });
+
+            if (familyId is not null)
+                logger.LogInformation("Family {FamilyId} revoked, reason {Reason}", familyId, "logout");
+
+            ClearRefreshCookie(http.Response);
+            return Results.NoContent();
+        });
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-http.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
