@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transactional Outbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Architecture</a> / Messaging and events</div>
+    <h1>Transactional Outbox</h1>
+    <p class="aka">Usually called the <strong>outbox pattern</strong>. Makes sure an event is sent if, and only if, the data change it describes was saved.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A service often has to do two things for one action: save data in its database and publish an event to a broker such as Kafka. These are two separate systems, and no transaction covers both. This is called a <strong>dual write</strong>. If the service stops between the two steps, the data is saved but the event is never sent.</p>
+    <p>The outbox pattern removes the second write from the request. The service saves the event as a row in an <strong>outbox</strong> table, in the same database transaction as the data. A separate process, the <strong>relay</strong>, reads new outbox rows and publishes them to the broker.</p>
+    <p>The relay can publish a row and stop before marking it as sent, so the same event can be published twice. Consumers must therefore skip duplicates, as shown on the <a href="../event-driven/">event-driven architecture</a> page.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Dual write</span></td><td>Writing to two systems, such as a database and a broker, for one action, with no transaction across both.</td><td>Save the order, then publish to Kafka</td></tr>
+          <tr><td><span class="chip tone-amber">Outbox table</span></td><td>A table in the service's own database that holds events waiting to be published.</td><td><code>outbox</code></td></tr>
+          <tr><td><span class="chip tone-teal">Relay</span></td><td>A background process that reads unsent outbox rows, publishes them and marks them as sent.</td><td>Outbox relay in the order service</td></tr>
+          <tr><td><span class="chip tone-teal">Polling publisher</span></td><td>A relay that queries the outbox table on a timer.</td><td>Every second</td></tr>
+          <tr><td><span class="chip tone-teal">Change data capture</span></td><td>A relay that reads the database's own change log instead of querying the table. Often shortened to CDC.</td><td>Debezium</td></tr>
+          <tr><td><span class="chip tone-amber">Inbox</span></td><td>The consumer-side partner: a table of event IDs already handled, used to skip duplicates.</td><td><code>processed_events</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> the data change and its event are saved in the same database transaction. Only the relay talks to the broker.</div>
+  </section>
+
+  <section>
+    <h2>Two ways the relay can find new rows</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Polling publisher</th><th>Change data capture (Debezium)</th></tr></thead>
+        <tbody>
+          <tr><td>How it finds new rows</td><td>Runs a query on a timer: unsent rows, oldest first</td><td>Reads the database's write-ahead log, the file where Postgres records every change</td></tr>
+          <tr><td>Delay before publishing</td><td>Up to one polling interval, for example 1 second</td><td>Usually milliseconds</td></tr>
+          <tr><td>Load on the database</td><td>A query every interval, even when there is nothing to send</td><td>Reads the log only, no extra queries</td></tr>
+          <tr><td>Marking rows as sent</td><td>Updates <code>sent_at</code> on each row</td><td>Not needed. Rows can be deleted right after they are written.</td></tr>
+          <tr><td>Setup</td><td>Some code in your service</td><td>Kafka Connect, Debezium and database log settings</td></tr>
+          <tr><td>Good for</td><td>Small and medium volume, simple setups</td><td>High volume, or when many services use outboxes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <p>With an outbox, a request can succeed while its event waits. If the relay stops, nothing fails visibly, but events pile up. Watch the outbox itself, not only the logs.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Service, after the transaction commits</td><td>Order ID, event ID, event type, correlation ID</td><td>info</td></tr>
+          <tr><td>Relay, after publishing a row</td><td>Event ID, event type, topic, partition, offset, correlation ID read from the row</td><td>info</td></tr>
+          <tr><td>Relay, when a batch fails</td><td>Error message. The rows stay unsent and are tried on the next poll.</td><td>warn</td></tr>
+          <tr><td>Metric: age of the oldest unsent row</td><td>How long the oldest waiting event has waited</td><td>Alert if over 1 minute</td></tr>
+          <tr><td>Metric: number of unsent rows</td><td>How many events are waiting</td><td>Alert if it keeps growing</td></tr>
+          <tr><td>Cleanup job</td><td>Number of sent rows deleted</td><td>info</td></tr>
+          <tr><td>Never log</td><td>The event payload when it holds personal data, such as email addresses</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The correlation ID is saved in the outbox row, so the relay can put it back in the Kafka headers. Without that column, the link between the HTTP request and the event would be lost at the relay.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 60 920 300" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The order service writes to the orders table and the outbox table in one transaction. The outbox relay reads the outbox table, publishes to the Kafka orders topic and marks rows as sent. The inventory service reads the orders topic.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="330" y="95" width="230" height="240" rx="10"/>
+        <text class="t-label" x="445" y="114">POSTGRES</text>
+        <rect class="frame copy" x="345" y="125" width="200" height="145" rx="8"/>
+        <text class="t-label" x="445" y="292">ONE TRANSACTION</text>
+
+        <g id="c-client">
+          <rect class="shape tone-neutral" x="12" y="170" width="110" height="44" rx="6"/>
+          <text class="t-name" x="67" y="197">Client</text>
+        </g>
+
+        <g class="node" id="n-order" tabindex="0" role="button" aria-label="Show code for the order service" data-title="Order service: saves the order and the event" data-node="order">
+          <rect class="shape tone-teal" x="150" y="160" width="150" height="64" rx="6"/>
+          <text class="t-name" x="225" y="188">Order service</text>
+          <text class="t-kind" x="225" y="206">PlaceOrder handler</text>
+        </g>
+
+        <g class="node" id="n-orders-table" tabindex="0" role="button" aria-label="Show the table definitions" data-title="Tables: orders and outbox" data-node="schema">
+          <rect class="shape tone-amber" x="360" y="138" width="170" height="50" rx="6"/>
+          <text class="t-name" x="445" y="159">orders</text>
+          <text class="t-kind" x="445" y="176">table</text>
+        </g>
+        <g class="node" id="n-outbox-table" tabindex="0" role="button" aria-label="Show the table definitions" data-title="Tables: orders and outbox" data-node="schema">
+          <rect class="shape tone-amber" x="360" y="208" width="170" height="50" rx="6"/>
+          <text class="t-name" x="445" y="229">outbox</text>
+          <text class="t-kind" x="445" y="246">table of unsent events</text>
+        </g>
+
+        <g class="node" id="n-relay" tabindex="0" role="button" aria-label="Show code for the outbox relay" data-title="Outbox relay" data-node="relay">
+          <rect class="shape tone-teal" x="590" y="208" width="140" height="50" rx="6"/>
+          <text class="t-name" x="660" y="229">Outbox relay</text>
+          <text class="t-kind" x="660" y="246">background worker</text>
+        </g>
+        <g class="node" id="n-kafka" tabindex="0" role="button" aria-label="Show a published Kafka message" data-title="Kafka message in the orders topic" data-node="kafka">
+          <rect class="shape tone-blue" x="760" y="208" width="145" height="50" rx="6"/>
+          <text class="t-name" x="832" y="229">orders topic</text>
+          <text class="t-kind" x="832" y="246">Kafka</text>
+        </g>
+        <g class="node" id="n-inventory" tabindex="0" role="button" aria-label="Show code for the inventory service" data-title="Inventory service: skips duplicates" data-node="inventory">
+          <rect class="shape tone-teal" x="760" y="296" width="145" height="50" rx="6"/>
+          <text class="t-name" x="832" y="317">Inventory service</text>
+          <text class="t-kind" x="832" y="334">consumer</text>
+        </g>
+
+        <path class="flow" id="a-client-order" d="M122,192 L148,192" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-orders" d="M300,180 L358,164" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-outbox" d="M300,206 L358,232" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-outbox-relay" d="M530,226 L588,226" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-relay-outbox" d="M588,244 L532,244" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-relay-kafka" d="M730,233 L758,233" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-kafka-inventory" d="M832,258 L832,294" marker-end="url(#arrow)"/>
+        <path class="flow ghost blocked" id="g-order-kafka" d="M225,160 L225,82 L832,82 L832,206" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-lost" x="528" y="76">EVENT LOST IF THE SERVICE STOPS BEFORE THIS CALL</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="outbox" aria-pressed="true">Place an order with an outbox</button>
+        <button type="button" data-flow="without" aria-pressed="false">Without an outbox</button>
+        <button type="button" data-flow="relay-stops" aria-pressed="false">The relay stops after publishing</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="outbox" hidden>
+        <li data-highlight="c-client a-client-order n-order">The order service receives <code>POST /orders</code>.</li>
+        <li data-highlight="n-order a-order-orders n-orders-table a-order-outbox n-outbox-table">In one database transaction, it inserts the order row and an outbox row that holds the <code>OrderPlaced</code> event and the correlation ID. Both are saved, or neither is.</li>
+        <li data-highlight="n-order">It commits and replies <code>201</code>. It has not talked to Kafka at all, so the request works even when Kafka is down.</li>
+        <li data-highlight="n-outbox-table a-outbox-relay n-relay">The outbox relay checks the table every second and finds the unsent row.</li>
+        <li data-highlight="n-relay a-relay-kafka n-kafka">It publishes the event to the <code>orders</code> topic, with the order ID as key and the saved correlation ID in the headers.</li>
+        <li data-highlight="n-relay r-relay-outbox n-outbox-table">It marks the row as sent by setting <code>sent_at</code>.</li>
+        <li data-highlight="n-kafka a-kafka-inventory n-inventory">Inventory reads <code>OrderPlaced</code> as usual.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="without" hidden>
+        <li data-highlight="n-order a-order-orders n-orders-table">The order service saves the order and commits.</li>
+        <li data-highlight="n-order g-order-kafka t-lost n-kafka">Then it calls Kafka directly. If the service stops, the network fails or Kafka is down at that moment, the event is never sent.</li>
+        <li data-highlight="n-orders-table">The order exists, but Inventory never reserves stock and the customer gets no email. Nothing tries again, because nothing recorded that an event was due.</li>
+        <li data-highlight="n-order n-kafka">Publishing to Kafka first does not help. If the insert then fails, other services act on an order that does not exist.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="relay-stops" hidden>
+        <li data-highlight="n-relay a-relay-kafka n-kafka">The relay publishes <code>OrderPlaced</code> to Kafka. Then it stops before it marks the row as sent.</li>
+        <li data-highlight="n-outbox-table a-outbox-relay n-relay">When it starts again, the row is still unsent, so it publishes the same event again.</li>
+        <li data-highlight="n-kafka a-kafka-inventory n-inventory">Inventory gets <code>OrderPlaced</code> twice. Its <code>processed_events</code> table already holds the event ID, so it skips the second copy. The outbox gives at-least-once delivery, and the consumer handles duplicates.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Service or worker</span>
+      <span class="chip tone-amber">Table</span>
+      <span class="chip tone-blue">Kafka</span>
+      <span>The dashed box is the database transaction. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="db/schema.sql"><span class="path">├─ db/schema.sql</span><span class="chip tone-amber">Tables</span></button>
+      <button type="button" class="tree-row" data-file="db/outbox-maintenance.sql"><span class="path">├─ db/outbox-maintenance.sql</span><span class="chip tone-amber">Monitoring and cleanup</span></button>
+      <button type="button" class="tree-row" data-file="deploy/debezium-outbox-connector.json"><span class="path">├─ deploy/debezium-outbox-connector.json</span><span class="chip tone-neutral">CDC relay option</span></button>
+      <button type="button" class="tree-row" data-file="order-service/src/placeOrder.ts"><span class="path">├─ order-service/src/placeOrder.ts</span><span class="chip tone-teal">Writes the outbox</span></button>
+      <button type="button" class="tree-row" data-file="order-service/src/outboxRelay.ts"><span class="path">├─ order-service/src/outboxRelay.ts</span><span class="chip tone-teal">Relay</span></button>
+      <button type="button" class="tree-row" data-file="inventory-service/src/orderPlacedConsumer.ts"><span class="path">├─ inventory-service/src/orderPlacedConsumer.ts</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="examples/kafka-message.json"><span class="path">└─ examples/kafka-message.json</span><span class="chip tone-blue">Published message</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="db/schema.sql"><span class="path">├─ db/schema.sql</span><span class="chip tone-amber">Tables</span></button>
+      <button type="button" class="tree-row" data-file="db/outbox-maintenance.sql"><span class="path">├─ db/outbox-maintenance.sql</span><span class="chip tone-amber">Monitoring and cleanup</span></button>
+      <button type="button" class="tree-row" data-file="deploy/debezium-outbox-connector.json"><span class="path">├─ deploy/debezium-outbox-connector.json</span><span class="chip tone-neutral">CDC relay option</span></button>
+      <button type="button" class="tree-row" data-file="src/OrderService/PlaceOrderHandler.cs"><span class="path">├─ src/OrderService/PlaceOrderHandler.cs</span><span class="chip tone-teal">Writes the outbox</span></button>
+      <button type="button" class="tree-row" data-file="src/OrderService/OutboxRelay.cs"><span class="path">├─ src/OrderService/OutboxRelay.cs</span><span class="chip tone-teal">Relay</span></button>
+      <button type="button" class="tree-row" data-file="src/InventoryService/OrderPlacedConsumer.cs"><span class="path">├─ src/InventoryService/OrderPlacedConsumer.cs</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="examples/kafka-message.json"><span class="path">└─ examples/kafka-message.json</span><span class="chip tone-blue">Published message</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Lost events</strong><span>The event is saved with the data. If publishing fails, the row stays unsent and the relay tries again.</span></li>
+        <li><strong>Events for changes that never happened</strong><span>The event exists only if the transaction committed, so consumers never see an order that was rolled back.</span></li>
+        <li><strong>Requests that fail when the broker is down</strong><span>The request only needs the database. Events wait in the table until Kafka is back.</span></li>
+        <li><strong>No record of what was sent</strong><span>The outbox table shows every event, when it was created and when it was sent.</span></li>
+        <li><strong>Lost replies in consumers</strong><span>A consumer that also publishes, such as Inventory, writes its reply to its own outbox in the same transaction as its work.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Duplicate events</strong><span>The relay can publish a row twice, so every consumer must skip duplicates.</span></li>
+        <li><strong>A short delay</strong><span>A polling relay adds up to one interval, for example 1 second, before an event is published.</span></li>
+        <li><strong>Another process to run</strong><span>The relay must run, be monitored and recover after a crash, or events silently pile up.</span></li>
+        <li><strong>The table keeps growing</strong><span>Sent rows need a cleanup job, or queries on the table get slower.</span></li>
+        <li><strong>Extra database load</strong><span>Polling runs a query every interval. A partial index on unsent rows keeps it fast.</span></li>
+        <li><strong>Order with several relay copies</strong><span>Two relays can pick rows out of order. Run one relay, or make sure each copy handles different message keys.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="schema">
+      <div class="file-head"><span class="chip tone-amber">Tables</span><span class="name">db/schema.sql</span><span class="why"><code>id</code> grows with each insert, so the relay sends rows in the order they were written. The partial index covers only unsent rows, so the relay's query stays fast as the table grows. <code>correlation_id</code> keeps the link to the original request.</span></div>
+<pre><code>CREATE TABLE orders (
+  id              UUID PRIMARY KEY,
+  customer_email  TEXT NOT NULL,
+  total           NUMERIC(10, 2) NOT NULL,
+  status          TEXT NOT NULL
+);
+
+CREATE TABLE outbox (
+  id              BIGSERIAL PRIMARY KEY,
+  event_id        TEXT NOT NULL UNIQUE,
+  topic           TEXT NOT NULL,
+  message_key     TEXT NOT NULL,
+  event_type      TEXT NOT NULL,
+  payload         JSONB NOT NULL,
+  correlation_id  TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at         TIMESTAMPTZ
+);
+
+CREATE INDEX outbox_unsent ON outbox (id) WHERE sent_at IS NULL;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="maintenance">
+      <div class="file-head"><span class="chip tone-amber">Monitoring and cleanup</span><span class="name">db/outbox-maintenance.sql</span><span class="why">The first query feeds the two metrics from the monitoring table. The second runs once a day and keeps the table small.</span></div>
+<pre><code>SELECT
+  count(*) AS unsent_events,
+  COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)), 0) AS oldest_unsent_age_seconds
+FROM outbox
+WHERE sent_at IS NULL;
+
+DELETE FROM outbox
+WHERE sent_at &lt; now() - INTERVAL '7 days';</code></pre>
+    </div>
+  </div>
+
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="cdc">
+      <div class="file-head"><span class="chip tone-neutral">CDC relay option</span><span class="name">deploy/debezium-outbox-connector.json</span><span class="why">Instead of the polling relay: Debezium reads the Postgres write-ahead log and turns each new outbox row into a Kafka message. Its outbox event router sends each row to the topic named in the <code>topic</code> column.</span></div>
+<pre><code>{
+  "name": "orders-outbox",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "orders-db",
+    "database.dbname": "orders",
+    "topic.prefix": "orders-db",
+    "table.include.list": "public.outbox",
+    "transforms": "outbox",
+    "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.outbox.table.field.event.id": "event_id",
+    "transforms.outbox.table.field.event.key": "message_key",
+    "transforms.outbox.table.field.event.payload": "payload",
+    "transforms.outbox.route.by.field": "topic",
+    "transforms.outbox.route.topic.replacement": "${routedByValue}"
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="kafka">
+      <div class="file-head"><span class="chip tone-blue">Published message</span><span class="name">examples/kafka-message.json</span><span class="why">What the relay puts in Kafka. The key and headers come from the outbox row columns, and the value is the stored payload.</span></div>
+<pre><code>{
+  "topic": "orders",
+  "partition": 1,
+  "offset": 1041,
+  "key": "42",
+  "headers": { "correlation-id": "c-7a91", "causation-id": "c-7a91" },
+  "value": {
+    "eventId": "e-1001",
+    "type": "OrderPlaced",
+    "occurredAt": "2026-11-10T09:13:50Z",
+    "orderId": "42",
+    "customerEmail": "kari@example.com",
+    "items": [{ "productId": "p-19", "quantity": 1 }],
+    "total": 52.00,
+    "paymentMethodId": "pm_card_visa"
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="order">
+      <div class="file-head"><span class="chip tone-teal">Writes the outbox</span><span class="name">order-service/src/placeOrder.ts</span><span class="why">The order row and the outbox row are written in one transaction. There is no Kafka code here at all.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Pool } from "pg";
+import { Logger } from "pino";
+import { OrderPlaced } from "../../contracts/orders";
+
+export type PlaceOrderRequest = {
+  customerEmail: string;
+  items: { productId: string; quantity: number }[];
+  total: number;
+  paymentMethodId: string;
+};
+
+export async function placeOrder(db: Pool, logger: Logger, correlationId: string, request: PlaceOrderRequest): Promise&lt;string&gt; {
+  const orderId = randomUUID();
+  const event: OrderPlaced = {
+    eventId: randomUUID(),
+    type: "OrderPlaced",
+    occurredAt: new Date().toISOString(),
+    orderId,
+    ...request,
+  };
+
+  const transaction = await db.connect();
+  try {
+    await transaction.query("BEGIN");
+    await transaction.query(
+      "INSERT INTO orders (id, customer_email, total, status) VALUES ($1, $2, $3, 'placed')",
+      [orderId, request.customerEmail, request.total],
+    );
+    await transaction.query(
+      `INSERT INTO outbox (event_id, topic, message_key, event_type, payload, correlation_id)
+       VALUES ($1, 'orders', $2, $3, $4, $5)`,
+      [event.eventId, orderId, event.type, JSON.stringify(event), correlationId],
+    );
+    await transaction.query("COMMIT");
+  } catch (error) {
+    await transaction.query("ROLLBACK");
+    throw error;
+  } finally {
+    transaction.release();
+  }
+
+  logger.info({ correlationId, orderId, eventId: event.eventId, eventType: event.type }, "saved order and outbox event");
+  return orderId;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="relay">
+      <div class="file-head"><span class="chip tone-teal">Relay</span><span class="name">order-service/src/outboxRelay.ts</span><span class="why"><code>FOR UPDATE SKIP LOCKED</code> locks the rows it picks, so a second relay copy picks other rows instead of waiting. The rows are marked as sent in the same transaction. If the relay stops mid-batch, the whole batch is unsent again and is published again.</span></div>
+<pre><code>import { setTimeout as sleep } from "node:timers/promises";
+import { Producer } from "kafkajs";
+import { Pool } from "pg";
+import { Logger } from "pino";
+
+const batchSize = 100;
+const pollIntervalMs = 1000;
+
+type OutboxRow = {
+  id: string;
+  event_id: string;
+  topic: string;
+  message_key: string;
+  event_type: string;
+  payload: unknown;
+  correlation_id: string;
+};
+
+async function publishBatch(db: Pool, producer: Producer, logger: Logger): Promise&lt;number&gt; {
+  const transaction = await db.connect();
+  try {
+    await transaction.query("BEGIN");
+    const { rows } = await transaction.query&lt;OutboxRow&gt;(
+      `SELECT id, event_id, topic, message_key, event_type, payload, correlation_id
+       FROM outbox
+       WHERE sent_at IS NULL
+       ORDER BY id
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED`,
+      [batchSize],
+    );
+
+    for (const row of rows) {
+      const [stored] = await producer.send({
+        topic: row.topic,
+        messages: [{
+          key: row.message_key,
+          value: JSON.stringify(row.payload),
+          headers: { "correlation-id": row.correlation_id, "causation-id": row.correlation_id },
+        }],
+      });
+      await transaction.query("UPDATE outbox SET sent_at = now() WHERE id = $1", [row.id]);
+      logger.info(
+        { correlationId: row.correlation_id, eventId: row.event_id, eventType: row.event_type, topic: row.topic, partition: stored.partition, offset: stored.baseOffset },
+        "published outbox event",
+      );
+    }
+
+    await transaction.query("COMMIT");
+    return rows.length;
+  } catch (error) {
+    await transaction.query("ROLLBACK");
+    throw error;
+  } finally {
+    transaction.release();
+  }
+}
+
+export async function runOutboxRelay(db: Pool, producer: Producer, logger: Logger, stopSignal: AbortSignal): Promise&lt;void&gt; {
+  while (!stopSignal.aborted) {
+    try {
+      const publishedCount = await publishBatch(db, producer, logger);
+      if (publishedCount === batchSize) continue;
+    } catch (error) {
+      logger.warn({ err: error }, "outbox relay batch failed, rows stay unsent until the next poll");
+    }
+    await sleep(pollIntervalMs);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="inventory">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">inventory-service/src/orderPlacedConsumer.ts</span><span class="why">One transaction holds three writes: the event ID in <code>processed_events</code> (the inbox), the stock change, and the reply in Inventory's own outbox. A duplicate is skipped, and the reply can no longer be lost.</span></div>
+<pre><code>import { Kafka } from "kafkajs";
+import { Pool, PoolClient } from "pg";
+import { Logger } from "pino";
+import { OrderPlaced } from "../../contracts/orders";
+
+async function handleOnce(db: Pool, eventId: string, handle: (transaction: PoolClient) =&gt; Promise&lt;void&gt;): Promise&lt;boolean&gt; {
+  const transaction = await db.connect();
+  try {
+    await transaction.query("BEGIN");
+    const firstDelivery = await transaction.query(
+      "INSERT INTO processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING",
+      [eventId],
+    );
+    if (firstDelivery.rowCount === 0) {
+      await transaction.query("ROLLBACK");
+      return false;
+    }
+    await handle(transaction);
+    await transaction.query("COMMIT");
+    return true;
+  } catch (error) {
+    await transaction.query("ROLLBACK");
+    throw error;
+  } finally {
+    transaction.release();
+  }
+}
+
+async function reserveStock(transaction: PoolClient, items: OrderPlaced["items"]): Promise&lt;boolean&gt; {
+  await transaction.query("SAVEPOINT reserve");
+  for (const item of items) {
+    const updated = await transaction.query(
+      "UPDATE stock SET reserved = reserved + $2 WHERE product_id = $1 AND on_hand - reserved &gt;= $2",
+      [item.productId, item.quantity],
+    );
+    if (updated.rowCount === 0) {
+      await transaction.query("ROLLBACK TO SAVEPOINT reserve");
+      return false;
+    }
+  }
+  return true;
+}
+
+export async function startOrderPlacedConsumer(kafka: Kafka, db: Pool, logger: Logger): Promise&lt;void&gt; {
+  const consumer = kafka.consumer({ groupId: "inventory-service" });
+  await consumer.connect();
+  await consumer.subscribe({ topic: "orders" });
+
+  await consumer.run({
+    eachMessage: async ({ message }) =&gt; {
+      const event: OrderPlaced = JSON.parse(message.value!.toString());
+      const correlationId = message.headers?.["correlation-id"]?.toString() ?? "missing";
+
+      const handled = await handleOnce(db, event.eventId, async (transaction) =&gt; {
+        const reserved = await reserveStock(transaction, event.items);
+        const reply = reserved
+          ? { eventId: `stock-reserved-${event.eventId}`, type: "StockReserved", orderId: event.orderId, total: event.total, paymentMethodId: event.paymentMethodId }
+          : { eventId: `stock-unavailable-${event.eventId}`, type: "StockUnavailable", orderId: event.orderId };
+
+        await transaction.query(
+          `INSERT INTO outbox (event_id, topic, message_key, event_type, payload, correlation_id)
+           VALUES ($1, 'inventory', $2, $3, $4, $5)`,
+          [reply.eventId, event.orderId, reply.type, JSON.stringify(reply), correlationId],
+        );
+      });
+
+      logger.info(
+        { correlationId, eventId: event.eventId, eventType: event.type },
+        handled ? "reserved stock and saved reply to outbox" : "skipped duplicate event",
+      );
+    },
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="order">
+      <div class="file-head"><span class="chip tone-teal">Writes the outbox</span><span class="name">src/OrderService/PlaceOrderHandler.cs</span><span class="why">The order row and the outbox row are written in one transaction. There is no Kafka code here at all.</span></div>
+<pre><code>using System.Text.Json;
+using Dapper;
+using Npgsql;
+using Shop.Contracts;
+
+namespace OrderService;
+
+public record PlaceOrderRequest(string CustomerEmail, List&lt;OrderItem&gt; Items, decimal Total, string PaymentMethodId);
+
+public class PlaceOrderHandler(NpgsqlDataSource db, ILogger&lt;PlaceOrderHandler&gt; logger)
+{
+    public async Task&lt;Guid&gt; HandleAsync(PlaceOrderRequest request, string correlationId)
+    {
+        var orderId = Guid.NewGuid();
+        var orderPlaced = new OrderPlaced(
+            Guid.NewGuid().ToString(), DateTimeOffset.UtcNow, orderId,
+            request.CustomerEmail, request.Items, request.Total, request.PaymentMethodId);
+
+        await using var connection = await db.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        await connection.ExecuteAsync(
+            "INSERT INTO orders (id, customer_email, total, status) VALUES (@orderId, @CustomerEmail, @Total, 'placed')",
+            new { orderId, request.CustomerEmail, request.Total }, transaction);
+
+        await connection.ExecuteAsync(
+            """
+            INSERT INTO outbox (event_id, topic, message_key, event_type, payload, correlation_id)
+            VALUES (@EventId, 'orders', @MessageKey, @EventType, @Payload::jsonb, @CorrelationId)
+            """,
+            new
+            {
+                orderPlaced.EventId,
+                MessageKey = orderId.ToString(),
+                EventType = nameof(OrderPlaced),
+                Payload = JsonSerializer.Serialize(orderPlaced),
+                CorrelationId = correlationId,
+            },
+            transaction);
+
+        await transaction.CommitAsync();
+
+        logger.LogInformation("Saved order {OrderId} and outbox event {EventId}, correlation {CorrelationId}",
+            orderId, orderPlaced.EventId, correlationId);
+        return orderId;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="relay">
+      <div class="file-head"><span class="chip tone-teal">Relay</span><span class="name">src/OrderService/OutboxRelay.cs</span><span class="why"><code>FOR UPDATE SKIP LOCKED</code> locks the rows it picks, so a second relay copy picks other rows instead of waiting. The rows are marked as sent in the same transaction. If the relay stops mid-batch, the whole batch is unsent again and is published again.</span></div>
+<pre><code>using System.Text;
+using Confluent.Kafka;
+using Dapper;
+using Npgsql;
+
+namespace OrderService;
+
+public class OutboxRelay(NpgsqlDataSource db, IProducer&lt;string, string&gt; producer, ILogger&lt;OutboxRelay&gt; logger) : BackgroundService
+{
+    private const int BatchSize = 100;
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
+
+    private record OutboxRow(long Id, string EventId, string Topic, string MessageKey, string EventType, string Payload, string CorrelationId);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                var publishedCount = await PublishBatchAsync(stoppingToken);
+                if (publishedCount == BatchSize) continue;
+            }
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                logger.LogWarning(error, "Outbox relay batch failed, rows stay unsent until the next poll");
+            }
+
+            await Task.Delay(PollInterval, stoppingToken);
+        }
+    }
+
+    private async Task&lt;int&gt; PublishBatchAsync(CancellationToken stoppingToken)
+    {
+        await using var connection = await db.OpenConnectionAsync(stoppingToken);
+        await using var transaction = await connection.BeginTransactionAsync(stoppingToken);
+
+        var rows = (await connection.QueryAsync&lt;OutboxRow&gt;(
+            """
+            SELECT id, event_id AS EventId, topic, message_key AS MessageKey, event_type AS EventType,
+                   payload::text AS Payload, correlation_id AS CorrelationId
+            FROM outbox
+            WHERE sent_at IS NULL
+            ORDER BY id
+            LIMIT @BatchSize
+            FOR UPDATE SKIP LOCKED
+            """,
+            new { BatchSize }, transaction)).ToList();
+
+        foreach (var row in rows)
+        {
+            var stored = await producer.ProduceAsync(row.Topic, new Message&lt;string, string&gt;
+            {
+                Key = row.MessageKey,
+                Value = row.Payload,
+                Headers = new Headers
+                {
+                    { "correlation-id", Encoding.UTF8.GetBytes(row.CorrelationId) },
+                    { "causation-id", Encoding.UTF8.GetBytes(row.CorrelationId) },
+                },
+            }, stoppingToken);
+
+            await connection.ExecuteAsync("UPDATE outbox SET sent_at = now() WHERE id = @Id", new { row.Id }, transaction);
+            logger.LogInformation(
+                "Published {EventType} {EventId} to {Topic} partition {Partition} offset {Offset}, correlation {CorrelationId}",
+                row.EventType, row.EventId, stored.Topic, stored.Partition.Value, stored.Offset.Value, row.CorrelationId);
+        }
+
+        await transaction.CommitAsync(stoppingToken);
+        return rows.Count;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="inventory">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">src/InventoryService/OrderPlacedConsumer.cs</span><span class="why">One transaction holds three writes: the event ID in <code>processed_events</code> (the inbox), the stock change, and the reply in Inventory's own outbox. A duplicate is skipped, and the reply can no longer be lost.</span></div>
+<pre><code>using System.Text;
+using System.Text.Json;
+using Confluent.Kafka;
+using Dapper;
+using Npgsql;
+using Shop.Contracts;
+
+namespace InventoryService;
+
+public class OrderPlacedConsumer(
+    IConsumer&lt;string, string&gt; consumer,
+    NpgsqlDataSource db,
+    ILogger&lt;OrderPlacedConsumer&gt; logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await Task.Yield();
+        consumer.Subscribe("orders");
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var result = consumer.Consume(stoppingToken);
+            var orderPlaced = JsonSerializer.Deserialize&lt;OrderPlaced&gt;(result.Message.Value)!;
+            var correlationId = result.Message.Headers.TryGetLastBytes("correlation-id", out var bytes)
+                ? Encoding.UTF8.GetString(bytes)
+                : "missing";
+
+            var handled = await HandleOnceAsync(orderPlaced, correlationId);
+            logger.LogInformation("{Outcome} for {EventType} {EventId}, correlation {CorrelationId}",
+                handled ? "Reserved stock and saved reply to outbox" : "Skipped duplicate event",
+                nameof(OrderPlaced), orderPlaced.EventId, correlationId);
+
+            consumer.Commit(result);
+        }
+    }
+
+    private async Task&lt;bool&gt; HandleOnceAsync(OrderPlaced orderPlaced, string correlationId)
+    {
+        await using var connection = await db.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        var firstDelivery = await connection.ExecuteAsync(
+            "INSERT INTO processed_events (event_id) VALUES (@EventId) ON CONFLICT DO NOTHING",
+            new { orderPlaced.EventId }, transaction);
+        if (firstDelivery == 0) return false;
+
+        await transaction.SaveAsync("reserve");
+        var reserved = await ReserveStockAsync(connection, transaction, orderPlaced.Items);
+        if (!reserved) await transaction.RollbackAsync("reserve");
+
+        object reply = reserved
+            ? new StockReserved($"stock-reserved-{orderPlaced.EventId}", DateTimeOffset.UtcNow, orderPlaced.OrderId, orderPlaced.Total, orderPlaced.PaymentMethodId)
+            : new StockUnavailable($"stock-unavailable-{orderPlaced.EventId}", DateTimeOffset.UtcNow, orderPlaced.OrderId);
+        var replyEventId = reserved ? $"stock-reserved-{orderPlaced.EventId}" : $"stock-unavailable-{orderPlaced.EventId}";
+
+        await connection.ExecuteAsync(
+            """
+            INSERT INTO outbox (event_id, topic, message_key, event_type, payload, correlation_id)
+            VALUES (@EventId, 'inventory', @MessageKey, @EventType, @Payload::jsonb, @CorrelationId)
+            """,
+            new
+            {
+                EventId = replyEventId,
+                MessageKey = orderPlaced.OrderId.ToString(),
+                EventType = reply.GetType().Name,
+                Payload = JsonSerializer.Serialize(reply, reply.GetType()),
+                CorrelationId = correlationId,
+            },
+            transaction);
+
+        await transaction.CommitAsync();
+        return true;
+    }
+
+    private static async Task&lt;bool&gt; ReserveStockAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, List&lt;OrderItem&gt; items)
+    {
+        foreach (var item in items)
+        {
+            var updated = await connection.ExecuteAsync(
+                "UPDATE stock SET reserved = reserved + @Quantity WHERE product_id = @ProductId AND on_hand - reserved &gt;= @Quantity",
+                item, transaction);
+            if (updated == 0) return false;
+        }
+        return true;
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

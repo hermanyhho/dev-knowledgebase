@@ -29,3 +29,4 @@ architecture/<category>/<topic>/
 - [Backend for Frontend](api-and-integration/backend-for-frontend/index.html) - API and integration
 - [Domain-Driven Design](domain-modeling/domain-driven-design/index.html) - domain modeling
 - [Event-Driven Architecture](messaging-and-events/event-driven/index.html) - messaging and events
+- [Transactional Outbox](messaging-and-events/outbox/index.html) - messaging and events
