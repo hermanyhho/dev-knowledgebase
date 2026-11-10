@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fastify</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Web</div>
+    <h1>Fastify</h1>
+    <p class="aka">A web framework for <a href="../../node/how-nodejs-works/">Node.js</a> built to add as little work per request as possible.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Fastify is a library for building HTTP APIs in Node.js. You register routes, and Fastify calls your handler when a matching request arrives. Version 5 is current and needs Node.js 20 or newer.</p>
+    <p>Each request passes through a fixed list of steps called the <strong>lifecycle</strong>. You add code to a step with a <strong>hook</strong>. Each route can declare a <strong>JSON schema</strong> for its input and output. Fastify compiles the schema into a validation function and a serialization function when the server starts, so each request does less work.</p>
+    <p>Code is grouped into <strong>plugins</strong>. Each plugin gets its own copy of the Fastify instance, so what it adds stays inside it unless you say otherwise.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-blue">Hook</span></td><td>A function that runs at one named step of the lifecycle.</td><td><code>app.addHook("onRequest", app.authenticate)</code></td></tr>
+          <tr><td><span class="chip tone-teal">Schema</span></td><td>A JSON Schema object that describes the body, params, query, headers or response of a route.</td><td><code>createUserBodySchema</code></td></tr>
+          <tr><td><span class="chip tone-teal">Ajv</span></td><td>The library that turns a schema into a validation function.</td><td>Rejects a body without <code>email</code></td></tr>
+          <tr><td><span class="chip tone-teal">fast-json-stringify</span></td><td>The library that turns a response schema into a function that writes JSON.</td><td>Drops <code>passwordHash</code> from the output</td></tr>
+          <tr><td><span class="chip tone-amber">Plugin</span></td><td>An async function that receives an instance and adds routes, hooks or decorators to it. Loaded with <code>register</code>.</td><td><code>usersRoutes</code>, <code>authPlugin</code></td></tr>
+          <tr><td><span class="chip tone-amber">Encapsulation</span></td><td>A registered plugin works on a child instance. The parent cannot see what the child adds.</td><td>The root has no <code>usersRepository</code></td></tr>
+          <tr><td><span class="chip tone-amber">Decorator</span></td><td>A property or function added to the instance, the request or the reply.</td><td><code>app.decorate("authenticate", ...)</code></td></tr>
+          <tr><td><span class="chip tone-neutral">pino</span></td><td>The JSON logger built into Fastify.</td><td><code>request.log.info(...)</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> give every route a schema for its input and its response. The input schema rejects bad requests before your handler runs. The response schema makes JSON output faster and sends only the fields you listed.</div>
+  </section>
+
+  <section>
+    <h2>Request lifecycle hooks in order</h2>
+    <p>Fastify runs these steps for every request, top to bottom. Hooks are optional. If a hook sends a reply or throws, the steps that build the response are skipped.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What is ready at this point</th><th>Typical use</th></tr></thead>
+        <tbody>
+          <tr><td><code>onRequest</code></td><td>Route found, <code>request.id</code> and <code>request.log</code> set. Body not read yet.</td><td>Authentication, rate limits</td></tr>
+          <tr><td><code>preParsing</code></td><td>The raw body as a stream</td><td>Decompress or measure the body</td></tr>
+          <tr><td>Parsing</td><td>Fastify parses JSON into <code>request.body</code></td><td>Built in</td></tr>
+          <tr><td><code>preValidation</code></td><td>Parsed body, not yet checked</td><td>Normalise input, such as lowercasing an email</td></tr>
+          <tr><td>Validation</td><td>Ajv checks params, query, headers and body. Failure sends 400.</td><td>Built in, from the route schema</td></tr>
+          <tr><td><code>preHandler</code></td><td>Valid input</td><td>Permission checks that need the body</td></tr>
+          <tr><td>Handler</td><td>Your route function</td><td>Return the result</td></tr>
+          <tr><td><code>preSerialization</code></td><td>The object the handler returned</td><td>Wrap the payload. Skipped for strings and buffers.</td></tr>
+          <tr><td>Serialization</td><td>fast-json-stringify, or <code>JSON.stringify</code> without a response schema</td><td>Built in</td></tr>
+          <tr><td><code>onSend</code></td><td>The payload as a string, buffer or stream</td><td>Set headers, such as <code>x-request-id</code></td></tr>
+          <tr><td><code>onResponse</code></td><td>Response fully sent. Nothing can change it.</td><td>Metrics, such as duration per route</td></tr>
+          <tr><td><code>onError</code></td><td>An error was thrown or sent. Runs before the error handler.</td><td>Log the error. It cannot replace the error.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Schemas for validation and serialization</h2>
+    <p>You add schemas in the route options under <code>schema</code>. When the server starts, Fastify compiles each one into a JavaScript function. A request then runs that function instead of reading the schema again.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Part</th><th>What Fastify does with it</th><th>Why it is faster or safer</th></tr></thead>
+        <tbody>
+          <tr><td><code>schema.body</code>, <code>params</code>, <code>querystring</code>, <code>headers</code></td><td>Ajv validates the input. Failure sends 400 with a message such as <code>body must have required property 'email'</code>.</td><td>The handler only sees valid input, and the check is compiled code.</td></tr>
+          <tr><td><code>schema.response</code>, per status code</td><td>fast-json-stringify writes the JSON for that status code.</td><td>It knows every field and type in advance, so it skips the checks <code>JSON.stringify</code> makes. Fields not in the schema are left out.</td></tr>
+          <tr><td>Fastify's Ajv settings</td><td><code>removeAdditional: true</code>, <code>coerceTypes: "array"</code>, <code>useDefaults: true</code>, <code>allErrors: false</code></td><td>With <code>additionalProperties: false</code>, unknown fields are removed, not rejected. <code>"42"</code> in a query becomes <code>42</code>. Only the first error is reported.</td></tr>
+          <tr><td>Route lookup</td><td>find-my-way, a radix tree of paths</td><td>Matching a URL does not loop over every route.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Plugins, encapsulation and decorators</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Code</th><th>What happens</th><th>Visible where</th></tr></thead>
+        <tbody>
+          <tr><td><code>app.register(usersRoutes, { prefix: "/users" })</code></td><td>Creates a child instance and runs the plugin on it. Every route inside gets the prefix.</td><td>Routes, hooks and decorators stay in the child and its own children.</td></tr>
+          <tr><td><code>app.register(fastifyPlugin(authPlugin))</code></td><td><code>fastify-plugin</code> marks the plugin so no child is created. It runs on the parent.</td><td>The parent and all later plugins.</td></tr>
+          <tr><td><code>app.decorate("usersRepository", repository)</code></td><td>Adds a property to the instance.</td><td>This instance and its children.</td></tr>
+          <tr><td><code>app.decorateRequest("user", null)</code></td><td>Adds a property to every request. Start with <code>null</code> and set it in a hook. Version 5 throws if you pass an object, because all requests would share it.</td><td>Requests on routes in this instance.</td></tr>
+          <tr><td><code>app.addHook("onRequest", app.authenticate)</code> inside a plugin</td><td>The hook runs only for routes in that plugin.</td><td><code>/users</code> needs a token, <code>/health</code> does not.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Register shared plugins first. A child sees the parent's decorators, but only the ones added before it was registered.</p>
+  </section>
+
+  <section>
+    <h2>Routes and async handlers</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Code</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>app.get(path, options, handler)</code></td><td>Route shorthand. Also <code>post</code>, <code>put</code>, <code>patch</code>, <code>delete</code>. <code>app.route({ method, url, ... })</code> is the long form.</td></tr>
+          <tr><td><code>async (request, reply) =&gt; user</code></td><td>The returned value is the response body. Fastify serializes it and sends it.</td></tr>
+          <tr><td><code>reply.code(201); return createdUser;</code></td><td>Set the status code, then return the body.</td></tr>
+          <tr><td><code>return reply.code(404).send({ ... })</code></td><td>Send now. Return <code>reply</code> so Fastify does not try to send a second time.</td></tr>
+          <tr><td><code>throw error</code></td><td>Goes to <code>onError</code> and then the error handler. <code>error.statusCode</code> sets the status, otherwise 500.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How Fastify compares with Express</h2>
+    <p>The <a href="../express/">Express</a> page shows its middleware chain in a diagram. For the same concepts on .NET, see <a href="../../../dotnet/web/aspnet-core/">ASP.NET Core</a>.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>Express 5</th><th>Fastify 5</th></tr></thead>
+        <tbody>
+          <tr><td>Request pipeline</td><td>Middleware: <code>(req, res, next)</code> functions run in the order you add them.</td><td>Named lifecycle hooks. Each runs at a known step with known data ready.</td></tr>
+          <tr><td>Validation</td><td>None built in. Add a library such as zod.</td><td>JSON schema with Ajv, built in.</td></tr>
+          <tr><td>JSON output</td><td><code>JSON.stringify</code></td><td>fast-json-stringify from the response schema</td></tr>
+          <tr><td>Speed</td><td>Lower requests per second in hello-world benchmarks</td><td>Several times more in Fastify's published benchmarks. Real APIs gain less, because most time goes to the database.</td></tr>
+          <tr><td>Logging</td><td>None built in</td><td>pino, with a request ID on every line</td></tr>
+          <tr><td>Scope</td><td>Middleware on <code>app</code> applies to all later routes. A router scopes routes, not shared objects.</td><td>Plugins are encapsulated. Decorators and hooks stay in their plugin.</td></tr>
+          <tr><td>Ecosystem</td><td>The largest. Most tutorials and middleware are written for it.</td><td>Smaller. Official <code>@fastify/*</code> plugins cover common needs. <code>@fastify/express</code> runs Express middleware.</td></tr>
+          <tr><td>TypeScript</td><td>Types from <code>@types/express</code></td><td>Types ship with the package. Type providers derive types from schemas.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and request IDs</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log</th><th>Level</th></tr></thead>
+        <tbody>
+          <tr><td>Every request, built in</td><td><code>incoming request</code> and <code>request completed</code> with <code>reqId</code>, method, URL, status code and <code>responseTime</code></td><td>info</td></tr>
+          <tr><td>Handlers and hooks</td><td>Use <code>request.log</code>. It is a child logger, so every line includes <code>reqId</code>.</td><td>info, warn</td></tr>
+          <tr><td>Request ID</td><td><code>genReqId</code> reads <code>x-request-id</code> from the caller if it has a safe format, otherwise makes a UUID. Send it back in the response header and pass it on to services you call.</td><td></td></tr>
+          <tr><td>Errors</td><td>The default error handler logs 5xx as error and 4xx as info. With a custom error handler, log in <code>onError</code>.</td><td>error, info</td></tr>
+          <tr><td>Never log</td><td>Authorization headers, passwords, whole request bodies. The default request log holds no headers or body.</td><td></td></tr>
+          <tr><td>Metrics</td><td>Duration per route from <code>reply.elapsedTime</code> in <code>onResponse</code>, and <a href="../../runtime/event-loop/">event loop</a> delay</td><td>Alert on high p99</td></tr>
+          <tr><td>Log format</td><td>JSON lines to standard output. Use <code>pino-pretty</code> only on your own machine.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Graceful shutdown</h2>
+    <p>A container platform sends <code>SIGTERM</code> before it stops your process. Call <code>await app.close()</code> when it arrives. This is what happens next:</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What Fastify does</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Stops accepting new connections. New requests on open connections get 503 (<code>return503OnClosing</code>, on by default).</td></tr>
+          <tr><td>2</td><td>Closes idle keep-alive connections and waits for requests in progress to finish.</td></tr>
+          <tr><td>3</td><td>Runs <code>onClose</code> hooks. Close database pools here.</td></tr>
+          <tr><td>4</td><td>Resolves the promise. Your code exits the process.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The platform kills the process after its grace period, 30 seconds by default in Kubernetes. Requests longer than that are cut off.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 30 920 465" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A request goes from the client into the Fastify server and through onRequest, preParsing, preValidation, schema validation, preHandler, the handler, serialization and onSend, back to the client, then onResponse. Errors go to onError and the error handler. Below, the root instance registers two plugins: one encapsulated, one wrapped in fastify-plugin.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="160" y="40" width="740" height="300" rx="10"/>
+        <text class="t-label" x="530" y="58">FASTIFY SERVER: ONE REQUEST</text>
+        <rect class="frame copy" x="160" y="356" width="740" height="128" rx="10"/>
+        <text class="t-label" x="530" y="375">PLUGIN SCOPES</text>
+
+        <g class="node" id="n-client" tabindex="0" role="button" aria-label="Show example requests" data-title="Client: example requests" data-node="client">
+          <rect class="shape tone-neutral" x="20" y="72" width="110" height="246" rx="6"/>
+          <text class="t-name" x="75" y="190">Client</text>
+          <text class="t-kind" x="75" y="208">browser or service</text>
+        </g>
+
+        <g class="node" id="n-onrequest" tabindex="0" role="button" aria-label="Show the authentication hook" data-title="onRequest: authentication" data-node="auth">
+          <rect class="shape tone-blue" x="180" y="72" width="150" height="56" rx="6"/>
+          <text class="t-name" x="255" y="95">onRequest</text>
+          <text class="t-kind" x="255" y="113">auth, no body yet</text>
+        </g>
+        <g class="node" id="n-preparsing" tabindex="0" role="button" aria-label="Show the lifecycle hooks" data-title="preParsing hook" data-node="hooks">
+          <rect class="shape tone-blue" x="360" y="72" width="150" height="56" rx="6"/>
+          <text class="t-name" x="435" y="95">preParsing</text>
+          <text class="t-kind" x="435" y="113">raw body stream</text>
+        </g>
+        <g class="node" id="n-prevalidation" tabindex="0" role="button" aria-label="Show the lifecycle hooks" data-title="preValidation hook" data-node="hooks">
+          <rect class="shape tone-blue" x="540" y="72" width="150" height="56" rx="6"/>
+          <text class="t-name" x="615" y="95">preValidation</text>
+          <text class="t-kind" x="615" y="113">body parsed, unchecked</text>
+        </g>
+        <g class="node" id="n-validation" tabindex="0" role="button" aria-label="Show the route schemas" data-title="Schema validation with Ajv" data-node="schema">
+          <rect class="shape tone-teal" x="720" y="72" width="150" height="56" rx="6"/>
+          <text class="t-name" x="795" y="95">Schema validation</text>
+          <text class="t-kind" x="795" y="113">Ajv, 400 if invalid</text>
+        </g>
+
+        <g class="node" id="n-prehandler" tabindex="0" role="button" aria-label="Show the lifecycle hooks" data-title="preHandler hook" data-node="hooks">
+          <rect class="shape tone-blue" x="720" y="170" width="150" height="56" rx="6"/>
+          <text class="t-name" x="795" y="193">preHandler</text>
+          <text class="t-kind" x="795" y="211">input is valid</text>
+        </g>
+        <g class="node" id="n-handler" tabindex="0" role="button" aria-label="Show the users routes" data-title="Handler: users routes" data-node="routes">
+          <rect class="shape tone-neutral" x="540" y="170" width="150" height="56" rx="6"/>
+          <text class="t-name" x="615" y="193">Handler</text>
+          <text class="t-kind" x="615" y="211">async, returns a value</text>
+        </g>
+        <g class="node" id="n-serialize" tabindex="0" role="button" aria-label="Show the route schemas" data-title="Serialization with fast-json-stringify" data-node="schema">
+          <rect class="shape tone-teal" x="360" y="170" width="150" height="56" rx="6"/>
+          <text class="t-name" x="435" y="193">Serialization</text>
+          <text class="t-kind" x="435" y="211">fast-json-stringify</text>
+        </g>
+        <g class="node" id="n-onsend" tabindex="0" role="button" aria-label="Show the lifecycle hooks" data-title="onSend hook" data-node="hooks">
+          <rect class="shape tone-blue" x="180" y="170" width="150" height="56" rx="6"/>
+          <text class="t-name" x="255" y="193">onSend</text>
+          <text class="t-kind" x="255" y="211">payload is a string</text>
+        </g>
+
+        <g class="node" id="n-onresponse" tabindex="0" role="button" aria-label="Show the lifecycle hooks" data-title="onResponse hook" data-node="hooks">
+          <rect class="shape tone-blue" x="180" y="270" width="150" height="48" rx="6"/>
+          <text class="t-name" x="255" y="290">onResponse</text>
+          <text class="t-kind" x="255" y="307">after sending: metrics</text>
+        </g>
+        <g class="node" id="n-errorhandler" tabindex="0" role="button" aria-label="Show the error handling plugin" data-title="Error handler" data-node="errors">
+          <rect class="shape tone-amber" x="540" y="270" width="150" height="48" rx="6"/>
+          <text class="t-name" x="615" y="290">Error handler</text>
+          <text class="t-kind" x="615" y="307">setErrorHandler</text>
+        </g>
+        <g class="node" id="n-onerror" tabindex="0" role="button" aria-label="Show the error handling plugin" data-title="onError hook" data-node="errors">
+          <rect class="shape tone-blue" x="720" y="270" width="150" height="48" rx="6"/>
+          <text class="t-name" x="795" y="290">onError</text>
+          <text class="t-kind" x="795" y="307">logs the error</text>
+        </g>
+
+        <g class="node" id="n-users" tabindex="0" role="button" aria-label="Show the users routes plugin" data-title="usersRoutes: an encapsulated plugin" data-node="routes">
+          <rect class="shape tone-amber" x="180" y="390" width="210" height="56" rx="6"/>
+          <text class="t-name" x="285" y="413">usersRoutes plugin</text>
+          <text class="t-kind" x="285" y="431">decorates usersRepository</text>
+        </g>
+        <g class="node" id="n-root" tabindex="0" role="button" aria-label="Show the server setup" data-title="Root instance: server setup" data-node="server">
+          <rect class="shape tone-neutral" x="430" y="390" width="200" height="56" rx="6"/>
+          <text class="t-name" x="530" y="413">Root instance</text>
+          <text class="t-kind" x="530" y="431">Fastify({ logger, genReqId })</text>
+        </g>
+        <g class="node" id="n-auth" tabindex="0" role="button" aria-label="Show the auth plugin" data-title="authPlugin: shared with fastify-plugin" data-node="auth">
+          <rect class="shape tone-amber" x="670" y="390" width="210" height="56" rx="6"/>
+          <text class="t-name" x="775" y="413">authPlugin</text>
+          <text class="t-kind" x="775" y="431">wrapped in fastify-plugin</text>
+        </g>
+
+        <path class="flow" id="a-client-onrequest" d="M130,100 L178,100" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-onrequest-preparsing" d="M330,100 L358,100" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-preparsing-prevalidation" d="M510,100 L538,100" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-prevalidation-validation" d="M690,100 L718,100" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-validation-prehandler" d="M795,128 L795,168" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-prehandler-handler" d="M720,198 L692,198" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-handler-serialize" d="M540,198 L512,198" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-serialize-onsend" d="M360,198 L332,198" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-onsend-client" d="M180,198 L132,198" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-onsend-onresponse" d="M255,226 L255,268" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-onrequest-onsend" d="M255,128 L255,168" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-validation-onerror" d="M870,100 L888,100 L888,294 L872,294" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-onerror-errorhandler" d="M720,294 L692,294" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-errorhandler-onsend" d="M615,270 L615,248 L305,248 L305,228" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-root-users" d="M430,418 L392,418" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-root-auth" d="M630,418 L668,418" marker-end="url(#arrow)"/>
+
+        <text class="ghost-label" id="t-401" x="266" y="153" style="text-anchor:start">401: BODY, VALIDATION, HANDLER SKIPPED</text>
+        <text class="ghost-label" id="t-invalid" x="435" y="266">400: HANDLER NEVER RUNS</text>
+        <text class="ghost-label" id="t-hidden" x="530" y="470">ROOT: usersRepository IS UNDEFINED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="normal" aria-pressed="true">Creating a user</button>
+        <button type="button" data-flow="invalid" aria-pressed="false">Invalid body rejected with 400</button>
+        <button type="button" data-flow="unauthorized" aria-pressed="false">Missing token rejected with 401</button>
+        <button type="button" data-flow="scope" aria-pressed="false">A decorator outside its plugin</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="normal" hidden>
+        <li data-highlight="n-client a-client-onrequest n-onrequest">The client sends <code>POST /users</code> with a token and an <code>x-request-id</code> header. Fastify finds the route, sets <code>request.id</code> with <code>genReqId</code>, and logs <code>incoming request</code>. The <code>onRequest</code> hook checks the token and sets <code>request.user</code>.</li>
+        <li data-highlight="n-onrequest a-onrequest-preparsing n-preparsing a-preparsing-prevalidation n-prevalidation"><code>preParsing</code> gets the raw body stream. Fastify parses the JSON into <code>request.body</code>. <code>preValidation</code> lowercases the email.</li>
+        <li data-highlight="n-prevalidation a-prevalidation-validation n-validation">The compiled Ajv function checks the body against <code>createUserBodySchema</code>. It passes. Unknown fields are removed.</li>
+        <li data-highlight="n-validation a-validation-prehandler n-prehandler a-prehandler-handler n-handler"><code>preHandler</code> runs. The handler saves the user, logs <code>user created</code> with <code>request.log</code>, sets status 201 and returns the user object.</li>
+        <li data-highlight="n-handler a-handler-serialize n-serialize a-serialize-onsend n-onsend">The 201 response schema's serializer writes the JSON. <code>passwordHash</code> is not in the schema, so it is left out. <code>onSend</code> adds the <code>x-request-id</code> header.</li>
+        <li data-highlight="n-onsend a-onsend-client n-client a-onsend-onresponse n-onresponse">The response is sent. <code>onResponse</code> records the duration, and Fastify logs <code>request completed</code> with the same <code>reqId</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="invalid" hidden>
+        <li data-highlight="n-client a-client-onrequest n-onrequest a-onrequest-preparsing n-preparsing a-preparsing-prevalidation n-prevalidation">The client sends <code>POST /users</code> with a valid token but no <code>email</code>. Authentication, parsing and <code>preValidation</code> run as normal.</li>
+        <li data-highlight="n-validation t-invalid">Ajv fails: <code>body must have required property 'email'</code>. Fastify creates an error with <code>statusCode</code> 400 and skips <code>preHandler</code> and the handler.</li>
+        <li data-highlight="n-validation a-validation-onerror n-onerror"><code>onError</code> runs first and logs the error at info level, with the <code>reqId</code>.</li>
+        <li data-highlight="n-onerror a-onerror-errorhandler n-errorhandler">The error handler sees <code>error.validation</code> and sends status 400 with a list of the problems.</li>
+        <li data-highlight="n-errorhandler a-errorhandler-onsend n-onsend a-onsend-client n-client a-onsend-onresponse n-onresponse t-invalid">The error response still goes through <code>onSend</code>, so it gets the <code>x-request-id</code> header. <code>onResponse</code> still runs.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="unauthorized" hidden>
+        <li data-highlight="n-client a-client-onrequest n-onrequest">The client sends <code>POST /users</code> without an <code>authorization</code> header.</li>
+        <li data-highlight="n-onrequest">The <code>authenticate</code> hook finds no token. It logs a warning and calls <code>return reply.code(401).send(...)</code>.</li>
+        <li data-highlight="n-onrequest a-onrequest-onsend n-onsend t-401">A reply was sent, so Fastify skips parsing, validation and the handler. The body is never read. <code>onSend</code> still runs.</li>
+        <li data-highlight="n-onsend a-onsend-client n-client a-onsend-onresponse n-onresponse">The client gets 401. <code>onResponse</code> records it like any other response.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="scope" hidden>
+        <li data-highlight="n-root"><code>server.js</code> creates the root instance with the logger and <code>genReqId</code>.</li>
+        <li data-highlight="n-root a-root-auth n-auth"><code>authPlugin</code> is wrapped in <code>fastify-plugin</code>, so it runs on the root. Its <code>authenticate</code> decorator is added to the root.</li>
+        <li data-highlight="n-root a-root-users n-users"><code>register(usersRoutes)</code> creates a child instance. The child sees <code>authenticate</code> from the root and adds its own <code>usersRepository</code> and <code>onRequest</code> hook.</li>
+        <li data-highlight="n-root t-hidden">On the root, <code>app.usersRepository</code> is undefined. The child's hook does not run for <code>/health</code> either.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-blue">Hook</span>
+      <span class="chip tone-teal">Schema step</span>
+      <span class="chip tone-amber">Plugin or error handler</span>
+      <span class="chip tone-neutral">Your code or the client</span>
+      <span>Arrows in the top frame follow one request. Error and early-reply paths appear only in the flows that use them. In the bottom frame, arrows point from the root to the plugins it registers. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">users-api/</div>
+      <button type="button" class="tree-row" data-file="package.json"><span class="path">├─ package.json</span><span class="chip tone-neutral">Project</span></button>
+      <button type="button" class="tree-row" data-file="requests.sh"><span class="path">├─ requests.sh</span><span class="chip tone-neutral">Client</span></button>
+      <button type="button" class="tree-row" data-file="src/server.js"><span class="path">├─ src/server.js</span><span class="chip tone-neutral">Root instance</span></button>
+      <button type="button" class="tree-row" data-file="src/plugins/auth.js"><span class="path">├─ src/plugins/auth.js</span><span class="chip tone-amber">Shared plugin</span></button>
+      <button type="button" class="tree-row" data-file="src/plugins/request-hooks.js"><span class="path">├─ src/plugins/request-hooks.js</span><span class="chip tone-blue">Hooks</span></button>
+      <button type="button" class="tree-row" data-file="src/plugins/error-handling.js"><span class="path">├─ src/plugins/error-handling.js</span><span class="chip tone-amber">Errors</span></button>
+      <button type="button" class="tree-row" data-file="src/routes/users.js"><span class="path">├─ src/routes/users.js</span><span class="chip tone-amber">Encapsulated plugin</span></button>
+      <button type="button" class="tree-row" data-file="src/routes/user-schemas.js"><span class="path">├─ src/routes/user-schemas.js</span><span class="chip tone-teal">Schemas</span></button>
+      <button type="button" class="tree-row" data-file="examples/encapsulation.js"><span class="path">└─ examples/encapsulation.js</span><span class="chip tone-neutral">Scope check</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Hand-written input checks</strong><span>A schema per route rejects bad input with 400 before your handler runs.</span></li>
+        <li><strong>Leaking internal fields</strong><span>A response schema sends only the fields it lists.</span></li>
+        <li><strong>Framework overhead per request</strong><span>Compiled validators and serializers, and fast route lookup, leave more CPU time for your code.</span></li>
+        <li><strong>Missing request IDs in logs</strong><span>pino is built in, and <code>request.log</code> adds the <code>reqId</code> to every line.</span></li>
+        <li><strong>Shared global state between modules</strong><span>Encapsulation keeps each plugin's decorators and hooks to itself.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Schemas to maintain</strong><span>A field added in code but not in the response schema is silently left out.</span></li>
+        <li><strong>Surprising Ajv defaults</strong><span>Unknown fields are removed, not rejected, and query strings are coerced to numbers.</span></li>
+        <li><strong>Encapsulation confusion</strong><span>A decorator or hook "missing" in another plugin is usually a scope or register-order issue.</span></li>
+        <li><strong>Smaller ecosystem than Express</strong><span>Fewer tutorials and third-party plugins. Express middleware needs an adapter.</span></li>
+        <li><strong>Speed gains are limited</strong><span>If most time goes to the database, a faster framework changes little.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="project">
+      <div class="file-head"><span class="chip tone-neutral">Project</span><span class="name">package.json</span><span class="why"><code>fastify-plugin</code> is the only extra package. Fastify already includes Ajv, fast-json-stringify and pino. <code>pino-pretty</code> formats logs for reading on your own machine.</span></div>
+<pre><code>{
+  "name": "users-api",
+  "version": "1.0.0",
+  "type": "module",
+  "engines": { "node": "&gt;=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js | pino-pretty"
+  },
+  "dependencies": {
+    "fastify": "^5.6.0",
+    "fastify-plugin": "^5.0.1"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.0.0"
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-bash">
+    <div class="file" data-lang="any" data-node="client">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">requests.sh</span><span class="why">The three requests from the flows: a valid create, a body without <code>email</code> (400), and no token (401). The response header <code>x-request-id</code> repeats the ID the client sent.</span></div>
+<pre><code>curl -i -X POST http://localhost:3000/users \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer &lt;signed token&gt;" \
+  -H "x-request-id: 3f6c2a1e-8b4d-4c7a-9e21-5d0b7f4a9c13" \
+  -d '{"email":"Ada@Example.com","displayName":"Ada"}'
+
+curl -i -X POST http://localhost:3000/users \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer &lt;signed token&gt;" \
+  -d '{"displayName":"Ada"}'
+
+curl -i -X POST http://localhost:3000/users \
+  -H "content-type: application/json" \
+  -d '{"email":"ada@example.com","displayName":"Ada"}'</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="server">
+      <div class="file-head"><span class="chip tone-neutral">Root instance</span><span class="name">src/server.js</span><span class="why">Creates the root instance with pino and <code>genReqId</code>, registers the shared plugins before <code>usersRoutes</code>, and closes the server on <code>SIGTERM</code>. A caller can send any <code>x-request-id</code>, so the pattern check keeps odd values out of the logs.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import Fastify from "fastify";
+import authPlugin from "./plugins/auth.js";
+import errorHandlingPlugin from "./plugins/error-handling.js";
+import requestHooksPlugin from "./plugins/request-hooks.js";
+import usersRoutes from "./routes/users.js";
+
+const safeRequestIdPattern = /^[A-Za-z0-9-]{8,64}$/;
+
+function requestIdFromHeaderOrNew(rawRequest) {
+  const incomingRequestId = rawRequest.headers["x-request-id"] ?? "";
+  return safeRequestIdPattern.test(incomingRequestId) ? incomingRequestId : randomUUID();
+}
+
+const app = Fastify({
+  logger: { level: process.env.LOG_LEVEL ?? "info" },
+  genReqId: requestIdFromHeaderOrNew,
+});
+
+await app.register(errorHandlingPlugin);
+await app.register(requestHooksPlugin);
+await app.register(authPlugin);
+await app.register(usersRoutes, { prefix: "/users" });
+
+app.get("/health", async () =&gt; ({ status: "ok" }));
+
+try {
+  await app.listen({ port: Number(process.env.PORT ?? 3000), host: "0.0.0.0" });
+} catch (error) {
+  app.log.fatal({ err: error }, "server failed to start");
+  process.exit(1);
+}
+
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.once(signal, async () =&gt; {
+    app.log.info({ signal }, "signal received, closing the server");
+    await app.close();
+    process.exit(0);
+  });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="server">
+      <div class="file-head"><span class="chip tone-neutral">Scope check</span><span class="name">examples/encapsulation.js</span><span class="why">Prints <code>{ rootSeesUsersRepository: false, rootSeesAuthenticate: true }</code>. The plain plugin got its own child instance. The one wrapped in <code>fastify-plugin</code> ran on the root.</span></div>
+<pre><code>import Fastify from "fastify";
+import fastifyPlugin from "fastify-plugin";
+
+const app = Fastify();
+
+async function encapsulatedPlugin(childInstance) {
+  childInstance.decorate("usersRepository", { findById: async () =&gt; null });
+}
+
+async function sharedPlugin(sameInstance) {
+  sameInstance.decorate("authenticate", async () =&gt; {});
+}
+
+await app.register(encapsulatedPlugin);
+await app.register(fastifyPlugin(sharedPlugin));
+
+console.log({
+  rootSeesUsersRepository: app.hasDecorator("usersRepository"),
+  rootSeesAuthenticate: app.hasDecorator("authenticate"),
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="auth">
+      <div class="file-head"><span class="chip tone-amber">Shared plugin</span><span class="name">src/plugins/auth.js</span><span class="why">Wrapped in <code>fastify-plugin</code>, so <code>authenticate</code> is added to the root and every later plugin can use it. It is a decorator, not a global hook: each plugin chooses whether its routes need a token. Sending a reply and returning it stops the lifecycle with 401.</span></div>
+<pre><code>import fastifyPlugin from "fastify-plugin";
+import { verifyAccessToken } from "../auth/tokens.js";
+
+function bearerTokenFrom(authorizationHeader = "") {
+  return authorizationHeader.startsWith("Bearer ") ? authorizationHeader.slice("Bearer ".length) : null;
+}
+
+async function authPlugin(app) {
+  app.decorateRequest("user", null);
+
+  app.decorate("authenticate", async function authenticate(request, reply) {
+    const accessToken = bearerTokenFrom(request.headers.authorization);
+    const user = accessToken ? await verifyAccessToken(accessToken) : null;
+
+    if (!user) {
+      request.log.warn("request rejected: access token missing or invalid");
+      return reply.code(401).send({ message: "The access token is missing or invalid." });
+    }
+
+    request.user = user;
+  });
+}
+
+export default fastifyPlugin(authPlugin, { name: "auth" });</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="hooks">
+      <div class="file-head"><span class="chip tone-blue">Hooks</span><span class="name">src/plugins/request-hooks.js</span><span class="why">Hooks for every route, because the plugin uses <code>fastify-plugin</code>. An async <code>preParsing</code> or <code>onSend</code> hook must return the payload. Fastify already logs each finished request, so <code>onResponse</code> records a metric instead of a second log line.</span></div>
+<pre><code>import fastifyPlugin from "fastify-plugin";
+import { recordRequestDuration } from "../metrics.js";
+
+async function requestHooksPlugin(app) {
+  app.addHook("preParsing", async (request, reply, payload) =&gt; {
+    request.log.debug({ contentLength: request.headers["content-length"] }, "reading request body");
+    return payload;
+  });
+
+  app.addHook("preValidation", async (request) =&gt; {
+    if (typeof request.body?.email === "string") {
+      request.body.email = request.body.email.trim().toLowerCase();
+    }
+  });
+
+  app.addHook("preHandler", async (request) =&gt; {
+    request.log.debug({ userId: request.user?.id }, "input is valid, running handler");
+  });
+
+  app.addHook("onSend", async (request, reply, payload) =&gt; {
+    reply.header("x-request-id", request.id);
+    return payload;
+  });
+
+  app.addHook("onResponse", async (request, reply) =&gt; {
+    recordRequestDuration({
+      route: request.routeOptions.url,
+      statusCode: reply.statusCode,
+      durationMilliseconds: reply.elapsedTime,
+    });
+  });
+}
+
+export default fastifyPlugin(requestHooksPlugin, { name: "request-hooks" });</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="errors">
+      <div class="file-head"><span class="chip tone-amber">Errors</span><span class="name">src/plugins/error-handling.js</span><span class="why"><code>onError</code> runs before the error handler and logs. A custom error handler replaces the default one, and the default one is what logs errors. Validation errors have <code>error.validation</code>. 500 responses hide the real message from the client.</span></div>
+<pre><code>import fastifyPlugin from "fastify-plugin";
+
+async function errorHandlingPlugin(app) {
+  app.addHook("onError", async (request, reply, error) =&gt; {
+    const statusCode = error.statusCode ?? 500;
+    if (statusCode &gt;= 500) {
+      request.log.error({ err: error }, "request failed");
+    } else {
+      request.log.info({ err: error }, "request rejected");
+    }
+  });
+
+  app.setErrorHandler((error, request, reply) =&gt; {
+    if (error.validation) {
+      return reply.code(400).send({
+        message: "The request is invalid.",
+        problems: error.validation.map((issue) =&gt; `${error.validationContext}${issue.instancePath} ${issue.message}`),
+      });
+    }
+
+    const statusCode = error.statusCode ?? 500;
+    if (statusCode &gt;= 500) {
+      return reply.code(500).send({ message: "An unexpected server error occurred." });
+    }
+    return reply.code(statusCode).send({ message: error.message });
+  });
+}
+
+export default fastifyPlugin(errorHandlingPlugin, { name: "error-handling" });</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="routes">
+      <div class="file-head"><span class="chip tone-amber">Encapsulated plugin</span><span class="name">src/routes/users.js</span><span class="why">Not wrapped in <code>fastify-plugin</code>, so <code>usersRepository</code> and the <code>onRequest</code> hook apply only to <code>/users</code> routes. Handlers are async and return the body. <code>onClose</code> closes the database pool when <code>app.close()</code> runs.</span></div>
+<pre><code>import { UsersRepository } from "../data/users-repository.js";
+import { createUserBodySchema, userIdParamsSchema, userResponseSchema } from "./user-schemas.js";
+
+export default async function usersRoutes(app) {
+  const usersRepository = new UsersRepository(process.env.DATABASE_URL);
+  app.decorate("usersRepository", usersRepository);
+  app.addHook("onClose", () =&gt; usersRepository.close());
+
+  app.addHook("onRequest", app.authenticate);
+
+  app.post(
+    "/",
+    { schema: { body: createUserBodySchema, response: { 201: userResponseSchema } } },
+    async (request, reply) =&gt; {
+      const createdUser = await app.usersRepository.create(request.body);
+      request.log.info({ userId: createdUser.id }, "user created");
+      reply.code(201);
+      return createdUser;
+    },
+  );
+
+  app.get(
+    "/:userId",
+    { schema: { params: userIdParamsSchema, response: { 200: userResponseSchema } } },
+    async (request, reply) =&gt; {
+      const user = await app.usersRepository.findById(request.params.userId);
+      if (!user) {
+        return reply.code(404).send({ message: "The user does not exist." });
+      }
+      return user;
+    },
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="schema">
+      <div class="file-head"><span class="chip tone-teal">Schemas</span><span class="name">src/routes/user-schemas.js</span><span class="why">Ajv compiles the body and params schemas into validators. fast-json-stringify compiles the response schema into a serializer. The repository returns <code>passwordHash</code>, but it is not listed here, so it never reaches the client.</span></div>
+<pre><code>export const createUserBodySchema = {
+  type: "object",
+  required: ["email", "displayName"],
+  additionalProperties: false,
+  properties: {
+    email: { type: "string", format: "email", maxLength: 254 },
+    displayName: { type: "string", minLength: 1, maxLength: 100 },
+  },
+};
+
+export const userIdParamsSchema = {
+  type: "object",
+  required: ["userId"],
+  properties: {
+    userId: { type: "string", format: "uuid" },
+  },
+};
+
+export const userResponseSchema = {
+  type: "object",
+  required: ["id", "email", "displayName", "createdAt"],
+  properties: {
+    id: { type: "string", format: "uuid" },
+    email: { type: "string" },
+    displayName: { type: "string" },
+    createdAt: { type: "string", format: "date-time" },
+  },
+};</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
