@@ -141,6 +141,12 @@ header { display: grid; gap: 12px; }
 .flow-caption { min-height: 3.2em; }
 .flow-caption strong { color: var(--flow); }
 
+.token-string { font-family: var(--font-mono); font-size: 0.9rem; line-height: 1.7; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.token-string .part-header { color: var(--blue); }
+.token-string .part-payload { color: var(--teal); }
+.token-string .part-signature { color: var(--amber); }
+.token-string .part-dot { color: var(--muted); font-weight: 700; }
+
 .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 0.9rem; color: var(--muted); }
 .caption { font-size: 0.95rem; color: var(--muted); }
 

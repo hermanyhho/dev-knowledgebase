@@ -27,3 +27,4 @@ What each category covers: [security/README.md](security/README.md)
 | Topic | Category | Page | Source |
 |---|---|---|---|
 | Sessions and Tokens | Authentication | [open](https://hermanyhho.github.io/dev-knowledgebase/security/authentication/sessions-and-tokens/) | [index.html](security/authentication/sessions-and-tokens/index.html) |
+| JWT | Authentication | [open](https://hermanyhho.github.io/dev-knowledgebase/security/authentication/jwt/) | [index.html](security/authentication/jwt/index.html) |

@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JWT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Security</a> / Authentication</div>
+    <h1>JWT</h1>
+    <p class="aka">Short for <strong>JSON Web Token</strong>, defined in RFC 7519. Usually said "jot".</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A JWT is a token made of three parts joined by dots: a header, a payload and a signature. The header and payload are JSON, encoded so they fit in a URL or HTTP header. The payload holds <strong>claims</strong>: statements such as "this is user 7" and "valid until 09:15".</p>
+    <p>The signature proves two things: the token was made by someone with the signing key, and nobody changed it afterwards. It does not hide anything. Anyone who has the token can decode and read the payload.</p>
+    <p>On the <a href="../sessions-and-tokens/">sessions and tokens</a> page, one server both made and checked tokens with a shared secret. This page shows the common setup with several APIs: one auth server signs tokens with a <strong>private key</strong>, and each API checks them with the matching <strong>public key</strong>, which the auth server publishes.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Claim</span></td><td>One field in the payload.</td><td><code>"sub": "7"</code></td></tr>
+          <tr><td><span class="chip tone-teal"><code>iss</code></span></td><td>Issuer: who created the token.</td><td><code>https://auth.shop.example.com</code></td></tr>
+          <tr><td><span class="chip tone-teal"><code>sub</code></span></td><td>Subject: who the token is about, usually the user ID.</td><td><code>7</code></td></tr>
+          <tr><td><span class="chip tone-teal"><code>aud</code></span></td><td>Audience: which API the token is meant for.</td><td><code>orders-api</code></td></tr>
+          <tr><td><span class="chip tone-teal"><code>exp</code>, <code>iat</code>, <code>nbf</code></span></td><td>Expires at, issued at, not valid before. Seconds since 1 January 1970.</td><td>15 minutes after <code>iat</code></td></tr>
+          <tr><td><span class="chip tone-teal"><code>jti</code></span></td><td>A unique ID for this token. Safe to log instead of the token.</td><td>A random UUID</td></tr>
+          <tr><td><span class="chip tone-blue"><code>alg</code>, <code>kid</code></span></td><td>In the header: the signing algorithm, and the ID of the key that signed it.</td><td><code>ES256</code>, <code>2026-10</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Base64url</span></td><td>A way to write bytes as letters, digits, <code>-</code> and <code>_</code>, safe in URLs. It is an encoding, not encryption.</td><td>Each of the three parts</td></tr>
+          <tr><td><span class="chip tone-amber">JWKS</span></td><td>JSON Web Key Set: a public URL that lists the public keys for checking tokens.</td><td><code>/.well-known/jwks.json</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> anyone can read a JWT. An API may trust it only after checking the signature, the algorithm, the expiry, the issuer and the audience.</div>
+  </section>
+
+  <section>
+    <h2>The three parts of a JWT</h2>
+    <div class="token-string" aria-label="A shortened JWT with its three parts colored">
+      <span class="part-header">eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwMjYtMTAifQ</span><span class="part-dot">.</span><span class="part-payload">eyJpc3MiOiJodHRwczovL2F1dGguc2hvcC5leGFtcGxlLmNvbSIsInN1YiI6IjciLC...</span><span class="part-dot">.</span><span class="part-signature">MEUCIQDk3...</span>
+    </div>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Part</th><th>Holds</th><th>Can anyone read it?</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-blue">Header</span></td><td>The algorithm and the key ID: <code>{"alg":"ES256","typ":"JWT","kid":"2026-10"}</code></td><td>Yes</td></tr>
+          <tr><td><span class="chip tone-teal">Payload</span></td><td>The claims: issuer, user, audience, expiry, scopes</td><td>Yes. Never put secrets or personal data here.</td></tr>
+          <tr><td><span class="chip tone-amber">Signature</span></td><td>Computed over the first two parts with the private key. Changing one character in them makes it fail.</td><td>It is readable, but it means nothing without the key</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Click the "JWT" box in the diagram to see this token decoded.</p>
+  </section>
+
+  <section>
+    <h2>How a shared secret compares with a key pair</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Shared secret (HS256)</th><th>Key pair (ES256 or RS256)</th></tr></thead>
+        <tbody>
+          <tr><td>Who can create tokens</td><td>Anyone with the secret</td><td>Only the holder of the private key</td></tr>
+          <tr><td>Who can check tokens</td><td>Only those with the same secret</td><td>Anyone with the public key, which is safe to publish</td></tr>
+          <tr><td>Giving keys to APIs</td><td>Copy the secret to every API. Each copy could be used to create tokens.</td><td>APIs read the public key from the JWKS URL</td></tr>
+          <tr><td>Good for</td><td>One app that creates and checks its own tokens</td><td>One auth server and many APIs, or other companies' APIs</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What an API must check, in this order</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Check</th><th>What goes wrong if it is skipped</th></tr></thead>
+        <tbody>
+          <tr><td>1. The algorithm is the one you expect, such as <code>ES256</code></td><td>An attacker sets <code>"alg": "none"</code> to skip the signature, or switches <code>RS256</code> to <code>HS256</code> so the public key is used as a shared secret. Never let the token choose the algorithm.</td></tr>
+          <tr><td>2. The signature, with the key named by <code>kid</code></td><td>Anyone can write a token for any user.</td></tr>
+          <tr><td>3. <code>exp</code> and <code>nbf</code>, allowing at most about 30 seconds of clock difference</td><td>A copied token keeps working forever.</td></tr>
+          <tr><td>4. <code>iss</code> is your auth server</td><td>Tokens from another auth server that uses the same library are accepted.</td></tr>
+          <tr><td>5. <code>aud</code> is this API</td><td>A token meant for a different API, perhaps a less trusted one, works here too.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>After these checks the API knows who is calling. Whether that caller may do the action, for example by reading the <code>scope</code> claim, is authorization, which comes next.</p>
+  </section>
+
+  <section>
+    <h2>Common mistakes</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Mistake</th><th>Do this instead</th></tr></thead>
+        <tbody>
+          <tr><td>Putting an email, address or secret in the payload</td><td>Anyone can decode it. Put only IDs and the claims APIs need.</td></tr>
+          <tr><td>Reading the payload without checking the signature, for example with a <code>decode</code> function</td><td>Always use the library's <code>verify</code> function.</td></tr>
+          <tr><td>Lifetimes of hours or days</td><td>5 to 15 minutes, with refresh tokens to get new ones.</td></tr>
+          <tr><td>Adding every role and permission to the token</td><td>The token is sent with every request and grows fast. Keep it small and look up details on the server.</td></tr>
+          <tr><td>Using the same signing key forever</td><td>Rotate keys. The <code>kid</code> header and the JWKS URL let old and new keys work side by side.</td></tr>
+          <tr><td>Storing the token in <code>localStorage</code> in a browser</td><td>Any injected script can read it. Keep it in memory or use an <code>HttpOnly</code> cookie.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Auth server, token issued</td><td><code>sub</code>, <code>aud</code>, <code>jti</code>, <code>kid</code>, expiry</td><td>info</td></tr>
+          <tr><td>API, token rejected</td><td>Reason (expired, bad signature, wrong audience, unknown key), <code>jti</code> if readable, IP, path</td><td>info, warn for bad signatures</td></tr>
+          <tr><td>API, public keys fetched again</td><td>The unknown <code>kid</code> that caused it</td><td>info</td></tr>
+          <tr><td>Metric: bad-signature rejections</td><td>Someone may be trying to forge tokens</td><td>Alert on a spike</td></tr>
+          <tr><td>Never log</td><td>The full token or the <code>Authorization</code> header. Log the <code>jti</code> to find a token later.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 380" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The mobile app gets a JWT from the auth server, which signs it with its private key and publishes the public key at its JWKS endpoint. The orders API and the payments API read the public key from the JWKS endpoint and check each token.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-client" tabindex="0" role="button" aria-label="Show the client's HTTP requests" data-title="Mobile app: HTTP requests" data-node="client">
+          <rect class="shape tone-neutral" x="12" y="225" width="160" height="56" rx="6"/>
+          <text class="t-name" x="92" y="249">Mobile app</text>
+          <text class="t-kind" x="92" y="267">holds the JWT</text>
+        </g>
+        <g class="node" id="n-token" tabindex="0" role="button" aria-label="Show the JWT decoded" data-title="The JWT, decoded" data-node="token">
+          <rect class="shape tone-blue" x="12" y="310" width="160" height="50" rx="6"/>
+          <text class="t-name" x="92" y="331">JWT</text>
+          <text class="t-kind" x="92" y="348">header . payload . signature</text>
+        </g>
+        <g class="ghost-label" id="c-attacker">
+          <rect class="shape tone-neutral" x="12" y="395" width="160" height="50" rx="6"/>
+          <text class="t-name" x="92" y="416">Attacker</text>
+          <text class="t-kind" x="92" y="433">changed a token's payload</text>
+        </g>
+
+        <g class="node" id="n-auth" tabindex="0" role="button" aria-label="Show code for the auth server" data-title="Auth server: signs tokens and publishes keys" data-node="auth">
+          <rect class="shape tone-teal" x="330" y="95" width="200" height="70" rx="6"/>
+          <text class="t-name" x="430" y="125">Auth server</text>
+          <text class="t-kind" x="430" y="143">signs with its private key</text>
+        </g>
+        <g class="node" id="n-jwks" tabindex="0" role="button" aria-label="Show the published public keys" data-title="JWKS endpoint: public keys" data-node="jwks">
+          <rect class="shape tone-amber" x="640" y="100" width="210" height="60" rx="6"/>
+          <text class="t-name" x="745" y="125">JWKS endpoint</text>
+          <text class="t-kind" x="745" y="143">/.well-known/jwks.json</text>
+        </g>
+        <g class="node" id="n-orders" tabindex="0" role="button" aria-label="Show code for the orders API" data-title="Orders API: checks tokens" data-node="orders">
+          <rect class="shape tone-teal" x="640" y="225" width="210" height="56" rx="6"/>
+          <text class="t-name" x="745" y="249">Orders API</text>
+          <text class="t-kind" x="745" y="267">accepts aud: orders-api</text>
+        </g>
+        <g class="node" id="n-payments" tabindex="0" role="button" aria-label="Show the payments API rejecting a token" data-title="Payments API: rejects the wrong audience" data-node="payments">
+          <rect class="shape tone-teal" x="640" y="330" width="210" height="56" rx="6"/>
+          <text class="t-name" x="745" y="354">Payments API</text>
+          <text class="t-kind" x="745" y="372">accepts aud: payments-api</text>
+        </g>
+
+        <path class="flow" id="a-client-auth" d="M172,240 L328,150" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-auth-client" d="M328,162 L174,256" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-auth-jwks" d="M530,130 L638,130" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-client-orders" d="M172,253 L638,253" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-client-payments" d="M172,268 L638,350" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-jwks" d="M745,225 L745,162" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-payments-jwks" d="M850,358 L885,358 L885,130 L852,130" marker-end="url(#arrow)"/>
+        <path class="flow ghost blocked" id="g-attacker-orders" d="M172,420 L638,270" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-forged" x="450" y="402">REJECTED: SIGNATURE DOES NOT MATCH</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="issue" aria-pressed="true">Issue and check a token</button>
+        <button type="button" data-flow="audience" aria-pressed="false">Token sent to the wrong API</button>
+        <button type="button" data-flow="forged" aria-pressed="false">A changed token</button>
+        <button type="button" data-flow="rotation" aria-pressed="false">Changing the signing key</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="issue" hidden>
+        <li data-highlight="n-client a-client-auth n-auth">The app logs in at the auth server and asks for a token for the orders API.</li>
+        <li data-highlight="n-auth">The auth server builds the header (<code>alg</code> ES256, <code>kid</code> 2026-10) and the payload (<code>iss</code>, <code>sub</code> 7, <code>aud</code> orders-api, <code>exp</code> in 15 minutes, a <code>jti</code>), then signs both with its private key.</li>
+        <li data-highlight="n-auth r-auth-client n-client n-token">It returns the JWT: three base64url parts joined by dots.</li>
+        <li data-highlight="n-client a-client-orders n-orders">The app calls the orders API with <code>Authorization: Bearer &lt;JWT&gt;</code>.</li>
+        <li data-highlight="n-orders a-orders-jwks n-jwks n-auth a-auth-jwks">The orders API reads <code>kid</code> from the header and finds the matching public key. It downloaded the keys from the JWKS endpoint earlier and keeps them cached.</li>
+        <li data-highlight="n-orders">It checks the algorithm, the signature, the expiry, the issuer and the audience. All pass, so it handles the request as user 7.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="audience" hidden>
+        <li data-highlight="n-client a-client-payments n-payments">The app sends the same token, meant for <code>orders-api</code>, to the payments API.</li>
+        <li data-highlight="n-payments a-payments-jwks n-jwks">The payments API checks the signature with the public key. It is correct, because the same auth server signed it.</li>
+        <li data-highlight="n-payments">The <code>aud</code> claim is <code>orders-api</code>, not <code>payments-api</code>, so it replies <code>401</code>. Without this check, a token leaked from one API would open every API.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="forged" hidden>
+        <li data-highlight="c-attacker">An attacker decodes a token, changes <code>"sub": "7"</code> to <code>"sub": "1"</code>, encodes the payload again and keeps the old signature.</li>
+        <li data-highlight="c-attacker g-attacker-orders t-forged n-orders">The orders API computes the signature check over the new payload. It does not match, so it replies <code>401</code>. Without the private key, the attacker cannot make a matching signature.</li>
+        <li data-highlight="c-attacker g-attacker-orders t-forged n-orders">The attacker tries again with <code>"alg": "none"</code> and no signature. The API accepts only <code>ES256</code>, so this fails too.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="rotation" hidden>
+        <li data-highlight="n-auth a-auth-jwks n-jwks">The auth server creates a new key pair with <code>kid</code> 2026-11 and lists both public keys at the JWKS endpoint.</li>
+        <li data-highlight="n-auth r-auth-client n-client n-token">New tokens are signed with the new key and carry <code>kid</code> 2026-11. Older tokens still carry 2026-10 and still work.</li>
+        <li data-highlight="n-orders a-orders-jwks n-jwks">The orders API sees a <code>kid</code> it has not cached, fetches the JWKS again and finds the new key.</li>
+        <li data-highlight="n-jwks">Once the longest token lifetime has passed, every token signed with 2026-10 has expired. The old key is removed from the JWKS.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Client</span>
+      <span class="chip tone-blue">Token</span>
+      <span class="chip tone-teal">Server</span>
+      <span class="chip tone-amber">Public keys</span>
+      <span>Replies and the attacker show during a flow. Click a box to see its code or data.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="examples/decoded-token.json"><span class="path">├─ examples/decoded-token.json</span><span class="chip tone-blue">Decoded JWT</span></button>
+      <button type="button" class="tree-row" data-file="examples/jwks.json"><span class="path">├─ examples/jwks.json</span><span class="chip tone-amber">Public keys</span></button>
+      <button type="button" class="tree-row" data-file="examples/client-requests.http"><span class="path">├─ examples/client-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/wrong-audience.http"><span class="path">├─ examples/wrong-audience.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="auth-server/src/tokens.ts"><span class="path">├─ auth-server/src/tokens.ts</span><span class="chip tone-teal">Signs tokens</span></button>
+      <button type="button" class="tree-row" data-file="orders-api/src/requireAccessToken.ts"><span class="path">└─ orders-api/src/requireAccessToken.ts</span><span class="chip tone-teal">Checks tokens</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="examples/decoded-token.json"><span class="path">├─ examples/decoded-token.json</span><span class="chip tone-blue">Decoded JWT</span></button>
+      <button type="button" class="tree-row" data-file="examples/jwks.json"><span class="path">├─ examples/jwks.json</span><span class="chip tone-amber">Public keys</span></button>
+      <button type="button" class="tree-row" data-file="examples/client-requests.http"><span class="path">├─ examples/client-requests.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/wrong-audience.http"><span class="path">├─ examples/wrong-audience.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="src/AuthServer/TokenIssuer.cs"><span class="path">├─ src/AuthServer/TokenIssuer.cs</span><span class="chip tone-teal">Signs tokens</span></button>
+      <button type="button" class="tree-row" data-file="src/OrdersApi/TokenCheckSetup.cs"><span class="path">└─ src/OrdersApi/TokenCheckSetup.cs</span><span class="chip tone-teal">Checks tokens</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>A lookup on every request</strong><span>The API checks the signature with a cached public key. No call to the auth server or a database.</span></li>
+        <li><strong>Many APIs trusting one login</strong><span>Every API can check tokens with the public key, and none of them can create tokens.</span></li>
+        <li><strong>Each API asking who the caller is</strong><span>The claims travel inside the token: user ID, audience, scopes.</span></li>
+        <li><strong>Custom token formats</strong><span>JWT is a standard, with tested libraries in every common language.</span></li>
+        <li><strong>Changing keys without downtime</strong><span>The <code>kid</code> header and the JWKS URL let old and new keys work side by side.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>No way to cancel a token early</strong><span>A JWT works until <code>exp</code>. Short lifetimes and refresh tokens are needed.</span></li>
+        <li><strong>The payload is public</strong><span>Anyone with the token can read it, so it must hold no secrets or personal data.</span></li>
+        <li><strong>Easy to check wrongly</strong><span>Skipping the algorithm or audience check opens real attacks. Use a library and set every check.</span></li>
+        <li><strong>Size</strong><span>A JWT is often 300 to 1000 bytes, sent with every request.</span></li>
+        <li><strong>Clocks must agree</strong><span>Servers with wrong clocks reject good tokens or accept expired ones.</span></li>
+        <li><strong>Key management</strong><span>The private key must stay secret, and keys must be rotated on a schedule.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="token">
+      <div class="file-head"><span class="chip tone-blue">Decoded JWT</span><span class="name">examples/decoded-token.json</span><span class="why">The token from the "Issue and check a token" flow, decoded. Anyone can do this with any base64url decoder, so nothing here is secret. The signature is shown as a description, because it is just bytes.</span></div>
+<pre><code>{
+  "header": {
+    "alg": "ES256",
+    "typ": "JWT",
+    "kid": "2026-10"
+  },
+  "payload": {
+    "iss": "https://auth.shop.example.com",
+    "sub": "7",
+    "aud": "orders-api",
+    "scope": "orders:read orders:write",
+    "iat": 1794300000,
+    "exp": 1794300900,
+    "jti": "3f9c2a1e-6d4b-4c8a-9e21-5b7f0d3a8c44"
+  },
+  "signature": "64 bytes: an ECDSA P-256 signature over the first two parts"
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="jwks">
+      <div class="file-head"><span class="chip tone-amber">Public keys</span><span class="name">examples/jwks.json</span><span class="why">What <code>GET /.well-known/jwks.json</code> returns during a key change: two public keys, picked by <code>kid</code>. <code>x</code> and <code>y</code> are the public point of each P-256 key. Publishing these is safe, because they can only check signatures.</span></div>
+<pre><code>{
+  "keys": [
+    {
+      "kty": "EC",
+      "crv": "P-256",
+      "kid": "2026-10",
+      "alg": "ES256",
+      "use": "sig",
+      "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+      "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+    },
+    {
+      "kty": "EC",
+      "crv": "P-256",
+      "kid": "2026-11",
+      "alg": "ES256",
+      "use": "sig",
+      "x": "WbbFkVdELIrhIEqp4AeUDP7qKmV2ki0E6fuXmyq9mZo",
+      "y": "8WaHoN7cWHTnXuiPa_RmSZJGeF4Dy0-oPmbmTyCq8tQ"
+    }
+  ]
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-http">
+    <div class="file" data-lang="any" data-node="client">
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/client-requests.http</span><span class="why">The app asks for a token for one audience and sends it to that API. A real token is about 400 characters.</span></div>
+<pre><code>POST /token HTTP/1.1
+Host: auth.shop.example.com
+Content-Type: application/json
+
+{ "email": "kari@example.com", "password": "correct horse battery staple", "audience": "orders-api" }
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{ "accessToken": "&lt;JWT for orders-api&gt;", "expiresIn": 900 }
+
+
+GET /orders HTTP/1.1
+Host: orders.shop.example.com
+Authorization: Bearer &lt;JWT for orders-api&gt;
+
+HTTP/1.1 200 OK</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="payments">
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/wrong-audience.http</span><span class="why">The payments API runs the same check as the orders API, with <code>payments-api</code> as the expected audience. The <code>WWW-Authenticate</code> header tells the client why the token was refused.</span></div>
+<pre><code>GET /payments/42 HTTP/1.1
+Host: payments.shop.example.com
+Authorization: Bearer &lt;JWT for orders-api&gt;
+
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="The audience 'orders-api' is invalid"</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="auth">
+      <div class="file-head"><span class="chip tone-teal">Signs tokens</span><span class="name">auth-server/src/tokens.ts</span><span class="why">Uses the <code>jose</code> library. Only this server holds the private key. The discovery document tells APIs where the public keys are. During a key change, the JWKS response lists both keys.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Router } from "express";
+import { SignJWT, exportJWK, importPKCS8, importSPKI } from "jose";
+
+const issuer = "https://auth.shop.example.com";
+const keyId = process.env.SIGNING_KEY_ID!;
+const privateKey = await importPKCS8(process.env.SIGNING_PRIVATE_KEY!, "ES256");
+const publicKey = await importSPKI(process.env.SIGNING_PUBLIC_KEY!, "ES256");
+
+export function issueAccessToken(userId: string, audience: string, scope: string): Promise&lt;string&gt; {
+  return new SignJWT({ scope })
+    .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: keyId })
+    .setIssuer(issuer)
+    .setSubject(userId)
+    .setAudience(audience)
+    .setIssuedAt()
+    .setExpirationTime("15m")
+    .setJti(randomUUID())
+    .sign(privateKey);
+}
+
+export const keyRoutes = Router();
+
+keyRoutes.get("/.well-known/openid-configuration", (_req, res) =&gt; {
+  res.json({ issuer, jwks_uri: `${issuer}/.well-known/jwks.json` });
+});
+
+keyRoutes.get("/.well-known/jwks.json", async (_req, res) =&gt; {
+  const publicJwk = await exportJWK(publicKey);
+  res.set("Cache-Control", "public, max-age=3600");
+  res.json({ keys: [{ ...publicJwk, kid: keyId, alg: "ES256", use: "sig" }] });
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="orders">
+      <div class="file-head"><span class="chip tone-teal">Checks tokens</span><span class="name">orders-api/src/requireAccessToken.ts</span><span class="why"><code>createRemoteJWKSet</code> downloads the public keys, caches them, and fetches again when a token has an unknown <code>kid</code>. <code>jwtVerify</code> runs all five checks. The rejection reason is logged, but never the token.</span></div>
+<pre><code>import { NextFunction, Request, Response } from "express";
+import { createRemoteJWKSet, errors, jwtVerify } from "jose";
+import { Logger } from "pino";
+
+const issuer = "https://auth.shop.example.com";
+const audience = "orders-api";
+const authServerKeys = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
+
+export function requireAccessToken(logger: Logger) {
+  return async (req: Request, res: Response, next: NextFunction) =&gt; {
+    const header = req.get("authorization") ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+
+    try {
+      const { payload } = await jwtVerify(token, authServerKeys, {
+        algorithms: ["ES256"],
+        issuer,
+        audience,
+        clockTolerance: 30,
+      });
+      res.locals.userId = payload.sub;
+      res.locals.scopes = String(payload.scope ?? "").split(" ");
+      next();
+    } catch (error) {
+      const reason = error instanceof errors.JOSEError ? error.code : "unknown";
+      logger.info({ reason, ip: req.ip, path: req.path }, "access token rejected");
+      res.status(401).json({ error: "The access token is missing, expired or not valid." });
+    }
+  };
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="auth">
+      <div class="file-head"><span class="chip tone-teal">Signs tokens</span><span class="name">src/AuthServer/TokenIssuer.cs</span><span class="why">Only this server holds the private key. The JWKS is built from a copy that holds just the public part. The discovery document tells APIs where the public keys are. During a key change, the JWKS response lists both keys.</span></div>
+<pre><code>using System.Security.Claims;
+using System.Security.Cryptography;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+
+namespace AuthServer;
+
+public class TokenIssuer
+{
+    public const string Issuer = "https://auth.shop.example.com";
+    private readonly ECDsaSecurityKey signingKey;
+    private readonly ECDsaSecurityKey publicKey;
+
+    public TokenIssuer(IConfiguration configuration)
+    {
+        var keyId = configuration["SIGNING_KEY_ID"];
+        var privateEcdsa = ECDsa.Create();
+        privateEcdsa.ImportFromPem(configuration["SIGNING_PRIVATE_KEY"]);
+
+        signingKey = new ECDsaSecurityKey(privateEcdsa) { KeyId = keyId };
+        publicKey = new ECDsaSecurityKey(ECDsa.Create(privateEcdsa.ExportParameters(includePrivateParameters: false))) { KeyId = keyId };
+    }
+
+    public string IssueAccessToken(Guid userId, string audience, string scope) =&gt;
+        new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = Issuer,
+            Audience = audience,
+            Subject = new ClaimsIdentity([
+                new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim("scope", scope),
+            ]),
+            IssuedAt = DateTime.UtcNow,
+            Expires = DateTime.UtcNow.AddMinutes(15),
+            SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.EcdsaSha256),
+        });
+
+    public object PublicKeys()
+    {
+        var jwk = JsonWebKeyConverter.ConvertFromECDsaSecurityKey(publicKey);
+        return new { keys = new[] { new { kty = jwk.Kty, crv = jwk.Crv, kid = jwk.Kid, alg = "ES256", use = "sig", x = jwk.X, y = jwk.Y } } };
+    }
+}
+
+public static class KeyEndpoints
+{
+    public static void MapKeyEndpoints(this WebApplication app)
+    {
+        app.MapGet("/.well-known/openid-configuration", () =&gt;
+            Results.Ok(new { issuer = TokenIssuer.Issuer, jwks_uri = $"{TokenIssuer.Issuer}/.well-known/jwks.json" }));
+
+        app.MapGet("/.well-known/jwks.json", (TokenIssuer issuer, HttpContext http) =&gt;
+        {
+            http.Response.Headers.CacheControl = "public, max-age=3600";
+            return Results.Ok(issuer.PublicKeys());
+        });
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="orders">
+      <div class="file-head"><span class="chip tone-teal">Checks tokens</span><span class="name">src/OrdersApi/TokenCheckSetup.cs</span><span class="why"><code>Authority</code> makes the JWT bearer handler read the discovery document, download the public keys, check <code>iss</code>, and fetch the keys again when a token has an unknown <code>kid</code>. <code>Audience</code> and <code>ValidAlgorithms</code> add the other checks. The rejection reason is logged, but never the token.</span></div>
+<pre><code>using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+
+namespace OrdersApi;
+
+public static class TokenCheckSetup
+{
+    public static void AddAccessTokenChecks(this IServiceCollection services) =&gt;
+        services
+            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =&gt;
+            {
+                options.Authority = "https://auth.shop.example.com";
+                options.Audience = "orders-api";
+                options.MapInboundClaims = false;
+                options.TokenValidationParameters.ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256];
+                options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30);
+                options.Events = new JwtBearerEvents
+                {
+                    OnAuthenticationFailed = context =&gt;
+                    {
+                        context.HttpContext.RequestServices
+                            .GetRequiredService&lt;ILogger&lt;JwtBearerEvents&gt;&gt;()
+                            .LogInformation("Access token rejected: {Reason}, path {Path}",
+                                context.Exception.GetType().Name, context.Request.Path);
+                        return Task.CompletedTask;
+                    },
+                };
+            });
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-http.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

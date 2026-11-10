@@ -20,7 +20,7 @@
     <h2>What it is</h2>
     <p>HTTP keeps nothing between requests. After a user logs in, every later request must carry something that proves who is calling. There are two common ways to do this.</p>
     <p>With a <strong>session</strong>, the server saves the login in a session store, such as Redis, under a long random ID. The browser keeps only that ID, usually in a cookie, and sends it with each request. The server looks the ID up.</p>
-    <p>With a <strong>token</strong>, the server puts the user ID and an expiry time inside the token and signs it with a secret key. The client sends the token with each request. The server checks the signature with its key, without looking anything up. The most common token format is the JWT.</p>
+    <p>With a <strong>token</strong>, the server puts the user ID and an expiry time inside the token and signs it with a secret key. The client sends the token with each request. The server checks the signature with its key, without looking anything up. The most common token format is the <a href="../jwt/">JWT</a>.</p>
     <p>Both answer one question: who is calling? That is <strong>authentication</strong>. Deciding what that caller is allowed to do is a separate step, called <strong>authorization</strong>.</p>
     <div class="table-wrap">
       <table class="terms">
@@ -466,7 +466,7 @@ export function requireSession(redis: Redis) {
     </div>
 
     <div class="file" data-lang="ts" data-node="api">
-      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking an access token needs only the key. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>revokeAllRefreshTokens</code> is what "log out on all devices" calls. Rotation details and theft detection are covered on the access and refresh tokens page.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">api/src/tokenAuth.ts</span><span class="why">Uses the <code>jose</code> library. Checking an access token needs only the key. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>revokeAllRefreshTokens</code> is what "log out on all devices" calls. The <a href="../jwt/">JWT</a> page covers what a token contains and every check an API should run. Rotation details and theft detection are covered on the access and refresh tokens page.</span></div>
 <pre><code>import { createHash, randomBytes } from "node:crypto";
 import { NextFunction, Request, Response, Router } from "express";
 import { SignJWT, jwtVerify } from "jose";
@@ -660,7 +660,7 @@ public static class SessionAuth
     </div>
 
     <div class="file" data-lang="cs" data-node="api">
-      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>RevokeAllRefreshTokensAsync</code> is what "log out on all devices" calls. Rotation details and theft detection are covered on the access and refresh tokens page.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Tokens</span><span class="name">src/Api/Auth/TokenAuth.cs</span><span class="why">ASP.NET Core's JWT bearer handler checks every request that needs a login: signature, algorithm and expiry. Refresh tokens are saved as hashes; the <code>UPDATE ... RETURNING</code> marks one as used and reads it in a single step, so it works only once. <code>RevokeAllRefreshTokensAsync</code> is what "log out on all devices" calls. The <a href="../jwt/">JWT</a> page covers what a token contains and every check an API should run. Rotation details and theft detection are covered on the access and refresh tokens page.</span></div>
 <pre><code>using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;

@@ -20,3 +20,4 @@ security/<category>/<topic>/
 ## Topics
 
 - [Sessions and Tokens](authentication/sessions-and-tokens/index.html) - authentication
+- [JWT](authentication/jwt/index.html) - authentication
