@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OAuth 2.0 and OpenID Connect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Security</a> / Authentication</div>
+    <h1>OAuth 2.0 and OpenID Connect</h1>
+    <p class="aka">OAuth 2.0 is defined in RFC 6749. OpenID Connect, often shortened to <strong>OIDC</strong>, is built on top of it. Together they are what "Log in with Google" uses.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p><strong>OAuth 2.0</strong> lets an app get an access token to call an API on behalf of a user, without ever seeing the user's password. The user logs in at a separate <strong>authorization server</strong>, agrees to what the app may do, and the app receives tokens. OAuth on its own answers "what may this app do", not "who is the user".</p>
+    <p><strong>OpenID Connect</strong> adds the "who": an <strong>ID token</strong>, a <a href="../jwt/">JWT</a> that tells the app which user logged in. It also adds a standard discovery document, so an app can find the authorization server's endpoints and keys from one URL.</p>
+    <p>The login provider can be Google, Microsoft Entra ID, Okta, Auth0 or your own server running Keycloak. The flows are the same for all of them. The tokens are the same kinds as on the <a href="../access-and-refresh-tokens/">access and refresh tokens</a> page, but a separate server issues them.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Resource owner</span></td><td>The user, who owns the data.</td><td>Kari</td></tr>
+          <tr><td><span class="chip tone-teal">Client</span></td><td>The app that wants tokens. A client that runs on a server and can keep a secret is "confidential". A browser or mobile app cannot keep one, so it is "public".</td><td>Shop web server (confidential)</td></tr>
+          <tr><td><span class="chip tone-blue">Authorization server</span></td><td>Logs the user in and issues tokens.</td><td><code>login.example.com</code></td></tr>
+          <tr><td><span class="chip tone-teal">Resource server</span></td><td>The API that accepts access tokens.</td><td>Orders API</td></tr>
+          <tr><td><span class="chip tone-blue">Scope</span></td><td>A named permission the client asks for.</td><td><code>openid profile email orders:read</code></td></tr>
+          <tr><td><span class="chip tone-blue">Redirect URI</span></td><td>The address the authorization server sends the browser back to. It must match one registered for the client exactly.</td><td><code>https://shop.example.com/callback</code></td></tr>
+          <tr><td><span class="chip tone-amber">Authorization code</span></td><td>A short-lived, single-use value the client trades for tokens.</td><td>Valid about 60 seconds</td></tr>
+          <tr><td><span class="chip tone-amber">PKCE</span></td><td>Proof Key for Code Exchange, said "pixie". The client keeps a random <code>code_verifier</code> and sends its hash first. Only the holder of the verifier can trade the code.</td><td><code>code_challenge_method=S256</code></td></tr>
+          <tr><td><span class="chip tone-amber"><code>state</code>, <code>nonce</code></span></td><td>Random values that tie the reply to this login attempt. <code>state</code> comes back in the redirect. <code>nonce</code> comes back inside the ID token.</td><td>32 random bytes each</td></tr>
+          <tr><td><span class="chip tone-amber">ID token</span></td><td>A JWT for the client that says who logged in.</td><td><code>sub</code>, <code>email</code>, <code>name</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> the user types their password only at the authorization server. The client proves each step belongs to the same login with <code>state</code>, <code>nonce</code> and PKCE, and checks the ID token before trusting it.</div>
+  </section>
+
+  <section>
+    <h2>Which flow to use</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Flow (grant type)</th><th>When</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Authorization code with PKCE</td><td>Any app where a user logs in: web, single-page, mobile, desktop</td><td>The default. Use PKCE even for confidential clients.</td></tr>
+          <tr><td>Client credentials</td><td>A service calling an API with no user, such as a nightly job</td><td>The service logs in with its own ID and secret. No refresh token.</td></tr>
+          <tr><td>Device code</td><td>Devices without a browser or keyboard: TVs, command-line tools</td><td>The device shows a short code. The user enters it on their phone.</td></tr>
+          <tr><td>Refresh token</td><td>Getting new access tokens without asking the user again</td><td>See the access and refresh tokens page.</td></tr>
+          <tr><td>Implicit, and resource owner password</td><td>Never in new apps</td><td>Removed in OAuth 2.1. Implicit puts tokens in the URL. Password makes the app handle the user's password.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How an ID token differs from an access token</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>ID token</th><th>Access token</th></tr></thead>
+        <tbody>
+          <tr><td>Meant for</td><td>The client: <code>aud</code> is the client ID</td><td>An API: <code>aud</code> is the API, such as <code>orders-api</code></td></tr>
+          <tr><td>Answers</td><td>Who logged in, when and how</td><td>What the caller may do: the scopes</td></tr>
+          <tr><td>Format</td><td>Always a JWT</td><td>Often a JWT, but some providers use random values that only they can check</td></tr>
+          <tr><td>Send it to APIs?</td><td>Never</td><td>Yes, in <code>Authorization: Bearer</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A common mistake is the reverse: an API that accepts a Google access token as proof of login. That token was meant for Google's APIs, so its audience does not match, and any app the user ever logged into could replay it.</p>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Login started</td><td>Client ID, requested scopes, a short ID for this attempt</td><td>info</td></tr>
+          <tr><td>Callback succeeded</td><td>User <code>sub</code>, provider, scopes granted</td><td>info</td></tr>
+          <tr><td>Callback failed</td><td>The <code>error</code> code from the provider, such as <code>access_denied</code>, or the check that failed, such as state or nonce</td><td>warn</td></tr>
+          <tr><td>Token exchange failed</td><td>HTTP status, <code>error</code> code, such as <code>invalid_grant</code></td><td>warn</td></tr>
+          <tr><td>Metric: failed state or PKCE checks</td><td>A rise may mean someone is replaying or forging callbacks</td><td>Alert on a spike</td></tr>
+          <tr><td>Never log</td><td>Authorization codes, <code>code_verifier</code>, client secrets, ID tokens, access tokens, refresh tokens, or full callback URLs, which contain the code</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 70 920 330" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The user's browser is redirected between the shop web server and the authorization server. The shop web server trades the code for tokens and calls the orders API. A reporting job gets its own token from the authorization server with client credentials.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-browser" tabindex="0" role="button" aria-label="Show the HTTP requests of the login" data-title="Browser: the login's HTTP requests" data-node="browser">
+          <rect class="shape tone-neutral" x="12" y="195" width="160" height="56" rx="6"/>
+          <text class="t-name" x="92" y="219">User's browser</text>
+          <text class="t-kind" x="92" y="237">only sees redirects</text>
+        </g>
+        <g class="ghost-label" id="c-attacker">
+          <rect class="shape tone-neutral" x="12" y="300" width="160" height="56" rx="6"/>
+          <text class="t-name" x="92" y="324">Attacker</text>
+          <text class="t-kind" x="92" y="342">copied the login code</text>
+        </g>
+
+        <g class="node" id="n-client" tabindex="0" role="button" aria-label="Show code for the shop web server" data-title="Shop web server: OAuth client" data-node="client">
+          <rect class="shape tone-teal" x="290" y="185" width="200" height="76" rx="6"/>
+          <text class="t-name" x="390" y="214">Shop web server</text>
+          <text class="t-kind" x="390" y="232">OAuth client, keeps the tokens</text>
+        </g>
+        <g class="node" id="n-job" tabindex="0" role="button" aria-label="Show code for the reporting job" data-title="Reporting job: client credentials" data-node="job">
+          <rect class="shape tone-teal" x="290" y="315" width="200" height="56" rx="6"/>
+          <text class="t-name" x="390" y="339">Reporting job</text>
+          <text class="t-kind" x="390" y="357">no user, own credentials</text>
+        </g>
+
+        <g class="node" id="n-authz" tabindex="0" role="button" aria-label="Show the discovery document and ID token" data-title="Authorization server: discovery and ID token" data-node="authz">
+          <rect class="shape tone-blue" x="640" y="95" width="260" height="70" rx="6"/>
+          <text class="t-name" x="770" y="124">Authorization server</text>
+          <text class="t-kind" x="770" y="142">login page, /authorize, /token</text>
+        </g>
+        <g class="node" id="n-api" tabindex="0" role="button" aria-label="Show calls to the orders API" data-title="Orders API: resource server" data-node="api">
+          <rect class="shape tone-teal" x="640" y="290" width="260" height="60" rx="6"/>
+          <text class="t-name" x="770" y="315">Orders API</text>
+          <text class="t-kind" x="770" y="333">resource server, checks aud and scope</text>
+        </g>
+
+        <path class="flow" id="a-browser-client" d="M172,215 L288,215" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-client-browser" d="M288,235 L174,235" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-browser-authz" d="M80,195 L80,112 L638,112" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-authz-browser" d="M638,128 L104,128 L104,193" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-client-authz" d="M490,200 L638,150" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="r-authz-client" d="M638,162 L492,214" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-client-api" d="M490,245 L638,305" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-job-authz" d="M470,315 L680,167" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-job-api" d="M490,345 L638,330" marker-end="url(#arrow)"/>
+        <path class="flow ghost blocked" id="g-attacker-authz" d="M172,300 L560,290 L700,167" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-pkce" x="290" y="392">REJECTED: NO CODE VERIFIER</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="login" aria-pressed="true">Log in: authorization code with PKCE</button>
+        <button type="button" data-flow="intercepted" aria-pressed="false">An intercepted code</button>
+        <button type="button" data-flow="client-credentials" aria-pressed="false">Service to service</button>
+        <button type="button" data-flow="logout" aria-pressed="false">Log out</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="login" hidden>
+        <li data-highlight="n-browser a-browser-client n-client">The user clicks "Log in" on the shop. The browser asks the shop web server for <code>/login</code>.</li>
+        <li data-highlight="n-client">The shop creates random <code>state</code>, <code>nonce</code> and <code>code_verifier</code> values, and saves them in a short-lived session. It computes <code>code_challenge</code>, the SHA-256 hash of the verifier.</li>
+        <li data-highlight="n-client r-client-browser n-browser a-browser-authz n-authz">It redirects the browser to the authorization server's <code>/authorize</code> URL with the client ID, redirect URI, scopes, <code>state</code>, <code>nonce</code> and <code>code_challenge</code>.</li>
+        <li data-highlight="n-authz">The user logs in there, with a password and maybe a second factor, and agrees to the scopes. The shop never sees the password.</li>
+        <li data-highlight="n-authz r-authz-browser n-browser a-browser-client n-client">The authorization server redirects the browser back to <code>/callback?code=...&amp;state=...</code>. The shop checks that <code>state</code> matches the one it saved.</li>
+        <li data-highlight="n-client a-client-authz n-authz r-authz-client">Server to server, the shop sends the code, the <code>code_verifier</code> and its client secret to <code>/token</code>. It gets back an ID token, an access token and a refresh token.</li>
+        <li data-highlight="n-client">The shop checks the ID token: signature, issuer, audience equal to its client ID, expiry, and <code>nonce</code>. Then it starts its own session for the browser. The tokens stay on the server.</li>
+        <li data-highlight="n-client a-client-api n-api">When a page needs the user's orders, the shop calls the orders API with the access token.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="intercepted" hidden>
+        <li data-highlight="n-authz r-authz-browser n-browser c-attacker">An attacker catches the authorization code on its way back, for example with a malicious app on a phone that registered the same redirect address.</li>
+        <li data-highlight="c-attacker g-attacker-authz n-authz">The attacker sends the code to <code>/token</code>. It does not have the <code>code_verifier</code>, which never left the shop's server.</li>
+        <li data-highlight="c-attacker g-attacker-authz t-pkce n-authz">The authorization server hashes what it received, finds no match with the saved <code>code_challenge</code>, and refuses. Without the verifier, the code cannot be traded for tokens.</li>
+        <li data-highlight="n-client a-client-authz n-authz">The real shop can still trade the code, because codes work once and it holds the verifier. If the attacker had used the code first, the shop's attempt would fail and the user would log in again.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="client-credentials" hidden>
+        <li data-highlight="n-job a-job-authz n-authz">A nightly reporting job has no user. It calls <code>/token</code> with <code>grant_type=client_credentials</code>, its own client ID and secret, and the scope <code>orders:read</code>.</li>
+        <li data-highlight="n-authz">The authorization server checks the job's credentials and that it is allowed that scope. It returns an access token whose <code>sub</code> is the job's client ID. There is no refresh token; the job asks again when the token expires.</li>
+        <li data-highlight="n-job a-job-api n-api">The job calls the orders API with the token. The API checks the audience and the scope, as for any other caller.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="logout" hidden>
+        <li data-highlight="n-browser a-browser-client n-client">The user clicks "Log out". The shop ends its own session and deletes the tokens it held.</li>
+        <li data-highlight="n-client a-client-authz n-authz">It revokes the refresh token at the authorization server's revocation endpoint.</li>
+        <li data-highlight="n-client r-client-browser n-browser a-browser-authz n-authz">It redirects the browser to the authorization server's logout endpoint, so the user is also logged out there. Without this, the next "Log in" would skip the login page.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Browser</span>
+      <span class="chip tone-teal">Client or API</span>
+      <span class="chip tone-blue">Authorization server</span>
+      <span>Redirects and replies show during a flow. Click a box to see its code or the HTTP requests.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="examples/authorization-code-flow.http"><span class="path">├─ examples/authorization-code-flow.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/discovery-document.json"><span class="path">├─ examples/discovery-document.json</span><span class="chip tone-blue">Discovery</span></button>
+      <button type="button" class="tree-row" data-file="examples/id-token-claims.json"><span class="path">├─ examples/id-token-claims.json</span><span class="chip tone-amber">ID token</span></button>
+      <button type="button" class="tree-row" data-file="examples/orders-api-calls.http"><span class="path">├─ examples/orders-api-calls.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="shop-web/src/oidcLogin.ts"><span class="path">├─ shop-web/src/oidcLogin.ts</span><span class="chip tone-teal">Client</span></button>
+      <button type="button" class="tree-row" data-file="reporting-job/src/clientCredentials.ts"><span class="path">└─ reporting-job/src/clientCredentials.ts</span><span class="chip tone-teal">Machine client</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="examples/authorization-code-flow.http"><span class="path">├─ examples/authorization-code-flow.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="examples/discovery-document.json"><span class="path">├─ examples/discovery-document.json</span><span class="chip tone-blue">Discovery</span></button>
+      <button type="button" class="tree-row" data-file="examples/id-token-claims.json"><span class="path">├─ examples/id-token-claims.json</span><span class="chip tone-amber">ID token</span></button>
+      <button type="button" class="tree-row" data-file="examples/orders-api-calls.http"><span class="path">├─ examples/orders-api-calls.http</span><span class="chip tone-neutral">HTTP requests</span></button>
+      <button type="button" class="tree-row" data-file="src/ShopWeb/OidcSetup.cs"><span class="path">├─ src/ShopWeb/OidcSetup.cs</span><span class="chip tone-teal">Client</span></button>
+      <button type="button" class="tree-row" data-file="src/ReportingJob/ClientCredentialsTokens.cs"><span class="path">└─ src/ReportingJob/ClientCredentialsTokens.cs</span><span class="chip tone-teal">Machine client</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Apps handling user passwords</strong><span>The user types the password only at the authorization server. The shop never sees or stores it.</span></li>
+        <li><strong>Every app building its own login</strong><span>One authorization server handles passwords, second factors and lockouts for every app.</span></li>
+        <li><strong>All-or-nothing access</strong><span>Scopes limit what each app may do, and the user sees them before agreeing.</span></li>
+        <li><strong>Knowing who logged in (OIDC)</strong><span>The ID token gives the client a checked user ID and profile in a standard format.</span></li>
+        <li><strong>Services calling APIs safely</strong><span>Client credentials give jobs and services their own tokens, with their own scopes.</span></li>
+        <li><strong>Custom setups for each provider</strong><span>Discovery documents and standard endpoints let one library work with Google, Entra ID, Keycloak and others.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Many steps and settings</strong><span>Redirects, codes, three token types, discovery and keys. Hand-written versions often miss a check, so use a certified library.</span></li>
+        <li><strong>Dependence on the provider</strong><span>If the authorization server is down, nobody can log in.</span></li>
+        <li><strong>Exact settings matter</strong><span>A redirect URI with a wildcard, a missing <code>state</code> check or a skipped audience check each opens a known attack.</span></li>
+        <li><strong>Tokens in the browser</strong><span>Single-page apps that hold tokens themselves expose them to injected scripts. A server-side client, like a <a href="../../../architecture/api-and-integration/backend-for-frontend/">backend for frontend</a>, keeps them out of the browser.</span></li>
+        <li><strong>Logout across systems</strong><span>Ending the app session, the provider session and the refresh token are three separate steps.</span></li>
+        <li><strong>Provider differences</strong><span>Providers differ in how they name audiences and scopes, so the same request may need small changes for each one.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-http">
+    <div class="file" data-lang="any" data-node="browser">
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/authorization-code-flow.http</span><span class="why">The four HTTP steps of the login. The first two pass through the browser as redirects. The last one goes straight from the shop's server to the authorization server, so the browser never sees the tokens.</span></div>
+<pre><code>HTTP/1.1 302 Found
+Location: https://login.example.com/authorize
+  ?response_type=code
+  &amp;client_id=shop-web
+  &amp;redirect_uri=https%3A%2F%2Fshop.example.com%2Fcallback
+  &amp;scope=openid%20profile%20email%20orders%3Aread%20offline_access
+  &amp;state=&lt;random state&gt;
+  &amp;nonce=&lt;random nonce&gt;
+  &amp;code_challenge=&lt;SHA-256 of the code verifier, base64url&gt;
+  &amp;code_challenge_method=S256
+
+
+HTTP/1.1 302 Found
+Location: https://shop.example.com/callback?code=&lt;authorization code&gt;&amp;state=&lt;random state&gt;
+
+
+POST /token HTTP/1.1
+Host: login.example.com
+Authorization: Basic &lt;base64 of client ID and client secret&gt;
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&amp;code=&lt;authorization code&gt;
+&amp;redirect_uri=https%3A%2F%2Fshop.example.com%2Fcallback
+&amp;code_verifier=&lt;the random code verifier&gt;
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "id_token": "&lt;JWT about the user&gt;",
+  "access_token": "&lt;token for orders-api&gt;",
+  "refresh_token": "&lt;refresh token&gt;",
+  "token_type": "Bearer",
+  "expires_in": 900
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="api">
+      <div class="file-head"><span class="chip tone-neutral">HTTP requests</span><span class="name">examples/orders-api-calls.http</span><span class="why">The orders API checks the access token as on the <a href="../jwt/">JWT</a> page, then checks the scope. The reporting job's token has <code>orders:read</code> only, so writing fails with <code>403</code>: the caller is known but not allowed.</span></div>
+<pre><code>GET /orders HTTP/1.1
+Host: orders.shop.example.com
+Authorization: Bearer &lt;reporting job's access token, scope orders:read&gt;
+
+HTTP/1.1 200 OK
+
+
+POST /orders/42/cancel HTTP/1.1
+Host: orders.shop.example.com
+Authorization: Bearer &lt;reporting job's access token, scope orders:read&gt;
+
+HTTP/1.1 403 Forbidden
+WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write"</code></pre>
+    </div>
+  </div>
+
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="authz">
+      <div class="file-head"><span class="chip tone-blue">Discovery</span><span class="name">examples/discovery-document.json</span><span class="why">What <code>GET https://login.example.com/.well-known/openid-configuration</code> returns. A client library reads this once to find every endpoint and the public keys, so the client only needs the issuer URL.</span></div>
+<pre><code>{
+  "issuer": "https://login.example.com",
+  "authorization_endpoint": "https://login.example.com/authorize",
+  "token_endpoint": "https://login.example.com/token",
+  "userinfo_endpoint": "https://login.example.com/userinfo",
+  "revocation_endpoint": "https://login.example.com/revoke",
+  "end_session_endpoint": "https://login.example.com/logout",
+  "jwks_uri": "https://login.example.com/.well-known/jwks.json",
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
+  "code_challenge_methods_supported": ["S256"],
+  "scopes_supported": ["openid", "profile", "email", "offline_access", "orders:read", "orders:write"],
+  "id_token_signing_alg_values_supported": ["ES256", "RS256"]
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="authz">
+      <div class="file-head"><span class="chip tone-amber">ID token</span><span class="name">examples/id-token-claims.json</span><span class="why">The payload of the ID token the shop receives. <code>aud</code> is the shop's client ID, not an API. <code>nonce</code> must equal the value the shop saved before the redirect. This data is for the shop only and is never sent to APIs.</span></div>
+<pre><code>{
+  "iss": "https://login.example.com",
+  "sub": "248289761001",
+  "aud": "shop-web",
+  "exp": 1794300900,
+  "iat": 1794300000,
+  "auth_time": 1794299990,
+  "nonce": "&lt;the nonce the shop sent&gt;",
+  "email": "kari@example.com",
+  "email_verified": true,
+  "name": "Kari Nordmann"
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="client">
+      <div class="file-head"><span class="chip tone-teal">Client</span><span class="name">shop-web/src/oidcLogin.ts</span><span class="why">Uses the <code>openid-client</code> library, version 6, and <code>express-session</code> with Redis as on the sessions page. <code>authorizationCodeGrant</code> checks <code>state</code>, sends the verifier, and checks the ID token's signature, issuer, audience, expiry and <code>nonce</code>. The tokens stay in the server-side session; the browser gets only a session cookie.</span></div>
+<pre><code>import express from "express";
+import * as oidc from "openid-client";
+import { Logger } from "pino";
+
+declare module "express-session" {
+  interface SessionData {
+    pendingLogin?: { codeVerifier: string; state: string; nonce: string };
+    user?: { id: string; name?: string };
+    tokens?: { accessToken: string; refreshToken?: string; expiresAt: number };
+  }
+}
+
+const baseUrl = "https://shop.example.com";
+const redirectUri = `${baseUrl}/callback`;
+const oidcConfig = await oidc.discovery(
+  new URL("https://login.example.com"),
+  process.env.OIDC_CLIENT_ID!,
+  process.env.OIDC_CLIENT_SECRET!,
+);
+
+export function oidcRoutes(logger: Logger): express.Router {
+  const router = express.Router();
+
+  router.get("/login", async (req, res) =&gt; {
+    const codeVerifier = oidc.randomPKCECodeVerifier();
+    const state = oidc.randomState();
+    const nonce = oidc.randomNonce();
+    req.session.pendingLogin = { codeVerifier, state, nonce };
+
+    const authorizationUrl = oidc.buildAuthorizationUrl(oidcConfig, {
+      redirect_uri: redirectUri,
+      scope: "openid profile email orders:read offline_access",
+      code_challenge: await oidc.calculatePKCECodeChallenge(codeVerifier),
+      code_challenge_method: "S256",
+      state,
+      nonce,
+    });
+    logger.info({ scopes: "openid profile email orders:read offline_access" }, "login started");
+    res.redirect(authorizationUrl.href);
+  });
+
+  router.get("/callback", async (req, res) =&gt; {
+    const pendingLogin = req.session.pendingLogin;
+    delete req.session.pendingLogin;
+    if (!pendingLogin) return res.status(400).send("No login is in progress.");
+
+    try {
+      const tokens = await oidc.authorizationCodeGrant(oidcConfig, new URL(req.originalUrl, baseUrl), {
+        pkceCodeVerifier: pendingLogin.codeVerifier,
+        expectedState: pendingLogin.state,
+        expectedNonce: pendingLogin.nonce,
+        idTokenExpected: true,
+      });
+      const claims = tokens.claims()!;
+
+      req.session.regenerate(() =&gt; {
+        req.session.user = { id: claims.sub, name: claims.name as string | undefined };
+        req.session.tokens = {
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresAt: Date.now() + (tokens.expires_in ?? 0) * 1000,
+        };
+        logger.info({ userId: claims.sub, scopes: tokens.scope }, "login succeeded");
+        res.redirect("/");
+      });
+    } catch (error) {
+      const errorCode = error instanceof oidc.ResponseBodyError ? error.error : (error as Error).name;
+      logger.warn({ errorCode }, "login callback failed");
+      res.status(400).send("The login could not be completed. Please try again.");
+    }
+  });
+
+  router.get("/api/orders", async (req, res) =&gt; {
+    const tokens = req.session.tokens;
+    if (!tokens) return res.status(401).end();
+
+    if (Date.now() &gt; tokens.expiresAt - 30_000 &amp;&amp; tokens.refreshToken) {
+      const refreshed = await oidc.refreshTokenGrant(oidcConfig, tokens.refreshToken);
+      req.session.tokens = {
+        accessToken: refreshed.access_token,
+        refreshToken: refreshed.refresh_token ?? tokens.refreshToken,
+        expiresAt: Date.now() + (refreshed.expires_in ?? 0) * 1000,
+      };
+    }
+
+    const ordersResponse = await fetch("https://orders.shop.example.com/orders", {
+      headers: { Authorization: `Bearer ${req.session.tokens!.accessToken}` },
+    });
+    res.status(ordersResponse.status).json(await ordersResponse.json());
+  });
+
+  router.post("/logout", async (req, res) =&gt; {
+    const refreshToken = req.session.tokens?.refreshToken;
+    if (refreshToken) await oidc.tokenRevocation(oidcConfig, refreshToken);
+
+    req.session.destroy(() =&gt; {
+      const logoutUrl = oidc.buildEndSessionUrl(oidcConfig, { post_logout_redirect_uri: baseUrl });
+      res.redirect(logoutUrl.href);
+    });
+  });
+
+  return router;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="job">
+      <div class="file-head"><span class="chip tone-teal">Machine client</span><span class="name">reporting-job/src/clientCredentials.ts</span><span class="why">No user and no redirects: the job trades its own credentials for an access token and reuses it until 30 seconds before it expires. Some providers name the API with an <code>audience</code> or <code>resource</code> parameter instead of the scope alone.</span></div>
+<pre><code>import * as oidc from "openid-client";
+
+const oidcConfig = await oidc.discovery(
+  new URL("https://login.example.com"),
+  process.env.REPORTING_CLIENT_ID!,
+  process.env.REPORTING_CLIENT_SECRET!,
+);
+
+let cachedToken: { accessToken: string; expiresAt: number } | null = null;
+
+async function getAccessToken(): Promise&lt;string&gt; {
+  if (cachedToken &amp;&amp; Date.now() &lt; cachedToken.expiresAt - 30_000) {
+    return cachedToken.accessToken;
+  }
+
+  const tokens = await oidc.clientCredentialsGrant(oidcConfig, { scope: "orders:read" });
+  cachedToken = {
+    accessToken: tokens.access_token,
+    expiresAt: Date.now() + (tokens.expires_in ?? 0) * 1000,
+  };
+  return cachedToken.accessToken;
+}
+
+export async function fetchOrdersForReport(): Promise&lt;unknown&gt; {
+  const response = await fetch("https://orders.shop.example.com/orders?placedSince=yesterday", {
+    headers: { Authorization: `Bearer ${await getAccessToken()}` },
+  });
+  if (!response.ok) throw new Error(`The orders API replied ${response.status}.`);
+  return response.json();
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="client">
+      <div class="file-head"><span class="chip tone-teal">Client</span><span class="name">src/ShopWeb/OidcSetup.cs</span><span class="why">ASP.NET Core's OpenID Connect handler runs the whole login: it creates and checks <code>state</code> and <code>nonce</code>, sends the PKCE values, trades the code and checks the ID token. The cookie handler then keeps the user logged in. <code>SaveTokens</code> stores the tokens in the encrypted, server-issued authentication cookie.</span></div>
+<pre><code>using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+
+namespace ShopWeb;
+
+public static class OidcSetup
+{
+    public static void AddShopLogin(this IServiceCollection services, IConfiguration configuration) =&gt;
+        services
+            .AddAuthentication(options =&gt;
+            {
+                options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+            })
+            .AddCookie(options =&gt;
+            {
+                options.Cookie.HttpOnly = true;
+                options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+                options.Cookie.SameSite = SameSiteMode.Lax;
+            })
+            .AddOpenIdConnect(options =&gt;
+            {
+                options.Authority = "https://login.example.com";
+                options.ClientId = configuration["OIDC_CLIENT_ID"];
+                options.ClientSecret = configuration["OIDC_CLIENT_SECRET"];
+                options.ResponseType = OpenIdConnectResponseType.Code;
+                options.UsePkce = true;
+                options.SaveTokens = true;
+                options.MapInboundClaims = false;
+                options.CallbackPath = "/callback";
+
+                options.Scope.Clear();
+                foreach (var scope in new[] { "openid", "profile", "email", "orders:read", "offline_access" })
+                    options.Scope.Add(scope);
+
+                options.Events.OnTokenValidated = context =&gt;
+                {
+                    context.HttpContext.RequestServices.GetRequiredService&lt;ILogger&lt;OpenIdConnectEvents&gt;&gt;()
+                        .LogInformation("Login succeeded for user {UserId}", context.Principal?.FindFirst("sub")?.Value);
+                    return Task.CompletedTask;
+                };
+                options.Events.OnRemoteFailure = context =&gt;
+                {
+                    context.HttpContext.RequestServices.GetRequiredService&lt;ILogger&lt;OpenIdConnectEvents&gt;&gt;()
+                        .LogWarning("Login callback failed: {ErrorType}", context.Failure?.GetType().Name);
+                    context.Response.Redirect("/login-failed");
+                    context.HandleResponse();
+                    return Task.CompletedTask;
+                };
+            });
+
+    public static void MapShopLoginEndpoints(this WebApplication app)
+    {
+        app.MapGet("/login", () =&gt;
+            Results.Challenge(new AuthenticationProperties { RedirectUri = "/" }, [OpenIdConnectDefaults.AuthenticationScheme]));
+
+        app.MapGet("/api/orders", async (HttpContext http, IHttpClientFactory httpClients) =&gt;
+        {
+            var accessToken = await http.GetTokenAsync("access_token");
+            var ordersApi = httpClients.CreateClient("orders-api");
+            ordersApi.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
+            var ordersResponse = await ordersApi.GetAsync("/orders");
+            return Results.Stream(await ordersResponse.Content.ReadAsStreamAsync(), "application/json");
+        }).RequireAuthorization();
+
+        app.MapPost("/logout", () =&gt;
+            Results.SignOut(new AuthenticationProperties { RedirectUri = "/" },
+                [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]));
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="job">
+      <div class="file-head"><span class="chip tone-teal">Machine client</span><span class="name">src/ReportingJob/ClientCredentialsTokens.cs</span><span class="why">No user and no redirects: the job posts its own credentials to the token endpoint and reuses the access token until 30 seconds before it expires. Some providers name the API with an <code>audience</code> or <code>resource</code> parameter instead of the scope alone.</span></div>
+<pre><code>using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text;
+
+namespace ReportingJob;
+
+record TokenResponse(string access_token, int expires_in);
+
+public class ClientCredentialsTokens(HttpClient http, IConfiguration configuration)
+{
+    private string? cachedAccessToken;
+    private DateTimeOffset cachedUntil;
+
+    public async Task&lt;string&gt; GetAccessTokenAsync()
+    {
+        if (cachedAccessToken is not null &amp;&amp; DateTimeOffset.UtcNow &lt; cachedUntil.AddSeconds(-30))
+            return cachedAccessToken;
+
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(
+            $"{configuration["REPORTING_CLIENT_ID"]}:{configuration["REPORTING_CLIENT_SECRET"]}"));
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://login.example.com/token")
+        {
+            Headers = { Authorization = new AuthenticationHeaderValue("Basic", credentials) },
+            Content = new FormUrlEncodedContent(new Dictionary&lt;string, string&gt;
+            {
+                ["grant_type"] = "client_credentials",
+                ["scope"] = "orders:read",
+            }),
+        };
+
+        using var response = await http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var tokens = (await response.Content.ReadFromJsonAsync&lt;TokenResponse&gt;())!;
+
+        cachedAccessToken = tokens.access_token;
+        cachedUntil = DateTimeOffset.UtcNow.AddSeconds(tokens.expires_in);
+        return cachedAccessToken;
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-http.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

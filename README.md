@@ -29,3 +29,4 @@ What each category covers: [security/README.md](security/README.md)
 | Sessions and Tokens | Authentication | [open](https://hermanyhho.github.io/dev-knowledgebase/security/authentication/sessions-and-tokens/) | [index.html](security/authentication/sessions-and-tokens/index.html) |
 | JWT | Authentication | [open](https://hermanyhho.github.io/dev-knowledgebase/security/authentication/jwt/) | [index.html](security/authentication/jwt/index.html) |
 | Access and Refresh Tokens | Authentication | [open](https://hermanyhho.github.io/dev-knowledgebase/security/authentication/access-and-refresh-tokens/) | [index.html](security/authentication/access-and-refresh-tokens/index.html) |
+| OAuth 2.0 and OpenID Connect | Authentication | [open](https://hermanyhho.github.io/dev-knowledgebase/security/authentication/oauth2-and-openid-connect/) | [index.html](security/authentication/oauth2-and-openid-connect/index.html) |

@@ -22,3 +22,4 @@ security/<category>/<topic>/
 - [Sessions and Tokens](authentication/sessions-and-tokens/index.html) - authentication
 - [JWT](authentication/jwt/index.html) - authentication
 - [Access and Refresh Tokens](authentication/access-and-refresh-tokens/index.html) - authentication
+- [OAuth 2.0 and OpenID Connect](authentication/oauth2-and-openid-connect/index.html) - authentication
