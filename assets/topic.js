@@ -85,7 +85,7 @@ function setUpFlowPlayer(flowPlayer) {
   }
 
   function clearHighlights() {
-    diagram.querySelectorAll(".is-lit, .was-lit").forEach((element) => element.classList.remove("is-lit", "was-lit"));
+    diagram.querySelectorAll(".is-lit, .was-lit, .is-shown").forEach((element) => element.classList.remove("is-lit", "was-lit", "is-shown"));
   }
 
   function showStep(stepIndex) {
@@ -94,6 +94,7 @@ function setUpFlowPlayer(flowPlayer) {
     diagram.classList.add("flow-active");
     steps.slice(0, stepIndex).forEach((step) => diagramElementsFor(step).forEach((element) => element.classList.add("was-lit")));
     diagramElementsFor(steps[stepIndex]).forEach((element) => element.classList.add("is-lit"));
+    (steps[stepIndex].dataset.show ?? "").split(" ").filter(Boolean).forEach((elementId) => document.getElementById(elementId).classList.add("is-shown"));
 
     const stepLabel = document.createElement("strong");
     stepLabel.textContent = `Step ${stepIndex + 1} of ${steps.length}. `;

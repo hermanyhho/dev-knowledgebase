@@ -40,7 +40,7 @@
 
   <section>
     <h2>Why the output comes in this order</h2>
-    <p>Click "Your script" in the diagram to see the program. It prints its lines in this order:</p>
+    <p>Click "Console" in the diagram to see the program. It prints its lines in this order:</p>
     <div class="table-wrap">
       <table class="terms">
         <thead><tr><th>Printed</th><th>Why</th></tr></thead>
@@ -109,8 +109,8 @@
       <h2>Diagram</h2>
     </div>
     <div class="diagram">
-      <svg viewBox="0 80 920 370" role="img" aria-labelledby="diagram-title">
-        <title id="diagram-title">Your script runs on the call stack. Waiting work is handed to timers, network and file APIs, which put callbacks in the task queue. Resolved promises put callbacks in the microtask queue. The event loop moves callbacks from the queues to the call stack: all microtasks first, then one task.</title>
+      <svg viewBox="0 0 920 420" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The call stack runs one function at a time. Objects and functions live in the heap. Waiting work is handed to Web APIs or libuv, which put callbacks in the task queue. Resolved promises put callbacks in the microtask queue. When the call stack is empty, the event loop runs every microtask, then one task.</title>
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
@@ -120,46 +120,95 @@
           </marker>
         </defs>
 
-        <g class="node" id="n-script" tabindex="0" role="button" aria-label="Show the output order program" data-title="Your script: output order" data-node="script">
-          <rect class="shape tone-neutral" x="12" y="100" width="170" height="50" rx="6"/>
-          <text class="t-name" x="97" y="121">Your script</text>
-          <text class="t-kind" x="97" y="138">plain code runs first</text>
-        </g>
         <g class="node" id="n-stack" tabindex="0" role="button" aria-label="Show a server that blocks its call stack" data-title="Call stack: blocking it" data-node="stack">
-          <rect class="shape tone-teal" x="12" y="190" width="170" height="210" rx="6"/>
-          <text class="t-name" x="97" y="288">Call stack</text>
-          <text class="t-kind" x="97" y="306">one function at a time</text>
+          <rect class="shape tone-teal" x="12" y="20" width="220" height="260" rx="6"/>
+          <text class="t-name" x="122" y="42">Call stack</text>
+          <text class="t-kind" x="122" y="59">top frame runs, one at a time</text>
+        </g>
+        <g class="node" id="n-heap" tabindex="0" role="button" aria-label="Show how a waiting callback keeps data in memory" data-title="Heap: what waiting callbacks keep" data-node="heap">
+          <rect class="shape tone-neutral" x="12" y="300" width="220" height="112" rx="6"/>
+          <text class="t-name" x="122" y="321">Heap</text>
         </g>
         <g class="node" id="n-loop" tabindex="0" role="button" aria-label="Show the Node.js phase order program" data-title="Event loop: Node.js phase order" data-node="loop">
-          <rect class="shape tone-blue" x="330" y="180" width="180" height="70" rx="35"/>
-          <text class="t-name" x="420" y="210">Event loop</text>
-          <text class="t-kind" x="420" y="228">picks the next work</text>
+          <rect class="shape tone-blue" x="272" y="150" width="176" height="80" rx="40"/>
+          <text class="t-name" x="360" y="185">Event loop</text>
+          <text class="t-kind" x="360" y="203">all microtasks, then 1 task</text>
         </g>
-        <g class="node" id="n-apis" tabindex="0" role="button" aria-label="Show an await example" data-title="Timers, network and files: await" data-node="apis">
-          <rect class="shape tone-blue" x="640" y="100" width="260" height="60" rx="6"/>
-          <text class="t-name" x="770" y="124">Timers, network, files</text>
-          <text class="t-kind" x="770" y="142">browser Web APIs or Node's libuv</text>
+        <g class="node" id="n-console" tabindex="0" role="button" aria-label="Show the output order program" data-title="Console: output order" data-node="script">
+          <rect class="shape tone-neutral" x="256" y="290" width="208" height="122" rx="6"/>
+          <text class="t-name" x="360" y="311">Console</text>
+        </g>
+        <g class="node" id="n-apis" tabindex="0" role="button" aria-label="Show an await example" data-title="Web APIs or libuv: await" data-node="apis">
+          <rect class="shape tone-blue" x="488" y="20" width="420" height="100" rx="6"/>
+          <text class="t-name" x="698" y="42">Web APIs (browser) or libuv (Node.js)</text>
+          <text class="t-kind" x="698" y="59">timers, network, files: waiting happens here</text>
         </g>
         <g class="node" id="n-micro" tabindex="0" role="button" aria-label="Show a program that starves the task queue" data-title="Microtask queue: starvation" data-node="micro">
-          <rect class="shape tone-amber" x="640" y="225" width="260" height="56" rx="6"/>
-          <text class="t-name" x="770" y="249">Microtask queue</text>
-          <text class="t-kind" x="770" y="267">promise callbacks, code after await</text>
+          <rect class="shape tone-amber" x="488" y="140" width="420" height="100" rx="6"/>
+          <text class="t-name" x="698" y="161">Microtask queue</text>
+          <text class="t-kind" x="698" y="178">promise callbacks, code after await</text>
         </g>
         <g class="node" id="n-tasks" tabindex="0" role="button" aria-label="Show how to split long work into tasks" data-title="Task queue: splitting long work" data-node="tasks">
-          <rect class="shape tone-amber" x="640" y="330" width="260" height="56" rx="6"/>
-          <text class="t-name" x="770" y="354">Task queue</text>
-          <text class="t-kind" x="770" y="372">timers, finished I/O, clicks</text>
+          <rect class="shape tone-amber" x="488" y="260" width="420" height="100" rx="6"/>
+          <text class="t-name" x="698" y="281">Task queue</text>
+          <text class="t-kind" x="698" y="298">timers, network events, clicks</text>
         </g>
 
-        <path class="flow" id="a-script-stack" d="M97,150 L97,188" marker-end="url(#arrow)"/>
-        <path class="flow" id="a-stack-apis" d="M182,205 L638,132" marker-end="url(#arrow)"/>
-        <path class="flow" id="a-apis-tasks" d="M900,135 L912,135 L912,358 L902,358" marker-end="url(#arrow)"/>
-        <path class="flow" id="a-stack-micro" d="M182,320 L638,262" marker-end="url(#arrow)"/>
-        <path class="flow" id="a-micro-loop" d="M638,248 L512,222" marker-end="url(#arrow)"/>
-        <path class="flow" id="a-tasks-loop" d="M638,350 L470,252" marker-end="url(#arrow)"/>
-        <path class="flow" id="a-loop-stack" d="M330,215 L184,240" marker-end="url(#arrow)"/>
-        <text class="ghost-label" id="t-blocked" x="97" y="425">BUSY FOR 2 SECONDS</text>
-        <text class="ghost-label" id="t-starved" x="770" y="410">NEVER GETS A TURN</text>
+        <path class="flow" id="a-stack-apis" d="M232,50 L486,50" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-stack-micro" d="M232,100 L470,100 L470,170 L486,170" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-apis-tasks" d="M908,95 L914,95 L914,325 L910,325" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-micro-loop" d="M488,200 L450,200" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-tasks-loop" d="M488,300 L422,233" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-loop-stack" d="M272,190 L234,190" marker-end="url(#arrow)"/>
+
+        <g class="state-item" id="s-o-main"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">main script</text></g>
+        <g class="state-item" id="s-o-timeout-call"><rect class="slot tone-teal" x="24" y="198" width="196" height="34" rx="4"/><text class="t-item" x="122" y="219">setTimeout(cb, 0)</text></g>
+        <g class="state-item" id="s-o-3"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">promise callback</text></g>
+        <g class="state-item" id="s-o-4"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">queueMicrotask callback</text></g>
+        <g class="state-item" id="s-o-5"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">timeout callback</text></g>
+        <g class="state-item" id="w-o-timer"><rect class="slot tone-blue" x="500" y="70" width="196" height="34" rx="4"/><text class="t-item" x="598" y="91">timer: 0 ms</text></g>
+        <g class="state-item" id="q-o-5"><rect class="slot tone-amber" x="500" y="308" width="128" height="34" rx="4"/><text class="t-item" x="564" y="329">timeout callback</text></g>
+        <g class="state-item" id="m-o-3"><rect class="slot tone-amber" x="500" y="188" width="128" height="34" rx="4"/><text class="t-item" x="564" y="209">promise callback</text></g>
+        <g class="state-item" id="m-o-4"><rect class="slot tone-amber" x="636" y="188" width="128" height="34" rx="4"/><text class="t-item" x="700" y="209">queueMicrotask cb</text></g>
+        <g class="state-item" id="m-o-4-front"><rect class="slot tone-amber" x="500" y="188" width="128" height="34" rx="4"/><text class="t-item" x="564" y="209">queueMicrotask cb</text></g>
+        <g class="state-item" id="h-o-5"><rect class="slot tone-neutral" x="24" y="330" width="196" height="22" rx="4"/><text class="t-item" x="122" y="345">timeout callback function</text></g>
+        <g class="state-item" id="h-o-3"><rect class="slot tone-neutral" x="24" y="356" width="196" height="22" rx="4"/><text class="t-item" x="122" y="371">promise callback function</text></g>
+        <g class="state-item" id="h-o-4"><rect class="slot tone-neutral" x="24" y="382" width="196" height="22" rx="4"/><text class="t-item" x="122" y="397">microtask callback function</text></g>
+        <text class="state-item t-item t-console" id="c-o1" x="268" y="334">1: script start</text>
+        <text class="state-item t-item t-console" id="c-o2" x="268" y="352">2: script end</text>
+        <text class="state-item t-item t-console" id="c-o3" x="268" y="370">3: promise callback</text>
+        <text class="state-item t-item t-console" id="c-o4" x="268" y="388">4: queueMicrotask callback</text>
+        <text class="state-item t-item t-console" id="c-o5" x="268" y="406">5: timeout callback</text>
+        <g class="state-item" id="s-a-main"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">main script</text></g>
+        <g class="state-item" id="s-a-load"><rect class="slot tone-teal" x="24" y="198" width="196" height="34" rx="4"/><text class="t-item" x="122" y="219">loadOrders()</text></g>
+        <g class="state-item" id="s-a-resolve"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">network response task</text></g>
+        <g class="state-item" id="s-a-resumed"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">loadOrders (resumed)</text></g>
+        <g class="state-item" id="w-a-fetch"><rect class="slot tone-blue" x="500" y="70" width="196" height="34" rx="4"/><text class="t-item" x="598" y="91">fetch: /orders</text></g>
+        <g class="state-item" id="q-a-response"><rect class="slot tone-amber" x="500" y="308" width="128" height="34" rx="4"/><text class="t-item" x="564" y="329">network response</text></g>
+        <g class="state-item" id="m-a-rest"><rect class="slot tone-amber" x="500" y="188" width="128" height="34" rx="4"/><text class="t-item" x="564" y="209">rest of loadOrders</text></g>
+        <g class="state-item" id="h-a-pending"><rect class="slot tone-neutral" x="24" y="330" width="196" height="22" rx="4"/><text class="t-item" x="122" y="345">Promise (pending)</text></g>
+        <g class="state-item" id="h-a-done"><rect class="slot tone-neutral" x="24" y="330" width="196" height="22" rx="4"/><text class="t-item" x="122" y="345">Promise (fulfilled)</text></g>
+        <g class="state-item" id="h-a-state"><rect class="slot tone-neutral" x="24" y="356" width="196" height="22" rx="4"/><text class="t-item" x="122" y="371">loadOrders: saved state</text></g>
+        <text class="state-item t-item t-console" id="c-a1" x="268" y="334">1: before</text>
+        <text class="state-item t-item t-console" id="c-a2" x="268" y="352">2: request sent</text>
+        <text class="state-item t-item t-console" id="c-a3" x="268" y="370">3: after</text>
+        <text class="state-item t-item t-console" id="c-a4" x="268" y="388">4: response arrived</text>
+        <g class="state-item" id="s-b-handler"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">handler: /slow-report</text></g>
+        <g class="state-item" id="s-b-busy"><rect class="slot tone-teal" x="24" y="198" width="196" height="34" rx="4"/><text class="t-item" x="122" y="219">keepThreadBusyFor(2000)</text></g>
+        <g class="state-item" id="s-b-health"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">handler: /health</text></g>
+        <g class="state-item" id="q-b-health"><rect class="slot tone-amber" x="500" y="308" width="128" height="34" rx="4"/><text class="t-item" x="564" y="329">/health request</text></g>
+        <g class="state-item" id="q-b-timer"><rect class="slot tone-amber" x="636" y="308" width="128" height="34" rx="4"/><text class="t-item" x="700" y="329">100 ms timer</text></g>
+        <g class="state-item" id="q-b-other"><rect class="slot tone-amber" x="772" y="308" width="128" height="34" rx="4"/><text class="t-item" x="836" y="329">other request</text></g>
+        <g class="state-item" id="q-b-timer-front"><rect class="slot tone-amber" x="500" y="308" width="128" height="34" rx="4"/><text class="t-item" x="564" y="329">100 ms timer</text></g>
+        <g class="state-item" id="q-b-other-next"><rect class="slot tone-amber" x="636" y="308" width="128" height="34" rx="4"/><text class="t-item" x="700" y="329">other request</text></g>
+        <g class="state-item" id="s-x-main"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">main script</text></g>
+        <g class="state-item" id="s-x-call"><rect class="slot tone-teal" x="24" y="198" width="196" height="34" rx="4"/><text class="t-item" x="122" y="219">queueAgainForever()</text></g>
+        <g class="state-item" id="s-x-micro"><rect class="slot tone-teal" x="24" y="238" width="196" height="34" rx="4"/><text class="t-item" x="122" y="259">queueAgainForever()</text></g>
+        <g class="state-item" id="q-x-timer"><rect class="slot tone-amber" x="500" y="308" width="128" height="34" rx="4"/><text class="t-item" x="564" y="329">timeout callback</text></g>
+        <g class="state-item" id="m-x-again"><rect class="slot tone-amber" x="500" y="188" width="128" height="34" rx="4"/><text class="t-item" x="564" y="209">queueAgainForever</text></g>
+
+        <text class="ghost-label" id="t-blocked" x="122" y="104">BUSY FOR 2 SECONDS</text>
+        <text class="ghost-label" id="t-starved" x="698" y="354">NEVER GETS A TURN</text>
       </svg>
     </div>
     <div class="flow-player">
@@ -178,39 +227,44 @@
       </div>
       <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
       <ol class="flow-steps" data-flow="order" hidden>
-        <li data-highlight="n-script a-script-stack n-stack">The script starts on the call stack and prints <code>1: script start</code>.</li>
-        <li data-highlight="n-stack a-stack-apis n-apis">It calls <code>setTimeout(..., 0)</code>. The timer is handed to the browser or Node.js, which counts 0 ms outside the thread.</li>
-        <li data-highlight="n-apis a-apis-tasks n-tasks">The time is up at once, so the timer's callback goes into the task queue. It must wait for its turn.</li>
-        <li data-highlight="n-stack a-stack-micro n-micro">The script resolves a promise and calls <code>queueMicrotask</code>. Two callbacks go into the microtask queue.</li>
-        <li data-highlight="n-stack">The script prints <code>2: script end</code> and finishes. The call stack is now empty.</li>
-        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack">The event loop runs every microtask, in order: <code>3: promise callback</code>, then <code>4: queueMicrotask callback</code>.</li>
-        <li data-highlight="n-tasks a-tasks-loop n-loop a-loop-stack n-stack">The microtask queue is empty, so the loop takes one task: <code>5: timeout callback</code>.</li>
+        <li data-highlight="n-stack n-console" data-show="s-o-main c-o1">The script starts as the first frame on the call stack and prints <code>1: script start</code>.</li>
+        <li data-highlight="n-stack a-stack-apis n-apis n-heap" data-show="s-o-main s-o-timeout-call w-o-timer h-o-5 c-o1">It calls <code>setTimeout(cb, 0)</code>. The callback function is stored in the heap, and the timer is handed to the browser or Node.js, which counts 0 ms outside the thread.</li>
+        <li data-highlight="n-apis a-apis-tasks n-tasks" data-show="s-o-main q-o-5 h-o-5 c-o1"><code>setTimeout</code> returns and leaves the stack. The time is up at once, so the timeout callback goes into the task queue. It must wait for its turn.</li>
+        <li data-highlight="n-stack a-stack-micro n-micro n-heap" data-show="s-o-main m-o-3 m-o-4 q-o-5 h-o-5 h-o-3 h-o-4 c-o1">The script resolves a promise and calls <code>queueMicrotask</code>. Two callbacks go into the microtask queue, in that order.</li>
+        <li data-highlight="n-stack n-console" data-show="m-o-3 m-o-4 q-o-5 h-o-5 h-o-3 h-o-4 c-o1 c-o2">The script prints <code>2: script end</code> and finishes. The call stack is now empty, so the event loop can act.</li>
+        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack n-console" data-show="s-o-3 m-o-4-front q-o-5 h-o-5 h-o-3 h-o-4 c-o1 c-o2 c-o3">Microtasks come first. The loop moves the first microtask to the stack. It prints <code>3: promise callback</code>.</li>
+        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack n-console" data-show="s-o-4 q-o-5 h-o-5 h-o-3 h-o-4 c-o1 c-o2 c-o3 c-o4">The microtask queue is not empty yet, so the loop runs the next one. It prints <code>4: queueMicrotask callback</code>.</li>
+        <li data-highlight="n-tasks a-tasks-loop n-loop a-loop-stack n-stack n-console" data-show="s-o-5 h-o-5 h-o-3 h-o-4 c-o1 c-o2 c-o3 c-o4 c-o5">The microtask queue is empty, so the loop takes one task: <code>5: timeout callback</code>. The functions stay in the heap until the garbage collector frees them.</li>
       </ol>
       <ol class="flow-steps" data-flow="await" hidden>
-        <li data-highlight="n-script a-script-stack n-stack">The script prints <code>1: before</code> and calls the async function <code>loadOrders</code>, which prints <code>2: request sent</code>.</li>
-        <li data-highlight="n-stack a-stack-apis n-apis">At <code>await fetch(...)</code>, the request is handed to the network layer. <code>loadOrders</code> pauses and leaves the call stack.</li>
-        <li data-highlight="n-stack">The script goes on and prints <code>3: after</code>. The thread is free to handle other work while the request travels.</li>
-        <li data-highlight="n-apis a-apis-tasks n-tasks a-tasks-loop n-loop">The response arrives. The network layer queues a task, and the loop runs it, which resolves the promise.</li>
-        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack">Resolving the promise queues the rest of <code>loadOrders</code> as a microtask. It runs next and prints <code>4: response arrived</code>.</li>
+        <li data-highlight="n-stack n-console" data-show="s-a-main c-a1">The script starts on the call stack and prints <code>1: before</code>.</li>
+        <li data-highlight="n-stack n-console" data-show="s-a-main s-a-load c-a1 c-a2">It calls the async function <code>loadOrders</code>, which goes on top of the stack and prints <code>2: request sent</code>.</li>
+        <li data-highlight="n-stack a-stack-apis n-apis n-heap" data-show="s-a-main w-a-fetch h-a-pending h-a-state c-a1 c-a2">At <code>await fetch(...)</code>, the request is handed to the network layer. <code>loadOrders</code> saves its local variables in the heap and leaves the call stack.</li>
+        <li data-highlight="n-stack n-console" data-show="w-a-fetch h-a-pending h-a-state c-a1 c-a2 c-a3">The script goes on, prints <code>3: after</code> and finishes. The stack is empty while the request travels, so the thread can handle other work.</li>
+        <li data-highlight="n-apis a-apis-tasks n-tasks" data-show="q-a-response h-a-pending h-a-state c-a1 c-a2 c-a3">The response arrives. The network layer puts a task in the task queue.</li>
+        <li data-highlight="n-tasks a-tasks-loop n-loop a-loop-stack n-stack a-stack-micro n-micro n-heap" data-show="s-a-resolve m-a-rest h-a-done h-a-state c-a1 c-a2 c-a3">The loop runs that task. It resolves the promise, which puts the rest of <code>loadOrders</code> in the microtask queue.</li>
+        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack n-console" data-show="s-a-resumed h-a-done h-a-state c-a1 c-a2 c-a3 c-a4">The loop runs that microtask. <code>loadOrders</code> is back on the stack with its saved variables and prints <code>4: response arrived</code>.</li>
       </ol>
       <ol class="flow-steps" data-flow="blocking" hidden>
-        <li data-highlight="n-stack t-blocked">A Node.js server gets a request for <code>/slow-report</code>. Its handler runs a loop that takes 2 seconds and never awaits.</li>
-        <li data-highlight="n-apis a-apis-tasks n-tasks t-blocked">Meanwhile, other requests arrive and a 100 ms timer fires. Their callbacks wait in the task queue.</li>
-        <li data-highlight="n-loop t-blocked n-stack">The event loop cannot pick anything, because the call stack is never empty. Every other user waits 2 seconds, even for <code>/health</code>.</li>
-        <li data-highlight="n-stack a-loop-stack n-loop">The fix is to give the thread back: split the work into pieces with <code>setImmediate</code> between them, or move it to a worker thread. Click "Task queue" or see the worker file.</li>
+        <li data-highlight="n-stack t-blocked" data-show="s-b-handler s-b-busy">A Node.js server gets a request for <code>/slow-report</code>. Its handler calls a loop that takes 2 seconds and never awaits, so both frames stay on the stack.</li>
+        <li data-highlight="n-apis a-apis-tasks n-tasks t-blocked" data-show="s-b-handler s-b-busy q-b-health q-b-timer q-b-other">Meanwhile, a <code>/health</code> request, a 100 ms timer and another request arrive. Their callbacks wait in the task queue.</li>
+        <li data-highlight="n-loop t-blocked n-stack" data-show="s-b-handler s-b-busy q-b-health q-b-timer q-b-other">The event loop can only move a task when the call stack is empty. It is not, so every other user waits, even for <code>/health</code>.</li>
+        <li data-highlight="n-tasks a-tasks-loop n-loop a-loop-stack n-stack" data-show="s-b-health q-b-timer-front q-b-other-next">After 2 seconds the handler returns and the stack is empty. Only now does <code>/health</code> get its turn, 2 seconds late.</li>
+        <li data-highlight="n-stack n-tasks" data-show="s-b-health q-b-timer-front q-b-other-next">The fix is to give the thread back: split the work into pieces with <code>setImmediate</code> between them, or move it to a worker thread. Click "Task queue" or see the worker file.</li>
       </ol>
       <ol class="flow-steps" data-flow="starvation" hidden>
-        <li data-highlight="n-stack a-stack-apis n-apis a-apis-tasks n-tasks">The script sets a timer. Its callback goes into the task queue.</li>
-        <li data-highlight="n-stack a-stack-micro n-micro">Then it starts a function that queues a microtask, and that microtask queues the same function again.</li>
-        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack">The loop must empty the microtask queue before any task, but the queue is never empty.</li>
-        <li data-highlight="n-tasks t-starved">The timer callback never runs, and in a browser the page never redraws. Long chains of microtasks block the loop just like a long loop does.</li>
+        <li data-highlight="n-stack a-stack-apis n-apis a-apis-tasks n-tasks" data-show="s-x-main q-x-timer">The script sets a 0 ms timer. Its callback goes into the task queue.</li>
+        <li data-highlight="n-stack a-stack-micro n-micro" data-show="s-x-main s-x-call m-x-again q-x-timer">It calls <code>queueAgainForever</code>, which puts itself in the microtask queue.</li>
+        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack a-stack-micro" data-show="s-x-micro m-x-again q-x-timer">The script ends. The loop runs the microtask, and that run puts <code>queueAgainForever</code> in the microtask queue again.</li>
+        <li data-highlight="n-tasks t-starved n-micro" data-show="s-x-micro m-x-again q-x-timer">The loop must empty the microtask queue before any task, but it is never empty. The timer callback never runs, and in a browser the page never redraws.</li>
       </ol>
     </div>
     <div class="legend">
       <span class="chip tone-teal">Your thread</span>
       <span class="chip tone-blue">Event loop and outside APIs</span>
       <span class="chip tone-amber">Queues</span>
-      <span>Click a box to see a small program that shows it.</span>
+      <span class="chip tone-neutral">Memory and output</span>
+      <span>Each queue runs from left to right. Play a flow to see items move. Click a box to see a small program that shows it.</span>
     </div>
 
     <h3>Files</h3>
@@ -220,6 +274,7 @@
       <button type="button" class="tree-row" data-file="await-fetch.js"><span class="path">├─ await-fetch.js</span><span class="chip tone-blue">await</span></button>
       <button type="button" class="tree-row" data-file="node-loop-phases.js"><span class="path">├─ node-loop-phases.js</span><span class="chip tone-blue">Node.js phases</span></button>
       <button type="button" class="tree-row" data-file="blocking-server.js"><span class="path">├─ blocking-server.js</span><span class="chip tone-teal">Blocking</span></button>
+      <button type="button" class="tree-row" data-file="waiting-callback-memory.js"><span class="path">├─ waiting-callback-memory.js</span><span class="chip tone-neutral">Heap</span></button>
       <button type="button" class="tree-row" data-file="starvation.js"><span class="path">├─ starvation.js</span><span class="chip tone-amber">Starvation</span></button>
       <button type="button" class="tree-row" data-file="split-work.js"><span class="path">├─ split-work.js</span><span class="chip tone-amber">Fix: split work</span></button>
       <button type="button" class="tree-row" data-file="report-worker.js"><span class="path">├─ report-worker.js</span><span class="chip tone-blue">Fix: worker thread</span></button>
@@ -310,6 +365,29 @@ http
     res.end("ok");
   })
   .listen(3000);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="heap">
+      <div class="file-head"><span class="chip tone-neutral">Heap</span><span class="name">waiting-callback-memory.js</span><span class="why">A queued or waiting callback keeps every variable it uses alive, so the garbage collector cannot free them. Here each timer keeps a 10 MB buffer alive for 60 seconds, so 100 requests hold about 1 GB.</span></div>
+<pre><code>import http from "node:http";
+
+http
+  .createServer((req, res) =&gt; {
+    const uploadedFile = Buffer.alloc(10 * 1024 * 1024);
+
+    setTimeout(() =&gt; {
+      console.log("file size", uploadedFile.length);
+    }, 60_000);
+
+    res.end("ok");
+  })
+  .listen(3000);
+
+setInterval(() =&gt; {
+  const heapUsedMegabytes = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+  const buffersMegabytes = Math.round(process.memoryUsage().arrayBuffers / 1024 / 1024);
+  console.log({ heapUsedMegabytes, buffersMegabytes });
+}, 5000);</code></pre>
     </div>
 
     <div class="file" data-lang="any" data-node="micro">

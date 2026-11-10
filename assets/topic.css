@@ -109,7 +109,7 @@ header { display: grid; gap: 12px; }
 .diagram .node:focus-visible .shape { stroke-dasharray: 6 3; }
 .diagram .node:hover .t-title, .diagram .node:focus-visible .t-title { text-decoration: underline; }
 .diagram svg > * { transition: opacity 0.25s; }
-.diagram.flow-active svg > :not(defs, title, .frame, .is-lit, .was-lit) { opacity: 0.22; }
+.diagram.flow-active svg > :not(defs, title, .frame, .is-lit, .was-lit, .is-shown) { opacity: 0.22; }
 .diagram .flow.async { stroke-dasharray: 2 5; }
 .diagram svg > :is(.flow.reply, .flow.ghost, .ghost-label):not(.is-lit):not(.was-lit) { opacity: 0; }
 .diagram .ghost-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; fill: var(--bad); }
@@ -120,6 +120,14 @@ header { display: grid; gap: 12px; }
 .diagram .flow.is-lit { stroke: var(--flow); stroke-width: 3; stroke-dasharray: 8 6; marker-end: url(#arrow-lit); animation: flow-dash 0.7s linear infinite; }
 .diagram .is-lit .shape { stroke: var(--flow); stroke-width: 3.5; }
 .diagram .arrowhead-lit { fill: var(--flow); }
+.diagram .state-item { pointer-events: none; }
+.diagram svg > .state-item:not(.is-shown) { opacity: 0; }
+.diagram .slot { fill: var(--bg); stroke: var(--muted); stroke-width: 1.5; }
+.diagram .slot.tone-teal { stroke: var(--teal); }
+.diagram .slot.tone-amber { stroke: var(--amber); }
+.diagram .slot.tone-blue { stroke: var(--blue); }
+.diagram .t-item { font-family: var(--font-mono); font-size: 11px; }
+.diagram .t-console { text-anchor: start; }
 @keyframes flow-dash { to { stroke-dashoffset: -14; } }
 @media (prefers-reduced-motion: reduce) {
   .diagram svg > * { transition: none; }
