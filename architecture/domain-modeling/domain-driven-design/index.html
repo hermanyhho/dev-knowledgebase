@@ -171,10 +171,10 @@
         <li data-highlight="n-order a-order-line n-orderline a-order-money n-money"><code>order.addLine(...)</code> creates <code>OrderLine</code> entities. Prices are <code>Money</code> value objects, so euros can never be added to kroner by mistake.</li>
         <li data-highlight="n-order a-order-address n-address"><code>order.place(address)</code> checks the rules: the order is still a draft and has at least one line. <code>Address</code> is a value object: it has no ID.</li>
         <li data-highlight="n-handler a-handler-repo n-repository">The handler saves the whole aggregate, the order and all its lines, through <code>OrderRepository</code> in one transaction.</li>
-        <li data-highlight="n-order a-order-event n-event">Placing the order recorded an <code>OrderPlaced</code> domain event. The handler publishes it after the save.</li>
+        <li data-highlight="n-order a-order-event n-event">Placing the order recorded an <code>OrderPlaced</code> domain event in memory. After the save, the handler passes it to <code>EventPublisher</code>. Depending on the setup, that is a direct call to handlers in the same app, or a message sent through a broker such as RabbitMQ or Kafka.</li>
       </ol>
       <ol class="flow-steps" data-flow="contexts" hidden>
-        <li data-highlight="n-event"><code>OrderPlaced</code> leaves the Sales context as a message. Other contexts never see the <code>Order</code> class itself.</li>
+        <li data-highlight="n-event">Billing and Shipping are separate contexts, so here <code>OrderPlaced</code> is sent through a message broker such as RabbitMQ. Sales publishes it, and Billing and Shipping each read it from their own queue. They never see the <code>Order</code> class itself.</li>
         <li data-highlight="n-event a-event-invoice n-invoice">Billing turns the message into an <code>Invoice</code>. It reads only the order ID and the total.</li>
         <li data-highlight="n-invoice n-acl">To collect the money, Billing calls Stripe through <code>StripeGateway</code>. It turns Stripe's <code>PaymentIntent</code> statuses into Billing's own <code>PaymentResult</code>.</li>
         <li data-highlight="n-event a-event-shipment n-shipment">Shipping turns the same message into a <code>Shipment</code>. It reads only the order ID and the address, and ignores prices.</li>
