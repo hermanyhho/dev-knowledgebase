@@ -111,6 +111,8 @@ header { display: grid; gap: 12px; }
 .diagram svg > * { transition: opacity 0.25s; }
 .diagram.flow-active svg > :not(defs, title, .frame, .is-lit, .was-lit) { opacity: 0.22; }
 .diagram .flow.async { stroke-dasharray: 2 5; }
+.diagram svg > .flow.reply:not(.is-lit):not(.was-lit) { opacity: 0; }
+.diagram .t-pill { font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; fill: var(--blue); }
 .diagram .flow.was-lit { stroke: var(--ink); }
 .diagram .flow.is-lit { stroke: var(--flow); stroke-width: 3; stroke-dasharray: 8 6; marker-end: url(#arrow-lit); animation: flow-dash 0.7s linear infinite; }
 .diagram .is-lit .shape { stroke: var(--flow); stroke-width: 3.5; }
@@ -128,6 +130,11 @@ header { display: grid; gap: 12px; }
 .flow-controls .flow-play { background: var(--flow); border-color: var(--flow); color: var(--surface); min-width: 5.5em; }
 .flow-controls button:disabled { opacity: 0.45; cursor: default; }
 .flow-controls button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.flow-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.flow-picker-label { font-weight: 600; margin-right: 4px; }
+.flow-picker button { font: inherit; font-size: 0.88rem; font-weight: 500; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.flow-picker button[aria-pressed="true"] { color: var(--flow); border-color: var(--flow); background: var(--bg); }
+.flow-picker button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .flow-caption { min-height: 3.2em; }
 .flow-caption strong { color: var(--flow); }
 

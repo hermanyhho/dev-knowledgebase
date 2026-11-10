@@ -68,7 +68,8 @@ codeDialog.addEventListener("click", (event) => {
 
 function setUpFlowPlayer(flowPlayer) {
   const diagram = document.querySelector(".diagram");
-  const steps = [...flowPlayer.querySelectorAll(".flow-steps li")];
+  const flowPickerButtons = [...flowPlayer.querySelectorAll(".flow-picker button")];
+  let steps = [...flowPlayer.querySelector(".flow-steps").querySelectorAll("li")];
   const caption = flowPlayer.querySelector(".flow-caption");
   const idleCaption = [...caption.childNodes];
   const playButton = flowPlayer.querySelector(".flow-play");
@@ -134,6 +135,14 @@ function setUpFlowPlayer(flowPlayer) {
   nextButton.addEventListener("click", () => { stopAutoplay(); showStep(currentStepIndex + 1); });
   backButton.addEventListener("click", () => { stopAutoplay(); showStep(currentStepIndex - 1); });
   resetButton.addEventListener("click", reset);
+
+  flowPickerButtons.forEach((pickerButton) => {
+    pickerButton.addEventListener("click", () => {
+      flowPickerButtons.forEach((otherButton) => otherButton.setAttribute("aria-pressed", String(otherButton === pickerButton)));
+      steps = [...flowPlayer.querySelector(`.flow-steps[data-flow="${pickerButton.dataset.flow}"]`).querySelectorAll("li")];
+      reset();
+    });
+  });
 }
 
 document.querySelectorAll(".flow-player").forEach(setUpFlowPlayer);
