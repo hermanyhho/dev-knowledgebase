@@ -2,6 +2,14 @@
 
 Study material on software development, one page per topic.
 
-## Subjects
+Site: https://hermanyhho.github.io/dev-knowledgebase/
 
-- [Architecture](architecture/README.md)
+## Architecture
+
+What each category covers: [architecture/README.md](architecture/README.md)
+
+| Topic | Category | Page | Source |
+|---|---|---|---|
+| Hexagonal Architecture | Code organization | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/code-organization/hexagonal/) | [index.html](architecture/code-organization/hexagonal/index.html) |
+| Monolith | System topology | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/system-topology/monolith/) | [index.html](architecture/system-topology/monolith/index.html) |
+| Microservices | System topology | [open](https://hermanyhho.github.io/dev-knowledgebase/architecture/system-topology/microservices/) | [index.html](architecture/system-topology/microservices/index.html) |

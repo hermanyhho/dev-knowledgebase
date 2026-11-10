@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Microservices</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Architecture</a> / System topology</div>
+    <h1>Microservices</h1>
+    <p class="aka">Also called a <strong>microservice architecture</strong>. Named and described by James Lewis and Martin Fowler in 2014.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>An application split into small, separate apps called <strong>services</strong>. Each service covers one business area, runs in its own process, is deployed on its own and owns its own database.</p>
+    <p>Services talk over the network. When the caller needs an answer now, it sends a request, for example over HTTP. When it does not need to wait, it publishes a message to a <strong>message broker</strong>, and other services read it later.</p>
+    <p>This page uses the same shop as the <a href="../monolith/">monolith</a> page. There, Orders, Users, Payments and Notifications were modules in one process. Here, each one is its own service.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Service</span></td><td>A separate app for one business area, with its own deploy and its own data.</td><td>Order service, User service</td></tr>
+          <tr><td><span class="chip tone-blue">API gateway</span></td><td>The one public address. It sends each request to the service that handles it.</td><td>nginx routing <code>/orders</code></td></tr>
+          <tr><td><span class="chip tone-teal">Synchronous call</span></td><td>A request where the caller waits for the answer.</td><td>Order service asks User service for the customer</td></tr>
+          <tr><td><span class="chip tone-blue">Message broker</span></td><td>A server that stores messages in queues until a service reads them.</td><td>RabbitMQ</td></tr>
+          <tr><td><span class="chip tone-blue">Event</span></td><td>A message that says something happened. The sender does not wait for anyone to read it.</td><td><code>OrderPlaced</code></td></tr>
+          <tr><td><span class="chip tone-amber">Database per service</span></td><td>Each service has its own database. No other service reads it.</td><td>Orders DB, Users DB, Payments DB</td></tr>
+          <tr><td><span class="chip tone-neutral">Eventual consistency</span></td><td>Data in different services matches after a short delay, not at the same moment.</td><td>The email is sent after the order is saved</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>The one rule:</strong> each service owns its data. Other services never read its database. They call its API or listen to its events.</div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 70 920 380" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">Clients call an API gateway, which sends orders to the order service. The order service calls the user service and payment service over HTTP, saves to its own database and publishes an event to RabbitMQ. The notification service reads the event and sends email. Each service has its own database.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <text class="t-side" x="77" y="216">CLIENTS</text>
+        <g id="c-client">
+          <rect class="shape tone-neutral" x="12" y="228" width="130" height="44" rx="6"/>
+          <text class="t-name" x="77" y="255">Web or mobile</text>
+        </g>
+
+        <g class="node" id="n-gateway" tabindex="0" role="button" aria-label="Show the API gateway config" data-title="API gateway" data-node="gateway">
+          <rect class="shape tone-blue" x="172" y="225" width="120" height="50" rx="6"/>
+          <text class="t-name" x="232" y="247">API gateway</text>
+          <text class="t-kind" x="232" y="264">nginx</text>
+        </g>
+
+        <g class="node" id="n-orders" tabindex="0" role="button" aria-label="Show code for the order service" data-title="Order service" data-node="orders">
+          <rect class="shape tone-teal" x="340" y="200" width="160" height="100" rx="6"/>
+          <text class="t-name" x="420" y="246">Order service</text>
+          <text class="t-kind" x="420" y="264">3 copies</text>
+        </g>
+        <g class="node" id="n-orders-db" tabindex="0" role="button" aria-label="Show the orders database schema" data-title="Orders DB" data-node="orders-db">
+          <rect class="shape tone-amber" x="350" y="340" width="140" height="44" rx="6"/>
+          <text class="t-name" x="420" y="359">Orders DB</text>
+          <text class="t-kind" x="420" y="376">Postgres</text>
+        </g>
+
+        <g class="node" id="n-users" tabindex="0" role="button" aria-label="Show code for the user service" data-title="User service" data-node="users">
+          <rect class="shape tone-teal" x="570" y="90" width="160" height="50" rx="6"/>
+          <text class="t-name" x="650" y="112">User service</text>
+          <text class="t-kind" x="650" y="129">1 copy</text>
+        </g>
+        <g class="node" id="n-users-db" tabindex="0" role="button" aria-label="Show the users database schema" data-title="Users DB" data-node="users-db">
+          <rect class="shape tone-amber" x="770" y="93" width="135" height="44" rx="6"/>
+          <text class="t-name" x="838" y="112">Users DB</text>
+          <text class="t-kind" x="838" y="129">Postgres</text>
+        </g>
+
+        <g class="node" id="n-payments" tabindex="0" role="button" aria-label="Show code for the payment service" data-title="Payment service" data-node="payments">
+          <rect class="shape tone-teal" x="570" y="180" width="160" height="50" rx="6"/>
+          <text class="t-name" x="650" y="202">Payment service</text>
+          <text class="t-kind" x="650" y="219">2 copies</text>
+        </g>
+        <g class="node" id="n-payments-db" tabindex="0" role="button" aria-label="Show the payments database schema" data-title="Payments DB" data-node="payments-db">
+          <rect class="shape tone-amber" x="770" y="158" width="135" height="44" rx="6"/>
+          <text class="t-name" x="838" y="177">Payments DB</text>
+          <text class="t-kind" x="838" y="194">Postgres</text>
+        </g>
+        <g id="c-stripe">
+          <rect class="shape tone-neutral" x="770" y="212" width="135" height="40" rx="6"/>
+          <text class="t-name" x="838" y="237">Stripe</text>
+        </g>
+
+        <g class="node" id="n-broker" tabindex="0" role="button" aria-label="Show the OrderPlaced event" data-title="RabbitMQ: OrderPlaced event" data-node="broker">
+          <rect class="shape tone-blue" x="570" y="290" width="160" height="50" rx="6"/>
+          <text class="t-name" x="650" y="312">RabbitMQ</text>
+          <text class="t-kind" x="650" y="329">message broker</text>
+        </g>
+
+        <g class="node" id="n-notifications" tabindex="0" role="button" aria-label="Show code for the notification service" data-title="Notification service" data-node="notifications">
+          <rect class="shape tone-teal" x="570" y="380" width="160" height="50" rx="6"/>
+          <text class="t-name" x="650" y="402">Notification service</text>
+          <text class="t-kind" x="650" y="419">1 copy</text>
+        </g>
+        <g id="c-email">
+          <rect class="shape tone-neutral" x="770" y="385" width="135" height="40" rx="6"/>
+          <text class="t-name" x="838" y="410">Email (SMTP)</text>
+        </g>
+
+        <path class="flow" id="a-client-gateway" d="M142,250 L170,250" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-gateway-orders" d="M292,250 L338,250" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-users" d="M500,222 L568,124" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-payments" d="M500,240 L568,208" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-db" d="M420,300 L420,338" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-orders-broker" d="M500,280 L568,312" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-broker-notifications" d="M650,340 L650,378" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-users-db" d="M730,115 L768,115" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-payments-db" d="M730,198 L768,180" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-payments-stripe" d="M730,214 L768,232" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-notifications-email" d="M730,405 L768,405" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-controls">
+        <span class="flow-title">Example flow: <code>POST /orders</code></span>
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Press Play to follow one request through the diagram, step by step.</p>
+      <ol class="flow-steps" hidden>
+        <li data-highlight="c-client a-client-gateway n-gateway a-gateway-orders n-orders">The gateway sends <code>POST /orders</code> to one of the 3 copies of the order service.</li>
+        <li data-highlight="n-orders a-orders-users n-users a-users-db n-users-db">The order service asks the user service for the customer over HTTP and waits. The user service reads its own database.</li>
+        <li data-highlight="n-orders a-orders-payments n-payments a-payments-stripe c-stripe a-payments-db n-payments-db">The order service asks the payment service to charge the card and waits. The payment service calls Stripe and saves the payment in its own database.</li>
+        <li data-highlight="n-orders a-orders-db n-orders-db">The order service saves the order in its own database. No transaction covers both the payment and the order, because they are in different databases.</li>
+        <li data-highlight="n-orders a-orders-broker n-broker">The order service publishes an <code>OrderPlaced</code> event to RabbitMQ and returns <code>201</code>. It does not wait for the email.</li>
+        <li data-highlight="n-broker a-broker-notifications n-notifications a-notifications-email c-email">The notification service reads the event and sends the email. If it was down, the event waits in the queue until it starts again.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-blue">Gateway or broker</span>
+      <span class="chip tone-teal">Service</span>
+      <span class="chip tone-amber">Database</span>
+      <span class="chip tone-neutral">Outside the system</span>
+      <span>Solid arrow: request that waits for an answer. Dotted arrow: event through the broker, no waiting. Click a box to see its code.</span>
+    </div>
+    <p class="caption">Every arrow between services goes over the network. Compare with the monolith, where the same arrows were function calls.</p>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="deploy/docker-compose.yml"><span class="path">├─ deploy/docker-compose.yml</span><span class="chip tone-neutral">Deployment</span></button>
+      <button type="button" class="tree-row" data-file="deploy/gateway.conf"><span class="path">├─ deploy/gateway.conf</span><span class="chip tone-blue">Gateway</span></button>
+      <button type="button" class="tree-row" data-file="contracts/OrderPlaced.ts"><span class="path">├─ contracts/OrderPlaced.ts</span><span class="chip tone-blue">Event</span></button>
+      <button type="button" class="tree-row" data-file="order-service/src/orderRoutes.ts"><span class="path">├─ order-service/src/orderRoutes.ts</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="order-service/db/schema.sql"><span class="path">├─ order-service/db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="user-service/src/userRoutes.ts"><span class="path">├─ user-service/src/userRoutes.ts</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="user-service/db/schema.sql"><span class="path">├─ user-service/db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="payment-service/src/paymentRoutes.ts"><span class="path">├─ payment-service/src/paymentRoutes.ts</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="payment-service/db/schema.sql"><span class="path">├─ payment-service/db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="notification-service/src/orderPlacedConsumer.ts"><span class="path">└─ notification-service/src/orderPlacedConsumer.ts</span><span class="chip tone-teal">Service</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="deploy/docker-compose.yml"><span class="path">├─ deploy/docker-compose.yml</span><span class="chip tone-neutral">Deployment</span></button>
+      <button type="button" class="tree-row" data-file="deploy/gateway.conf"><span class="path">├─ deploy/gateway.conf</span><span class="chip tone-blue">Gateway</span></button>
+      <button type="button" class="tree-row" data-file="contracts/OrderPlaced.cs"><span class="path">├─ contracts/OrderPlaced.cs</span><span class="chip tone-blue">Event</span></button>
+      <button type="button" class="tree-row" data-file="order-service/OrderEndpoints.cs"><span class="path">├─ order-service/OrderEndpoints.cs</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="order-service/db/schema.sql"><span class="path">├─ order-service/db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="user-service/UserEndpoints.cs"><span class="path">├─ user-service/UserEndpoints.cs</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="user-service/db/schema.sql"><span class="path">├─ user-service/db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="payment-service/PaymentEndpoints.cs"><span class="path">├─ payment-service/PaymentEndpoints.cs</span><span class="chip tone-teal">Service</span></button>
+      <button type="button" class="tree-row" data-file="payment-service/db/schema.sql"><span class="path">├─ payment-service/db/schema.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="notification-service/OrderPlacedConsumer.cs"><span class="path">└─ notification-service/OrderPlacedConsumer.cs</span><span class="chip tone-teal">Service</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Every change redeploys everything</strong><span>A fix in the notification service deploys only that service. The others keep running.</span></li>
+        <li><strong>Scaling is all or nothing</strong><span>Run 3 copies of the busy order service and 1 copy of the user service.</span></li>
+        <li><strong>One fault stops every feature</strong><span>If the notification service is down, orders still go through. The events wait in the queue.</span></li>
+        <li><strong>Large teams wait on each other</strong><span>Each team owns one service: its code, database and release schedule.</span></li>
+        <li><strong>One tech stack for all</strong><span>Each service can use its own language, framework version or database type.</span></li>
+        <li><strong>Large codebase</strong><span>Each service is small enough to read, build and test quickly.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Network calls can fail</strong><span>Every call between services needs timeouts, retries and handling for when the other service is down.</span></li>
+        <li><strong>No transaction across services</strong><span>If the order insert fails after the payment is saved, the payment must be refunded with extra code. Patterns such as saga and outbox handle this.</span></li>
+        <li><strong>Data is split up</strong><span>No joins or foreign keys across services. A report that needs orders and users must copy data into one place.</span></li>
+        <li><strong>Harder debugging</strong><span>One request runs in several processes. You need a shared request ID and distributed tracing to follow it.</span></li>
+        <li><strong>Much more to run</strong><span>A gateway, a broker, several databases, and a build, deploy and monitoring setup for each service.</span></li>
+        <li><strong>Changes to contracts need coordination</strong><span>Changing <code>OrderPlaced</code> or an API breaks the services that use it, unless you add a new version next to the old one.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-yaml">
+    <div class="file" data-lang="any" data-node="deployment">
+      <div class="file-head"><span class="chip tone-neutral">Deployment</span><span class="name">deploy/docker-compose.yml</span><span class="why">Each service has its own image, version, database and number of copies. Updating one service does not redeploy the others.</span></div>
+<pre><code>services:
+  gateway:
+    image: nginx:1.27
+    volumes: ["./gateway.conf:/etc/nginx/conf.d/default.conf"]
+    ports: ["80:80"]
+
+  order-service:
+    image: shop/order-service:1.4.0
+    deploy: { replicas: 3 }
+    environment:
+      DATABASE_URL: postgres://orders-db/orders
+      USER_SERVICE_URL: http://user-service:3000
+      PAYMENT_SERVICE_URL: http://payment-service:3000
+  orders-db:
+    image: postgres:16
+
+  user-service:
+    image: shop/user-service:2.0.1
+    environment:
+      DATABASE_URL: postgres://users-db/users
+  users-db:
+    image: postgres:16
+
+  payment-service:
+    image: shop/payment-service:1.1.0
+    deploy: { replicas: 2 }
+    environment:
+      DATABASE_URL: postgres://payments-db/payments
+  payments-db:
+    image: postgres:16
+
+  notification-service:
+    image: shop/notification-service:0.9.3
+
+  rabbitmq:
+    image: rabbitmq:3-management</code></pre>
+    </div>
+  </div>
+
+  <div class="language-nginx">
+    <div class="file" data-lang="any" data-node="gateway">
+      <div class="file-head"><span class="chip tone-blue">Gateway</span><span class="name">deploy/gateway.conf</span><span class="why">One public address. The gateway sends each path to the service that owns it.</span></div>
+<pre><code>server {
+    listen 80;
+
+    location /orders {
+        proxy_pass http://order-service:3000;
+    }
+
+    location /users {
+        proxy_pass http://user-service:3000;
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="orders-db">
+      <div class="file-head"><span class="chip tone-amber">Database</span><span class="name">order-service/db/schema.sql</span><span class="why"><code>user_id</code> has no foreign key. The users table is in another database, so this database cannot check that the user exists.</span></div>
+<pre><code>CREATE TABLE orders (
+  id       UUID PRIMARY KEY,
+  user_id  UUID NOT NULL,
+  total    NUMERIC(10, 2) NOT NULL
+);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="users-db">
+      <div class="file-head"><span class="chip tone-amber">Database</span><span class="name">user-service/db/schema.sql</span><span class="why">Only the user service reads and writes this table.</span></div>
+<pre><code>CREATE TABLE users (
+  id     UUID PRIMARY KEY,
+  email  TEXT NOT NULL UNIQUE
+);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="payments-db">
+      <div class="file-head"><span class="chip tone-amber">Database</span><span class="name">payment-service/db/schema.sql</span><span class="why"><code>order_id</code> has no foreign key, for the same reason as <code>user_id</code> in the orders table.</span></div>
+<pre><code>CREATE TABLE payments (
+  id           UUID PRIMARY KEY,
+  order_id     UUID NOT NULL,
+  amount       NUMERIC(10, 2) NOT NULL,
+  provider_id  TEXT NOT NULL
+);</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="broker">
+      <div class="file-head"><span class="chip tone-blue">Event</span><span class="name">contracts/OrderPlaced.ts</span><span class="why">The message the order service publishes to RabbitMQ. Every service that reads it depends on this shape.</span></div>
+<pre><code>export type OrderPlaced = {
+  orderId: string;
+  userId: string;
+  email: string;
+  total: number;
+};</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="orders">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">order-service/src/orderRoutes.ts</span><span class="why">Calls two services over HTTP and checks each answer, because either call can fail. Then saves to its own database and publishes an event.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Router } from "express";
+import { Pool } from "pg";
+import { Channel } from "amqplib";
+import { OrderPlaced } from "../../contracts/OrderPlaced";
+
+type OrderItem = { productId: string; price: number; quantity: number };
+
+export function orderRoutes(db: Pool, events: Channel): Router {
+  const router = Router();
+
+  router.post("/orders", async (req, res) =&gt; {
+    const { userId, paymentMethodId } = req.body;
+    const items: OrderItem[] = req.body.items;
+
+    const userResponse = await fetch(`${process.env.USER_SERVICE_URL}/users/${userId}`);
+    if (!userResponse.ok) {
+      return res.status(422).json({ error: "The user does not exist." });
+    }
+    const user = await userResponse.json();
+
+    const orderId = randomUUID();
+    const total = items.reduce((sum, item) =&gt; sum + item.price * item.quantity, 0);
+
+    const paymentResponse = await fetch(`${process.env.PAYMENT_SERVICE_URL}/payments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, amount: total, paymentMethodId }),
+    });
+    if (!paymentResponse.ok) {
+      return res.status(502).json({ error: "The payment failed." });
+    }
+
+    await db.query("INSERT INTO orders (id, user_id, total) VALUES ($1, $2, $3)", [orderId, userId, total]);
+
+    const event: OrderPlaced = { orderId, userId, email: user.email, total };
+    events.publish("orders", "order.placed", Buffer.from(JSON.stringify(event)));
+
+    res.status(201).json({ orderId });
+  });
+
+  return router;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="users">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">user-service/src/userRoutes.ts</span><span class="why">Other services get user data through this endpoint, never from the users table.</span></div>
+<pre><code>import { Router } from "express";
+import { Pool } from "pg";
+
+export function userRoutes(db: Pool): Router {
+  const router = Router();
+
+  router.get("/users/:id", async (req, res) =&gt; {
+    const result = await db.query("SELECT id, email FROM users WHERE id = $1", [req.params.id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "The user does not exist." });
+    }
+    res.json(result.rows[0]);
+  });
+
+  return router;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="payments">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">payment-service/src/paymentRoutes.ts</span><span class="why">Charges the card through Stripe and saves the payment in its own database.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Router } from "express";
+import { Pool } from "pg";
+import Stripe from "stripe";
+
+export function paymentRoutes(db: Pool, stripe: Stripe): Router {
+  const router = Router();
+
+  router.post("/payments", async (req, res) =&gt; {
+    const { orderId, amount, paymentMethodId } = req.body;
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100),
+      currency: "eur",
+      payment_method: paymentMethodId,
+      confirm: true,
+    });
+
+    await db.query(
+      "INSERT INTO payments (id, order_id, amount, provider_id) VALUES ($1, $2, $3, $4)",
+      [randomUUID(), orderId, amount, paymentIntent.id],
+    );
+
+    res.status(201).json({ providerId: paymentIntent.id });
+  });
+
+  return router;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="notifications">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">notification-service/src/orderPlacedConsumer.ts</span><span class="why">Reads <code>OrderPlaced</code> events from its own queue. A message is removed from the queue only after <code>ack</code>, so a crash before that means it is read again.</span></div>
+<pre><code>import { Channel } from "amqplib";
+import { Transporter } from "nodemailer";
+import { OrderPlaced } from "../../contracts/OrderPlaced";
+
+const queueName = "notifications.order-placed";
+
+export async function consumeOrderPlaced(events: Channel, mailer: Transporter): Promise&lt;void&gt; {
+  await events.assertQueue(queueName);
+  await events.bindQueue(queueName, "orders", "order.placed");
+
+  await events.consume(queueName, async (message) =&gt; {
+    if (!message) return;
+    const event: OrderPlaced = JSON.parse(message.content.toString());
+
+    await mailer.sendMail({
+      from: "shop@example.com",
+      to: event.email,
+      subject: "Order received",
+      text: `Your order ${event.orderId} has been received.`,
+    });
+
+    events.ack(message);
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="broker">
+      <div class="file-head"><span class="chip tone-blue">Event</span><span class="name">contracts/OrderPlaced.cs</span><span class="why">The message the order service publishes to RabbitMQ. Every service that reads it depends on this shape.</span></div>
+<pre><code>namespace Contracts;
+
+public record OrderPlaced(Guid OrderId, Guid UserId, string Email, decimal Total);</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="orders">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">order-service/OrderEndpoints.cs</span><span class="why">Calls two services over HTTP and checks each answer, because either call can fail. Then saves to its own database and publishes an event through MassTransit.</span></div>
+<pre><code>using Contracts;
+using Dapper;
+using MassTransit;
+using Npgsql;
+
+namespace OrderService;
+
+public record OrderItem(string ProductId, decimal Price, int Quantity);
+public record PlaceOrderRequest(Guid UserId, List&lt;OrderItem&gt; Items, string PaymentMethodId);
+public record UserResponse(Guid Id, string Email);
+
+public static class OrderEndpoints
+{
+    public static void MapOrderEndpoints(this WebApplication app)
+    {
+        app.MapPost("/orders", async (
+            PlaceOrderRequest request,
+            IHttpClientFactory httpClients,
+            NpgsqlDataSource db,
+            IPublishEndpoint events) =&gt;
+        {
+            var userResponse = await httpClients.CreateClient("user-service").GetAsync($"/users/{request.UserId}");
+            if (!userResponse.IsSuccessStatusCode)
+                return Results.UnprocessableEntity(new { error = "The user does not exist." });
+            var user = await userResponse.Content.ReadFromJsonAsync&lt;UserResponse&gt;();
+
+            var orderId = Guid.NewGuid();
+            var total = request.Items.Sum(item =&gt; item.Price * item.Quantity);
+
+            var paymentResponse = await httpClients.CreateClient("payment-service")
+                .PostAsJsonAsync("/payments", new { orderId, amount = total, request.PaymentMethodId });
+            if (!paymentResponse.IsSuccessStatusCode)
+                return Results.Json(new { error = "The payment failed." }, statusCode: 502);
+
+            await using var connection = await db.OpenConnectionAsync();
+            await connection.ExecuteAsync(
+                "INSERT INTO orders (id, user_id, total) VALUES (@orderId, @userId, @total)",
+                new { orderId, userId = request.UserId, total });
+
+            await events.Publish(new OrderPlaced(orderId, request.UserId, user!.Email, total));
+
+            return Results.Created($"/orders/{orderId}", new { orderId });
+        });
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="users">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">user-service/UserEndpoints.cs</span><span class="why">Other services get user data through this endpoint, never from the users table.</span></div>
+<pre><code>using Dapper;
+using Npgsql;
+
+namespace UserService;
+
+public record User(Guid Id, string Email);
+
+public static class UserEndpoints
+{
+    public static void MapUserEndpoints(this WebApplication app)
+    {
+        app.MapGet("/users/{id:guid}", async (Guid id, NpgsqlDataSource db) =&gt;
+        {
+            await using var connection = await db.OpenConnectionAsync();
+            var user = await connection.QuerySingleOrDefaultAsync&lt;User&gt;(
+                "SELECT id, email FROM users WHERE id = @id", new { id });
+
+            return user is null
+                ? Results.NotFound(new { error = "The user does not exist." })
+                : Results.Ok(user);
+        });
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="payments">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">payment-service/PaymentEndpoints.cs</span><span class="why">Charges the card through Stripe and saves the payment in its own database.</span></div>
+<pre><code>using Dapper;
+using Npgsql;
+using Stripe;
+
+namespace PaymentService;
+
+public record PaymentRequest(Guid OrderId, decimal Amount, string PaymentMethodId);
+
+public static class PaymentEndpoints
+{
+    public static void MapPaymentEndpoints(this WebApplication app)
+    {
+        app.MapPost("/payments", async (PaymentRequest request, PaymentIntentService stripePayments, NpgsqlDataSource db) =&gt;
+        {
+            var paymentIntent = await stripePayments.CreateAsync(new PaymentIntentCreateOptions
+            {
+                Amount = (long)Math.Round(request.Amount * 100),
+                Currency = "eur",
+                PaymentMethod = request.PaymentMethodId,
+                Confirm = true,
+            });
+
+            await using var connection = await db.OpenConnectionAsync();
+            await connection.ExecuteAsync(
+                "INSERT INTO payments (id, order_id, amount, provider_id) VALUES (@id, @orderId, @amount, @providerId)",
+                new { id = Guid.NewGuid(), orderId = request.OrderId, amount = request.Amount, providerId = paymentIntent.Id });
+
+            return Results.Created($"/payments/{paymentIntent.Id}", new { providerId = paymentIntent.Id });
+        });
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="notifications">
+      <div class="file-head"><span class="chip tone-teal">Service</span><span class="name">notification-service/OrderPlacedConsumer.cs</span><span class="why">MassTransit calls <code>Consume</code> for each <code>OrderPlaced</code> message. If it throws, the message stays in the queue and is retried.</span></div>
+<pre><code>using System.Net.Mail;
+using Contracts;
+using MassTransit;
+
+namespace NotificationService;
+
+public class OrderPlacedConsumer(SmtpClient smtp) : IConsumer&lt;OrderPlaced&gt;
+{
+    public Task Consume(ConsumeContext&lt;OrderPlaced&gt; context) =&gt;
+        smtp.SendMailAsync(new MailMessage(
+            from: "shop@example.com",
+            to: context.Message.Email,
+            subject: "Order received",
+            body: $"Your order {context.Message.OrderId} has been received."));
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-nginx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
