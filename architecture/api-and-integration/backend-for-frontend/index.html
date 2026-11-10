@@ -36,7 +36,7 @@
         </tbody>
       </table>
     </div>
-    <div class="rule"><strong>The one rule:</strong> a BFF shapes data for its frontend. Business rules stay in the services, so the web and mobile apps never disagree.</div>
+    <div class="rule"><strong>Main rule:</strong> a BFF shapes data for its frontend. Business rules stay in the services, so the web and mobile apps never disagree.</div>
   </section>
 
   <section>
@@ -206,7 +206,7 @@
   </section>
 
   <section>
-    <h2>GraphQL for web, REST for mobile</h2>
+    <h2>Why the web BFF uses GraphQL and the mobile BFF uses REST</h2>
     <p>Each BFF serves only one frontend, so each team picks the API style that suits its app. No other client depends on that choice. Here the web BFF uses GraphQL and the mobile BFF uses REST.</p>
     <div class="table-wrap">
       <table class="terms">
@@ -221,7 +221,7 @@
         </tbody>
       </table>
     </div>
-    <h3>One shared GraphQL API instead of BFFs</h3>
+    <h3>Using one GraphQL API instead of BFFs</h3>
     <p>A common alternative is one GraphQL API for every client. Each client asks for its own fields, which solves over-fetching.</p>
     <p>It does not give each team its own place for screen logic, such as turning <code>succeeded</code> into <code>Paid</code> for mobile only. Every team also has to agree on one shared schema, so teams wait on each other again.</p>
   </section>
@@ -233,7 +233,7 @@
         <li><strong>Chatty clients</strong><span>One request per screen instead of one per service. This matters most on mobile networks.</span></li>
         <li><strong>Over-fetching</strong><span>Each frontend gets only the fields it shows. Smaller replies load faster and use less mobile data.</span></li>
         <li><strong>Display logic tied to app releases</strong><span>Combining and formatting data happens in the BFF. Changing it does not need a new app store release.</span></li>
-        <li><strong>One API that suits no one well</strong><span>Web and mobile need different data, and even different API styles. Each BFF serves its own frontend: GraphQL for web, REST for mobile.</span></li>
+        <li><strong>One API shared by different frontends</strong><span>Web and mobile need different data and different API styles. Each BFF serves one frontend, so the web BFF uses GraphQL and the mobile BFF uses REST.</span></li>
         <li><strong>Services open to the internet</strong><span>Only the BFFs are public. The services stay on the private network.</span></li>
         <li><strong>Frontend teams waiting on backend teams</strong><span>The frontend team owns its BFF and adds fields when a screen needs them.</span></li>
       </ul>

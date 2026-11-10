@@ -39,11 +39,11 @@
         </tbody>
       </table>
     </div>
-    <div class="rule"><strong>The one rule:</strong> each bounded context has its own model and its own words. A context never uses another context's classes. Contexts share only messages, such as <code>OrderPlaced</code>.</div>
+    <div class="rule"><strong>Main rule:</strong> each bounded context has its own model and its own words. A context never uses another context's classes. Contexts share only messages, such as <code>OrderPlaced</code>.</div>
   </section>
 
   <section>
-    <h2>One word, three meanings</h2>
+    <h2>What "order" means in each bounded context</h2>
     <p>The word "order" means something different in each part of the shop. One shared <code>Order</code> class would need every field for every team. DDD gives each context its own model.</p>
     <div class="table-wrap">
       <table class="terms">
