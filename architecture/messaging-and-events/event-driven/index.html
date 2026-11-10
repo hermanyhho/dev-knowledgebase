@@ -72,6 +72,26 @@
   </section>
 
   <section>
+    <h2>Logging and correlation IDs</h2>
+    <p>One order passes through five services, so no single stack trace or log file shows what happened to it. A <strong>correlation ID</strong> fixes this. It is created once, when the HTTP request arrives, and copied into every event and every log line that follows. Searching your logs for that ID shows the whole order, across all services.</p>
+    <p>The correlation ID travels in the Kafka <strong>message headers</strong>, not in the event body, so every event type carries it without changing the event shapes. Each event also gets a <strong>causation ID</strong>: the ID of the event that caused it. Together they show both which order a log line belongs to and which step led to it.</p>
+    <p>Each service writes its logs as JSON. A log collector sends them to one search tool, such as Elasticsearch, Loki or Datadog. Tools based on OpenTelemetry can carry a trace ID in the same Kafka headers and draw the whole path as a timeline.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log</th><th>Level</th></tr></thead>
+        <tbody>
+          <tr><td>Producer, after publishing</td><td>Event type, event ID, topic, partition, offset, correlation ID</td><td>info</td></tr>
+          <tr><td>Consumer, when an event arrives</td><td>Event type, event ID, topic, partition, offset, consumer group, correlation ID</td><td>info</td></tr>
+          <tr><td>Consumer, after handling</td><td>Outcome, for example "StockReserved" or "skipped duplicate", and how long it took in milliseconds</td><td>info</td></tr>
+          <tr><td>Consumer, on a retry</td><td>Attempt number and error message</td><td>warn</td></tr>
+          <tr><td>Consumer, when it gives up</td><td>Event ID, error message, number of attempts, the dead-letter topic it was sent to</td><td>error</td></tr>
+          <tr><td>Never log</td><td>Email addresses, card details, payment method IDs, passwords, or whole event bodies that contain personal data</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
     <div class="section-head">
       <h2>Diagram</h2>
       <div class="lang-switch" role="group" aria-label="Code language">
@@ -161,6 +181,7 @@
         <button type="button" data-flow="order" aria-pressed="true">Place an order</button>
         <button type="button" data-flow="duplicate" aria-pressed="false">The same event arrives twice</button>
         <button type="button" data-flow="dead-letter" aria-pressed="false">A consumer keeps failing</button>
+        <button type="button" data-flow="logs" aria-pressed="false">Follow one order in the logs</button>
       </div>
       <div class="flow-controls">
         <button type="button" class="flow-play">Play</button>
@@ -188,6 +209,13 @@
         <li data-highlight="n-shipping a-shipping-dlq n-dlq">It still fails, so Shipping copies the event to <code>shipping.dead-letter</code> with the error in a header, and moves on. Events for other orders are not blocked.</li>
         <li data-highlight="n-dlq">A developer reads the dead-letter topic, fixes the cause and sends the event to Shipping again.</li>
       </ol>
+      <ol class="flow-steps" data-flow="logs" hidden>
+        <li data-highlight="n-order a-order-orders n-topic-orders">The order service takes the correlation ID from the request header <code>x-correlation-id</code>, or creates one. It puts the ID in the Kafka headers of <code>OrderPlaced</code> and logs "published OrderPlaced" with the topic, partition and offset.</li>
+        <li data-highlight="n-topic-orders a-orders-inventory n-inventory">Inventory reads the correlation ID from the headers and adds it to every log line for this event: "received event", then "handled event" with the outcome and the time it took.</li>
+        <li data-highlight="n-inventory a-inventory-topic n-topic-inventory">When Inventory publishes <code>StockReserved</code>, it copies the same correlation ID into the headers and sets the causation ID to the ID of <code>OrderPlaced</code>.</li>
+        <li data-highlight="n-payment n-shipping n-notification">Payment, Shipping and Notification do the same. Retries are logged as warnings, and events sent to the dead-letter topic as errors.</li>
+        <li data-highlight="n-order n-inventory n-payment n-shipping n-notification">All services send their logs to one search tool. Searching for the correlation ID shows the whole order, step by step, across all five services.</li>
+      </ol>
     </div>
     <div class="legend">
       <span class="chip tone-teal">Service</span>
@@ -208,7 +236,8 @@
       <button type="button" class="tree-row" data-file="payment-service/src/stockReservedConsumer.ts"><span class="path">├─ payment-service/src/stockReservedConsumer.ts</span><span class="chip tone-teal">Consumer</span></button>
       <button type="button" class="tree-row" data-file="shipping-service/src/paymentCapturedConsumer.ts"><span class="path">├─ shipping-service/src/paymentCapturedConsumer.ts</span><span class="chip tone-teal">Consumer</span></button>
       <button type="button" class="tree-row" data-file="notification-service/src/consumer.ts"><span class="path">├─ notification-service/src/consumer.ts</span><span class="chip tone-teal">Consumer</span></button>
-      <button type="button" class="tree-row" data-file="examples/dead-letter-event.json"><span class="path">└─ examples/dead-letter-event.json</span><span class="chip tone-amber">Dead-letter event</span></button>
+      <button type="button" class="tree-row" data-file="examples/dead-letter-event.json"><span class="path">├─ examples/dead-letter-event.json</span><span class="chip tone-amber">Dead-letter event</span></button>
+      <button type="button" class="tree-row" data-file="examples/logs-for-one-order.jsonl"><span class="path">└─ examples/logs-for-one-order.jsonl</span><span class="chip tone-neutral">Log lines</span></button>
     </div>
     <div class="tree" data-lang="cs" aria-label="C# files">
       <div class="tree-root">Shop.sln</div>
@@ -221,7 +250,8 @@
       <button type="button" class="tree-row" data-file="src/PaymentService/StockReservedConsumer.cs"><span class="path">├─ src/PaymentService/StockReservedConsumer.cs</span><span class="chip tone-teal">Consumer</span></button>
       <button type="button" class="tree-row" data-file="src/ShippingService/PaymentCapturedConsumer.cs"><span class="path">├─ src/ShippingService/PaymentCapturedConsumer.cs</span><span class="chip tone-teal">Consumer</span></button>
       <button type="button" class="tree-row" data-file="src/NotificationService/NotificationConsumer.cs"><span class="path">├─ src/NotificationService/NotificationConsumer.cs</span><span class="chip tone-teal">Consumer</span></button>
-      <button type="button" class="tree-row" data-file="examples/dead-letter-event.json"><span class="path">└─ examples/dead-letter-event.json</span><span class="chip tone-amber">Dead-letter event</span></button>
+      <button type="button" class="tree-row" data-file="examples/dead-letter-event.json"><span class="path">├─ examples/dead-letter-event.json</span><span class="chip tone-amber">Dead-letter event</span></button>
+      <button type="button" class="tree-row" data-file="examples/logs-for-one-order.jsonl"><span class="path">└─ examples/logs-for-one-order.jsonl</span><span class="chip tone-neutral">Log lines</span></button>
     </div>
   </section>
 
@@ -272,6 +302,18 @@ kafka-topics.sh --bootstrap-server "$KAFKA" --create --topic shipping.dead-lette
   </div>
 
   <div class="language-json">
+    <div class="file" data-lang="any" data-node="logs">
+      <div class="file-head"><span class="chip tone-neutral">Log lines</span><span class="name">examples/logs-for-one-order.jsonl</span><span class="why">What a search for <code>correlationId = c-7a91</code> returns. Each line comes from a different service, but all share the same ID. <code>causationId</code> shows which event led to each step. No email addresses or card details appear.</span></div>
+<pre><code>{"time":"09:13:50.112","level":"info","service":"order-service","correlationId":"c-7a91","eventType":"OrderPlaced","eventId":"e-1001","orderId":"42","topic":"orders","partition":1,"offset":"1041","msg":"published OrderPlaced"}
+{"time":"09:13:51.020","level":"info","service":"inventory-service","correlationId":"c-7a91","causationId":"c-7a91","eventType":"OrderPlaced","eventId":"e-1001","topic":"orders","partition":1,"offset":"1041","msg":"received event"}
+{"time":"09:13:51.064","level":"info","service":"notification-service","correlationId":"c-7a91","eventType":"OrderPlaced","eventId":"e-1001","msg":"sent order received email"}
+{"time":"09:13:51.180","level":"info","service":"inventory-service","correlationId":"c-7a91","eventId":"e-1001","outcome":"StockReserved","durationMs":160,"msg":"handled event"}
+{"time":"09:13:51.950","level":"info","service":"payment-service","correlationId":"c-7a91","causationId":"e-1001","eventType":"StockReserved","eventId":"stock-reserved-e-1001","msg":"received event"}
+{"time":"09:13:53.160","level":"info","service":"payment-service","correlationId":"c-7a91","eventId":"stock-reserved-e-1001","outcome":"PaymentCaptured","durationMs":1210,"msg":"handled event"}
+{"time":"09:13:53.410","level":"warn","service":"shipping-service","correlationId":"c-7a91","eventId":"payment-captured-stock-reserved-e-1001","attempt":1,"error":"carrier API replied 503","msg":"retrying"}
+{"time":"09:13:54.430","level":"info","service":"shipping-service","correlationId":"c-7a91","eventId":"payment-captured-stock-reserved-e-1001","outcome":"PickupBooked","durationMs":1020,"msg":"handled event"}</code></pre>
+    </div>
+
     <div class="file" data-lang="any" data-node="dlq">
       <div class="file-head"><span class="chip tone-amber">Dead-letter event</span><span class="name">examples/dead-letter-event.json</span><span class="why">The original event is kept as it was. Headers record why and when it failed, so a developer can fix the cause and send it to Shipping again.</span></div>
 <pre><code>{
@@ -353,10 +395,11 @@ export type PaymentEvent = PaymentCaptured | PaymentFailed;</code></pre>
     </div>
 
     <div class="file" data-lang="ts" data-node="order">
-      <div class="file-head"><span class="chip tone-teal">Producer</span><span class="name">order-service/src/placeOrder.ts</span><span class="why">The order ID is the message key, so all events for one order go to the same partition and stay in order. Saving and sending are two separate steps: if the service stops between them, the event is lost. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Producer</span><span class="name">order-service/src/placeOrder.ts</span><span class="why">The HTTP route passes in the correlation ID from the <code>x-correlation-id</code> request header, or a new one if the header is missing. The ID goes into the Kafka headers. The log line records where the event was stored: topic, partition and offset. Saving and sending are two separate steps: if the service stops between them, the event is lost. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
 <pre><code>import { randomUUID } from "node:crypto";
 import { Producer } from "kafkajs";
 import { Pool } from "pg";
+import { Logger } from "pino";
 import { OrderPlaced } from "../../contracts/orders";
 
 export type PlaceOrderRequest = {
@@ -366,7 +409,13 @@ export type PlaceOrderRequest = {
   paymentMethodId: string;
 };
 
-export async function placeOrder(db: Pool, producer: Producer, request: PlaceOrderRequest): Promise&lt;string&gt; {
+export async function placeOrder(
+  db: Pool,
+  producer: Producer,
+  logger: Logger,
+  correlationId: string,
+  request: PlaceOrderRequest,
+): Promise&lt;string&gt; {
   const orderId = randomUUID();
   await db.query(
     "INSERT INTO orders (id, customer_email, total, status) VALUES ($1, $2, $3, 'placed')",
@@ -380,19 +429,28 @@ export async function placeOrder(db: Pool, producer: Producer, request: PlaceOrd
     orderId,
     ...request,
   };
-  await producer.send({
+  const [stored] = await producer.send({
     topic: "orders",
-    messages: [{ key: orderId, value: JSON.stringify(event) }],
+    messages: [{
+      key: orderId,
+      value: JSON.stringify(event),
+      headers: { "correlation-id": correlationId, "causation-id": correlationId },
+    }],
   });
 
+  logger.info(
+    { correlationId, eventType: event.type, eventId: event.eventId, orderId, topic: "orders", partition: stored.partition, offset: stored.baseOffset },
+    "published OrderPlaced",
+  );
   return orderId;
 }</code></pre>
     </div>
 
     <div class="file" data-lang="ts" data-node="inventory">
-      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">inventory-service/src/orderPlacedConsumer.ts</span><span class="why">Idempotent: the event ID and the stock change are saved in one transaction, so a second delivery is skipped. If stock is short, the savepoint undoes only the reservation. If the service stops after the commit but before the reply is sent, the reply is lost, because a resend is skipped. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">inventory-service/src/orderPlacedConsumer.ts</span><span class="why">Idempotent: the event ID and the stock change are saved in one transaction, so a second delivery is skipped. A child logger adds the correlation ID, event ID, topic, partition and offset to every log line for this event. The reply copies the correlation ID and sets the causation ID. If the service stops after the commit but before the reply is sent, the reply is lost, because a resend is skipped. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
 <pre><code>import { Kafka, Producer } from "kafkajs";
 import { Pool, PoolClient } from "pg";
+import { Logger } from "pino";
 import { OrderPlaced } from "../../contracts/orders";
 import { InventoryEvent } from "../../contracts/inventory";
 
@@ -434,21 +492,47 @@ async function reserveOnce(db: Pool, event: OrderPlaced): Promise&lt;InventoryEv
   }
 }
 
-export async function startOrderPlacedConsumer(kafka: Kafka, db: Pool, producer: Producer): Promise&lt;void&gt; {
+export async function startOrderPlacedConsumer(kafka: Kafka, db: Pool, producer: Producer, logger: Logger): Promise&lt;void&gt; {
   const consumer = kafka.consumer({ groupId: "inventory-service" });
   await consumer.connect();
   await consumer.subscribe({ topic: "orders" });
 
   await consumer.run({
-    eachMessage: async ({ message }) =&gt; {
+    eachMessage: async ({ topic, partition, message }) =&gt; {
       const event: OrderPlaced = JSON.parse(message.value!.toString());
-      const reply = await reserveOnce(db, event);
-      if (!reply) return;
-
-      await producer.send({
-        topic: "inventory",
-        messages: [{ key: event.orderId, value: JSON.stringify(reply) }],
+      const correlationId = message.headers?.["correlation-id"]?.toString() ?? "missing";
+      const eventLog = logger.child({
+        correlationId,
+        causationId: message.headers?.["causation-id"]?.toString(),
+        eventType: event.type,
+        eventId: event.eventId,
+        topic,
+        partition,
+        offset: message.offset,
       });
+      const startedAt = Date.now();
+      eventLog.info("received event");
+
+      try {
+        const reply = await reserveOnce(db, event);
+        if (!reply) {
+          eventLog.info("skipped duplicate event");
+          return;
+        }
+
+        await producer.send({
+          topic: "inventory",
+          messages: [{
+            key: event.orderId,
+            value: JSON.stringify(reply),
+            headers: { "correlation-id": correlationId, "causation-id": event.eventId },
+          }],
+        });
+        eventLog.info({ outcome: reply.type, durationMs: Date.now() - startedAt }, "handled event");
+      } catch (error) {
+        eventLog.error({ err: error }, "failed to handle event, Kafka will deliver it again");
+        throw error;
+      }
     },
   });
 }</code></pre>
@@ -622,8 +706,9 @@ public record PaymentFailed(string EventId, DateTimeOffset OccurredAt, Guid Orde
     </div>
 
     <div class="file" data-lang="cs" data-node="order">
-      <div class="file-head"><span class="chip tone-teal">Producer</span><span class="name">src/OrderService/OrderPlacement.cs</span><span class="why">The order ID is the message key, so all events for one order go to the same partition and stay in order. Saving and sending are two separate steps: if the service stops between them, the event is lost. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
-<pre><code>using System.Text.Json;
+      <div class="file-head"><span class="chip tone-teal">Producer</span><span class="name">src/OrderService/OrderPlacement.cs</span><span class="why">The HTTP endpoint passes in the correlation ID from the <code>x-correlation-id</code> request header, or a new one if the header is missing. The ID goes into the Kafka headers. The log line records where the event was stored: topic, partition and offset. Saving and sending are two separate steps: if the service stops between them, the event is lost. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
+<pre><code>using System.Text;
+using System.Text.Json;
 using Confluent.Kafka;
 using Dapper;
 using Npgsql;
@@ -633,9 +718,9 @@ namespace OrderService;
 
 public record PlaceOrderRequest(string CustomerEmail, List&lt;OrderItem&gt; Items, decimal Total, string PaymentMethodId);
 
-public class OrderPlacement(NpgsqlDataSource db, IProducer&lt;string, string&gt; producer)
+public class OrderPlacement(NpgsqlDataSource db, IProducer&lt;string, string&gt; producer, ILogger&lt;OrderPlacement&gt; logger)
 {
-    public async Task&lt;Guid&gt; PlaceOrderAsync(PlaceOrderRequest request)
+    public async Task&lt;Guid&gt; PlaceOrderAsync(PlaceOrderRequest request, string correlationId)
     {
         var orderId = Guid.NewGuid();
         await using var connection = await db.OpenConnectionAsync();
@@ -647,11 +732,20 @@ public class OrderPlacement(NpgsqlDataSource db, IProducer&lt;string, string&gt;
             Guid.NewGuid().ToString(), DateTimeOffset.UtcNow, orderId,
             request.CustomerEmail, request.Items, request.Total, request.PaymentMethodId);
 
-        await producer.ProduceAsync("orders", new Message&lt;string, string&gt;
+        var stored = await producer.ProduceAsync("orders", new Message&lt;string, string&gt;
         {
             Key = orderId.ToString(),
             Value = JsonSerializer.Serialize(orderPlaced),
+            Headers = new Headers
+            {
+                { "correlation-id", Encoding.UTF8.GetBytes(correlationId) },
+                { "causation-id", Encoding.UTF8.GetBytes(correlationId) },
+            },
         });
+
+        logger.LogInformation(
+            "Published {EventType} {EventId} for order {OrderId} to {Topic} partition {Partition} offset {Offset}, correlation {CorrelationId}",
+            nameof(OrderPlaced), orderPlaced.EventId, orderId, stored.Topic, stored.Partition.Value, stored.Offset.Value, correlationId);
 
         return orderId;
     }
@@ -659,8 +753,10 @@ public class OrderPlacement(NpgsqlDataSource db, IProducer&lt;string, string&gt;
     </div>
 
     <div class="file" data-lang="cs" data-node="inventory">
-      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">src/InventoryService/OrderPlacedConsumer.cs</span><span class="why">Idempotent: the event ID and the stock change are saved in one transaction, so a second delivery is skipped. The offset is committed only after the work is done, which is what makes delivery at-least-once. If the service stops after the commit but before the reply is sent, the reply is lost, because a resend is skipped. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
-<pre><code>using System.Text.Json;
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">src/InventoryService/OrderPlacedConsumer.cs</span><span class="why">Idempotent: the event ID and the stock change are saved in one transaction, so a second delivery is skipped. <code>BeginScope</code> adds the correlation ID, event ID, topic, partition and offset to every log line inside it. The reply copies the correlation ID and sets the causation ID. If the service stops after the commit but before the reply is sent, the reply is lost, because a resend is skipped. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
+<pre><code>using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 using Confluent.Kafka;
 using Dapper;
 using Npgsql;
@@ -671,7 +767,8 @@ namespace InventoryService;
 public class OrderPlacedConsumer(
     IConsumer&lt;string, string&gt; consumer,
     IProducer&lt;string, string&gt; producer,
-    NpgsqlDataSource db) : BackgroundService
+    NpgsqlDataSource db,
+    ILogger&lt;OrderPlacedConsumer&gt; logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -682,20 +779,49 @@ public class OrderPlacedConsumer(
         {
             var result = consumer.Consume(stoppingToken);
             var orderPlaced = JsonSerializer.Deserialize&lt;OrderPlaced&gt;(result.Message.Value)!;
+            var correlationId = ReadHeader(result.Message, "correlation-id") ?? "missing";
 
-            var reply = await ReserveOnceAsync(orderPlaced);
-            if (reply is not null)
+            using (logger.BeginScope(new Dictionary&lt;string, object&gt;
             {
-                await producer.ProduceAsync("inventory", new Message&lt;string, string&gt;
+                ["CorrelationId"] = correlationId,
+                ["CausationId"] = ReadHeader(result.Message, "causation-id") ?? "",
+                ["EventId"] = orderPlaced.EventId,
+                ["Topic"] = result.Topic,
+                ["Partition"] = result.Partition.Value,
+                ["Offset"] = result.Offset.Value,
+            }))
+            {
+                var startedAt = Stopwatch.GetTimestamp();
+                logger.LogInformation("Received {EventType}", nameof(OrderPlaced));
+
+                var reply = await ReserveOnceAsync(orderPlaced);
+                if (reply is null)
                 {
-                    Key = orderPlaced.OrderId.ToString(),
-                    Value = JsonSerializer.Serialize(reply, reply.GetType()),
-                });
+                    logger.LogInformation("Skipped duplicate event");
+                }
+                else
+                {
+                    await producer.ProduceAsync("inventory", new Message&lt;string, string&gt;
+                    {
+                        Key = orderPlaced.OrderId.ToString(),
+                        Value = JsonSerializer.Serialize(reply, reply.GetType()),
+                        Headers = new Headers
+                        {
+                            { "correlation-id", Encoding.UTF8.GetBytes(correlationId) },
+                            { "causation-id", Encoding.UTF8.GetBytes(orderPlaced.EventId) },
+                        },
+                    });
+                    logger.LogInformation("Handled event with outcome {Outcome} in {DurationMs} ms",
+                        reply.GetType().Name, Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+                }
             }
 
             consumer.Commit(result);
         }
     }
+
+    private static string? ReadHeader(Message&lt;string, string&gt; message, string name) =&gt;
+        message.Headers.TryGetLastBytes(name, out var bytes) ? Encoding.UTF8.GetString(bytes) : null;
 
     private async Task&lt;object?&gt; ReserveOnceAsync(OrderPlaced orderPlaced)
     {
