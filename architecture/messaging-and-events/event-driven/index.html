@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event-Driven Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Architecture</a> / Messaging and events</div>
+    <h1>Event-Driven Architecture</h1>
+    <p class="aka">Often shortened to <strong>EDA</strong>. Services react to events instead of calling each other.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A way to connect services where each one publishes <strong>events</strong>: records of things that happened, such as "order placed". Other services read those events and act on them. The service that publishes an event does not know who reads it.</p>
+    <p>Events go through a <strong>broker</strong>, a server that stores them until consumers read them. This page uses Kafka. The <a href="../../system-topology/microservices/">microservices</a> page uses RabbitMQ, and the comparison below shows how the two differ.</p>
+    <p>When each service reacts to events on its own, with no central service giving orders, the flow is called <strong>choreography</strong>. The <a href="../saga/">saga</a> page shows the other option, orchestration.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-blue">Event</span></td><td>A record of something that happened, named in past tense.</td><td><code>OrderPlaced</code>, <code>PaymentCaptured</code></td></tr>
+          <tr><td><span class="chip tone-teal">Producer</span></td><td>A service that publishes events.</td><td>Order service</td></tr>
+          <tr><td><span class="chip tone-teal">Consumer</span></td><td>A service that reads events and acts on them.</td><td>Inventory service</td></tr>
+          <tr><td><span class="chip tone-blue">Topic</span></td><td>A named list of events in Kafka. Producers add to the end, consumers read in order.</td><td><code>orders</code>, <code>payments</code></td></tr>
+          <tr><td><span class="chip tone-blue">Partition</span></td><td>A topic is split into partitions so several consumers can read in parallel. Events with the same key always go to the same partition.</td><td>3 partitions, key = order ID</td></tr>
+          <tr><td><span class="chip tone-blue">Offset</span></td><td>The position of an event in a partition. Each consumer group stores how far it has read.</td><td>"Inventory has read up to offset 1041"</td></tr>
+          <tr><td><span class="chip tone-teal">Consumer group</span></td><td>The copies of one service that share the work of reading a topic. Each group gets every event once.</td><td><code>inventory-service</code></td></tr>
+          <tr><td><span class="chip tone-neutral">At-least-once delivery</span></td><td>The broker may deliver the same event more than once, but never zero times.</td><td>A restart can resend <code>OrderPlaced</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Idempotent consumer</span></td><td>A consumer that gives the same result when it handles the same event twice.</td><td>The <code>processed_events</code> table</td></tr>
+          <tr><td><span class="chip tone-amber">Dead-letter topic</span></td><td>Where events go after they fail too many times, so they do not block later events.</td><td><code>shipping.dead-letter</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> a producer publishes what happened and does not know who reads it. Each consumer decides on its own what to do, and must handle the same event arriving twice.</div>
+  </section>
+
+  <section>
+    <h2>What an event can contain</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Kind</th><th>The event holds</th><th>The consumer then</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td>Event notification</td><td>Only IDs: "order 42 was placed"</td><td>Calls the producer's API to get the details</td><td>Not used here</td></tr>
+          <tr><td>Event-carried state transfer</td><td>All the data consumers need</td><td>Keeps its own copy and never calls back</td><td><code>OrderPlaced</code> carries the email. Notification saves it for later.</td></tr>
+          <tr><td>Event sourcing</td><td>The events are the stored data itself</td><td>Rebuilds the current state by reading all events</td><td>A separate topic</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How a RabbitMQ queue differs from a Kafka topic</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>RabbitMQ queue</th><th>Kafka topic</th></tr></thead>
+        <tbody>
+          <tr><td>After a consumer reads a message</td><td>The message is deleted</td><td>The event stays until its retention period ends, for example 7 days</td></tr>
+          <tr><td>Several services read the same events</td><td>One queue per service, each bound to the same exchange</td><td>One consumer group per service, all reading the same topic</td></tr>
+          <tr><td>Reading old events again</td><td>Not possible after deletion</td><td>Move the consumer group's offset back</td></tr>
+          <tr><td>Order of events</td><td>Kept per queue</td><td>Kept per partition only</td></tr>
+          <tr><td>Common use</td><td>Task queues and routing rules</td><td>High-volume event streams that can be read again</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 70 920 390" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">Kafka holds four topics: orders, inventory, payments and shipping.dead-letter. The order service writes to orders. Inventory reads orders and writes to inventory. Payment reads inventory and writes to payments. Shipping reads payments and writes failed events to the dead-letter topic. Notification reads orders and payments.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="330" y="88" width="260" height="360" rx="10"/>
+        <g class="node" id="n-kafka" tabindex="0" role="button" aria-label="Show how the topics are created" data-title="Kafka topics" data-node="kafka">
+          <rect class="hit" x="400" y="92" width="120" height="26"/>
+          <text class="t-title" x="460" y="111">KAFKA</text>
+        </g>
+
+        <g class="node" id="n-topic-orders" tabindex="0" role="button" aria-label="Show the events in the orders topic" data-title="Topic: orders" data-node="topic-orders">
+          <rect class="shape tone-blue" x="350" y="125" width="220" height="56" rx="6"/>
+          <text class="t-name" x="460" y="149">orders</text>
+          <text class="t-kind" x="460" y="167">topic, 3 partitions</text>
+        </g>
+        <g class="node" id="n-topic-inventory" tabindex="0" role="button" aria-label="Show the events in the inventory topic" data-title="Topic: inventory" data-node="topic-inventory">
+          <rect class="shape tone-blue" x="350" y="215" width="220" height="56" rx="6"/>
+          <text class="t-name" x="460" y="239">inventory</text>
+          <text class="t-kind" x="460" y="257">topic, 3 partitions</text>
+        </g>
+        <g class="node" id="n-topic-payments" tabindex="0" role="button" aria-label="Show the events in the payments topic" data-title="Topic: payments" data-node="topic-payments">
+          <rect class="shape tone-blue" x="350" y="305" width="220" height="56" rx="6"/>
+          <text class="t-name" x="460" y="329">payments</text>
+          <text class="t-kind" x="460" y="347">topic, 3 partitions</text>
+        </g>
+        <g class="node" id="n-dlq" tabindex="0" role="button" aria-label="Show a dead-letter event" data-title="Dead-letter topic" data-node="dlq">
+          <rect class="shape tone-amber" x="350" y="385" width="220" height="48" rx="6"/>
+          <text class="t-name" x="460" y="405">shipping.dead-letter</text>
+          <text class="t-kind" x="460" y="422">dead-letter topic</text>
+        </g>
+
+        <g class="node" id="n-order" tabindex="0" role="button" aria-label="Show code for the order service" data-title="Order service: producer" data-node="order">
+          <rect class="shape tone-teal" x="40" y="125" width="210" height="56" rx="6"/>
+          <text class="t-name" x="145" y="149">Order service</text>
+          <text class="t-kind" x="145" y="167">writes to orders</text>
+        </g>
+        <g class="node" id="n-inventory" tabindex="0" role="button" aria-label="Show code for the inventory service" data-title="Inventory service: consumer and producer" data-node="inventory">
+          <rect class="shape tone-teal" x="40" y="215" width="210" height="56" rx="6"/>
+          <text class="t-name" x="145" y="239">Inventory service</text>
+          <text class="t-kind" x="145" y="257">reads orders, writes inventory</text>
+        </g>
+        <g class="node" id="n-payment" tabindex="0" role="button" aria-label="Show code for the payment service" data-title="Payment service: consumer and producer" data-node="payment">
+          <rect class="shape tone-teal" x="40" y="305" width="210" height="56" rx="6"/>
+          <text class="t-name" x="145" y="329">Payment service</text>
+          <text class="t-kind" x="145" y="347">reads inventory, writes payments</text>
+        </g>
+        <g class="node" id="n-notification" tabindex="0" role="button" aria-label="Show code for the notification service" data-title="Notification service: consumer" data-node="notification">
+          <rect class="shape tone-teal" x="670" y="125" width="210" height="56" rx="6"/>
+          <text class="t-name" x="775" y="149">Notification service</text>
+          <text class="t-kind" x="775" y="167">reads orders and payments</text>
+        </g>
+        <g class="node" id="n-shipping" tabindex="0" role="button" aria-label="Show code for the shipping service" data-title="Shipping service: consumer" data-node="shipping">
+          <rect class="shape tone-teal" x="670" y="305" width="210" height="56" rx="6"/>
+          <text class="t-name" x="775" y="329">Shipping service</text>
+          <text class="t-kind" x="775" y="347">reads payments</text>
+        </g>
+
+        <path class="flow async" id="a-order-orders" d="M250,153 L348,153" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-orders-inventory" d="M350,176 L252,232" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-inventory-topic" d="M250,248 L348,248" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-invtopic-payment" d="M350,266 L252,322" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-payment-topic" d="M250,338 L348,338" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-orders-notification" d="M570,153 L668,153" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-payments-notification" d="M570,316 L668,172" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-payments-shipping" d="M570,338 L668,338" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-shipping-dlq" d="M700,361 L572,409" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="order" aria-pressed="true">Place an order</button>
+        <button type="button" data-flow="duplicate" aria-pressed="false">The same event arrives twice</button>
+        <button type="button" data-flow="dead-letter" aria-pressed="false">A consumer keeps failing</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="order" hidden>
+        <li data-highlight="n-order a-order-orders n-topic-orders">The order service saves the order and publishes <code>OrderPlaced</code> to the <code>orders</code> topic, with the order ID as key. It replies <code>202 Accepted</code> at once, without waiting for the other services.</li>
+        <li data-highlight="n-topic-orders a-orders-inventory n-inventory a-orders-notification n-notification">Inventory and Notification both read <code>OrderPlaced</code>. Each has its own consumer group, so each gets every event.</li>
+        <li data-highlight="n-inventory a-inventory-topic n-topic-inventory">Notification emails "order received". Inventory reserves the stock and publishes <code>StockReserved</code> to the <code>inventory</code> topic.</li>
+        <li data-highlight="n-topic-inventory a-invtopic-payment n-payment a-payment-topic n-topic-payments">Payment reads <code>StockReserved</code>, charges the card and publishes <code>PaymentCaptured</code> to the <code>payments</code> topic.</li>
+        <li data-highlight="n-topic-payments a-payments-shipping n-shipping a-payments-notification n-notification">Shipping books a pickup with the carrier. Notification sends a receipt, using the email it saved from <code>OrderPlaced</code>.</li>
+        <li data-highlight="n-order n-inventory n-payment n-shipping n-notification">No service called another. The order of the steps comes only from which service reads which topic. This is choreography.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="duplicate" hidden>
+        <li data-highlight="n-topic-orders a-orders-inventory n-inventory">Inventory reads <code>OrderPlaced</code>, reserves the stock and commits its database transaction. Then the service stops, before Kafka records that the event was read.</li>
+        <li data-highlight="n-topic-orders a-orders-inventory n-inventory">When Inventory starts again, Kafka sends the same <code>OrderPlaced</code> again. Kafka delivers at least once, not exactly once.</li>
+        <li data-highlight="n-inventory">Inventory tries to insert the event ID into its <code>processed_events</code> table. The ID is already there, so it skips the event. The stock is reserved only once.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="dead-letter" hidden>
+        <li data-highlight="n-topic-payments a-payments-shipping n-shipping">Shipping reads <code>PaymentCaptured</code>, but the carrier's API is down and the call fails.</li>
+        <li data-highlight="n-shipping">Shipping tries 3 times, waiting a little longer each time.</li>
+        <li data-highlight="n-shipping a-shipping-dlq n-dlq">It still fails, so Shipping copies the event to <code>shipping.dead-letter</code> with the error in a header, and moves on. Events for other orders are not blocked.</li>
+        <li data-highlight="n-dlq">A developer reads the dead-letter topic, fixes the cause and sends the event to Shipping again.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Service</span>
+      <span class="chip tone-blue">Topic</span>
+      <span class="chip tone-amber">Dead-letter topic</span>
+      <span>All arrows are events. Click a service to see its code, a topic to see its events, or KAFKA to see how the topics are created.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="deploy/create-topics.sh"><span class="path">├─ deploy/create-topics.sh</span><span class="chip tone-neutral">Topics</span></button>
+      <button type="button" class="tree-row" data-file="contracts/orders.ts"><span class="path">├─ contracts/orders.ts</span><span class="chip tone-blue">Events</span></button>
+      <button type="button" class="tree-row" data-file="contracts/inventory.ts"><span class="path">├─ contracts/inventory.ts</span><span class="chip tone-blue">Events</span></button>
+      <button type="button" class="tree-row" data-file="contracts/payments.ts"><span class="path">├─ contracts/payments.ts</span><span class="chip tone-blue">Events</span></button>
+      <button type="button" class="tree-row" data-file="order-service/src/placeOrder.ts"><span class="path">├─ order-service/src/placeOrder.ts</span><span class="chip tone-teal">Producer</span></button>
+      <button type="button" class="tree-row" data-file="inventory-service/src/orderPlacedConsumer.ts"><span class="path">├─ inventory-service/src/orderPlacedConsumer.ts</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="payment-service/src/stockReservedConsumer.ts"><span class="path">├─ payment-service/src/stockReservedConsumer.ts</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="shipping-service/src/paymentCapturedConsumer.ts"><span class="path">├─ shipping-service/src/paymentCapturedConsumer.ts</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="notification-service/src/consumer.ts"><span class="path">├─ notification-service/src/consumer.ts</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="examples/dead-letter-event.json"><span class="path">└─ examples/dead-letter-event.json</span><span class="chip tone-amber">Dead-letter event</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="deploy/create-topics.sh"><span class="path">├─ deploy/create-topics.sh</span><span class="chip tone-neutral">Topics</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Contracts/OrderEvents.cs"><span class="path">├─ src/Shop.Contracts/OrderEvents.cs</span><span class="chip tone-blue">Events</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Contracts/InventoryEvents.cs"><span class="path">├─ src/Shop.Contracts/InventoryEvents.cs</span><span class="chip tone-blue">Events</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Contracts/PaymentEvents.cs"><span class="path">├─ src/Shop.Contracts/PaymentEvents.cs</span><span class="chip tone-blue">Events</span></button>
+      <button type="button" class="tree-row" data-file="src/OrderService/OrderPlacement.cs"><span class="path">├─ src/OrderService/OrderPlacement.cs</span><span class="chip tone-teal">Producer</span></button>
+      <button type="button" class="tree-row" data-file="src/InventoryService/OrderPlacedConsumer.cs"><span class="path">├─ src/InventoryService/OrderPlacedConsumer.cs</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="src/PaymentService/StockReservedConsumer.cs"><span class="path">├─ src/PaymentService/StockReservedConsumer.cs</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="src/ShippingService/PaymentCapturedConsumer.cs"><span class="path">├─ src/ShippingService/PaymentCapturedConsumer.cs</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="src/NotificationService/NotificationConsumer.cs"><span class="path">├─ src/NotificationService/NotificationConsumer.cs</span><span class="chip tone-teal">Consumer</span></button>
+      <button type="button" class="tree-row" data-file="examples/dead-letter-event.json"><span class="path">└─ examples/dead-letter-event.json</span><span class="chip tone-amber">Dead-letter event</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Services waiting on each other</strong><span>The order service replies at once. Stock, payment and shipping happen after, at their own speed.</span></li>
+        <li><strong>Adding a feature means changing the producer</strong><span>A new service subscribes to a topic. The order service does not change.</span></li>
+        <li><strong>One slow service holds up the others</strong><span>Events wait in the topic until that service catches up. The other services keep working.</span></li>
+        <li><strong>Traffic spikes</strong><span>Kafka stores the events. Consumers work through them at the speed they can handle.</span></li>
+        <li><strong>History is lost after processing</strong><span>Kafka keeps events for the retention period. A new consumer can read from the start.</span></li>
+        <li><strong>Services tied to each other's APIs</strong><span>Services share only event shapes, not endpoints or addresses.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>The whole flow is hard to see</strong><span>No single file shows the order process. It is spread across five consumers, so you need tracing and diagrams.</span></li>
+        <li><strong>Data is out of date for a moment</strong><span>The order shows as placed before stock is reserved. The user interface must show states such as "processing".</span></li>
+        <li><strong>The same event can arrive twice</strong><span>Every consumer must handle duplicates, for example with a <code>processed_events</code> table.</span></li>
+        <li><strong>Order only within a partition</strong><span>Events with the same key stay in order. Events with different keys, or in different topics, can be read in any order.</span></li>
+        <li><strong>Failed events need a plan</strong><span>Retries, dead-letter topics and a way to send events again all need code and tools.</span></li>
+        <li><strong>Event shapes are hard to change</strong><span>Old events stay in the topic, so consumers must read old and new versions of each event.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-bash">
+    <div class="file" data-lang="any" data-node="kafka">
+      <div class="file-head"><span class="chip tone-neutral">Topics</span><span class="name">deploy/create-topics.sh</span><span class="why">3 partitions let up to 3 copies of a consumer read a topic in parallel. Kafka keeps each event for 7 days, so a consumer can read events again. The dead-letter topic keeps events for 14 days, so there is time to look at them.</span></div>
+<pre><code>KAFKA=kafka:9092
+SEVEN_DAYS_MS=604800000
+FOURTEEN_DAYS_MS=1209600000
+
+for topic in orders inventory payments; do
+  kafka-topics.sh --bootstrap-server "$KAFKA" --create --topic "$topic" \
+    --partitions 3 --replication-factor 3 \
+    --config retention.ms="$SEVEN_DAYS_MS"
+done
+
+kafka-topics.sh --bootstrap-server "$KAFKA" --create --topic shipping.dead-letter \
+  --partitions 1 --replication-factor 3 \
+  --config retention.ms="$FOURTEEN_DAYS_MS"</code></pre>
+    </div>
+  </div>
+
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="dlq">
+      <div class="file-head"><span class="chip tone-amber">Dead-letter event</span><span class="name">examples/dead-letter-event.json</span><span class="why">The original event is kept as it was. Headers record why and when it failed, so a developer can fix the cause and send it to Shipping again.</span></div>
+<pre><code>{
+  "topic": "shipping.dead-letter",
+  "key": "42",
+  "headers": {
+    "error": "Error: carrier API replied 503 Service Unavailable",
+    "failed-at": "2026-11-10T09:14:03Z",
+    "attempts": "3"
+  },
+  "value": {
+    "eventId": "payment-captured-6b1f2c",
+    "type": "PaymentCaptured",
+    "occurredAt": "2026-11-10T09:13:51Z",
+    "orderId": "42",
+    "amount": 52.00,
+    "providerId": "pi_3Nx8Kd2eZvKYlo2C"
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="topic-orders">
+      <div class="file-head"><span class="chip tone-blue">Events</span><span class="name">contracts/orders.ts</span><span class="why">Events in the <code>orders</code> topic. <code>OrderPlaced</code> carries the email and items, so consumers never need to call the order service.</span></div>
+<pre><code>export type OrderPlaced = {
+  eventId: string;
+  type: "OrderPlaced";
+  occurredAt: string;
+  orderId: string;
+  customerEmail: string;
+  items: { productId: string; quantity: number }[];
+  total: number;
+  paymentMethodId: string;
+};</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="topic-inventory">
+      <div class="file-head"><span class="chip tone-blue">Events</span><span class="name">contracts/inventory.ts</span><span class="why">Events in the <code>inventory</code> topic. Consumers check <code>type</code> to know which one they got.</span></div>
+<pre><code>export type StockReserved = {
+  eventId: string;
+  type: "StockReserved";
+  occurredAt: string;
+  orderId: string;
+  total: number;
+  paymentMethodId: string;
+};
+
+export type StockUnavailable = {
+  eventId: string;
+  type: "StockUnavailable";
+  occurredAt: string;
+  orderId: string;
+};
+
+export type InventoryEvent = StockReserved | StockUnavailable;</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="topic-payments">
+      <div class="file-head"><span class="chip tone-blue">Events</span><span class="name">contracts/payments.ts</span><span class="why">Events in the <code>payments</code> topic.</span></div>
+<pre><code>export type PaymentCaptured = {
+  eventId: string;
+  type: "PaymentCaptured";
+  occurredAt: string;
+  orderId: string;
+  amount: number;
+  providerId: string;
+};
+
+export type PaymentFailed = {
+  eventId: string;
+  type: "PaymentFailed";
+  occurredAt: string;
+  orderId: string;
+  reason: string;
+};
+
+export type PaymentEvent = PaymentCaptured | PaymentFailed;</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="order">
+      <div class="file-head"><span class="chip tone-teal">Producer</span><span class="name">order-service/src/placeOrder.ts</span><span class="why">The order ID is the message key, so all events for one order go to the same partition and stay in order. Saving and sending are two separate steps: if the service stops between them, the event is lost. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Producer } from "kafkajs";
+import { Pool } from "pg";
+import { OrderPlaced } from "../../contracts/orders";
+
+export type PlaceOrderRequest = {
+  customerEmail: string;
+  items: { productId: string; quantity: number }[];
+  total: number;
+  paymentMethodId: string;
+};
+
+export async function placeOrder(db: Pool, producer: Producer, request: PlaceOrderRequest): Promise&lt;string&gt; {
+  const orderId = randomUUID();
+  await db.query(
+    "INSERT INTO orders (id, customer_email, total, status) VALUES ($1, $2, $3, 'placed')",
+    [orderId, request.customerEmail, request.total],
+  );
+
+  const event: OrderPlaced = {
+    eventId: randomUUID(),
+    type: "OrderPlaced",
+    occurredAt: new Date().toISOString(),
+    orderId,
+    ...request,
+  };
+  await producer.send({
+    topic: "orders",
+    messages: [{ key: orderId, value: JSON.stringify(event) }],
+  });
+
+  return orderId;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="inventory">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">inventory-service/src/orderPlacedConsumer.ts</span><span class="why">Idempotent: the event ID and the stock change are saved in one transaction, so a second delivery is skipped. If stock is short, the savepoint undoes only the reservation. If the service stops after the commit but before the reply is sent, the reply is lost, because a resend is skipped. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
+<pre><code>import { Kafka, Producer } from "kafkajs";
+import { Pool, PoolClient } from "pg";
+import { OrderPlaced } from "../../contracts/orders";
+import { InventoryEvent } from "../../contracts/inventory";
+
+async function reserveStock(transaction: PoolClient, items: OrderPlaced["items"]): Promise&lt;boolean&gt; {
+  for (const item of items) {
+    const updated = await transaction.query(
+      "UPDATE stock SET reserved = reserved + $2 WHERE product_id = $1 AND on_hand - reserved &gt;= $2",
+      [item.productId, item.quantity],
+    );
+    if (updated.rowCount === 0) return false;
+  }
+  return true;
+}
+
+async function reserveOnce(db: Pool, event: OrderPlaced): Promise&lt;InventoryEvent | null&gt; {
+  const transaction = await db.connect();
+  try {
+    await transaction.query("BEGIN");
+    const firstDelivery = await transaction.query(
+      "INSERT INTO processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING",
+      [event.eventId],
+    );
+    if (firstDelivery.rowCount === 0) {
+      await transaction.query("ROLLBACK");
+      return null;
+    }
+
+    await transaction.query("SAVEPOINT reserve");
+    const reserved = await reserveStock(transaction, event.items);
+    if (!reserved) await transaction.query("ROLLBACK TO SAVEPOINT reserve");
+    await transaction.query("COMMIT");
+
+    const occurredAt = new Date().toISOString();
+    return reserved
+      ? { eventId: `stock-reserved-${event.eventId}`, type: "StockReserved", occurredAt, orderId: event.orderId, total: event.total, paymentMethodId: event.paymentMethodId }
+      : { eventId: `stock-unavailable-${event.eventId}`, type: "StockUnavailable", occurredAt, orderId: event.orderId };
+  } finally {
+    transaction.release();
+  }
+}
+
+export async function startOrderPlacedConsumer(kafka: Kafka, db: Pool, producer: Producer): Promise&lt;void&gt; {
+  const consumer = kafka.consumer({ groupId: "inventory-service" });
+  await consumer.connect();
+  await consumer.subscribe({ topic: "orders" });
+
+  await consumer.run({
+    eachMessage: async ({ message }) =&gt; {
+      const event: OrderPlaced = JSON.parse(message.value!.toString());
+      const reply = await reserveOnce(db, event);
+      if (!reply) return;
+
+      await producer.send({
+        topic: "inventory",
+        messages: [{ key: event.orderId, value: JSON.stringify(reply) }],
+      });
+    },
+  });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="payment">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">payment-service/src/stockReservedConsumer.ts</span><span class="why">The event ID is passed to Stripe as an idempotency key, so a second delivery does not charge the card twice. The new event's ID is built from the old one, so a resend produces the same ID.</span></div>
+<pre><code>import { Kafka, Producer } from "kafkajs";
+import Stripe from "stripe";
+import { InventoryEvent, StockReserved } from "../../contracts/inventory";
+import { PaymentEvent } from "../../contracts/payments";
+
+async function chargeCard(stripe: Stripe, event: StockReserved): Promise&lt;PaymentEvent&gt; {
+  const occurredAt = new Date().toISOString();
+  try {
+    const paymentIntent = await stripe.paymentIntents.create(
+      { amount: Math.round(event.total * 100), currency: "eur", payment_method: event.paymentMethodId, confirm: true },
+      { idempotencyKey: event.eventId },
+    );
+    return { eventId: `payment-captured-${event.eventId}`, type: "PaymentCaptured", occurredAt, orderId: event.orderId, amount: event.total, providerId: paymentIntent.id };
+  } catch (error) {
+    if (error instanceof Stripe.errors.StripeCardError) {
+      return { eventId: `payment-failed-${event.eventId}`, type: "PaymentFailed", occurredAt, orderId: event.orderId, reason: error.message };
+    }
+    throw error;
+  }
+}
+
+export async function startStockReservedConsumer(kafka: Kafka, stripe: Stripe, producer: Producer): Promise&lt;void&gt; {
+  const consumer = kafka.consumer({ groupId: "payment-service" });
+  await consumer.connect();
+  await consumer.subscribe({ topic: "inventory" });
+
+  await consumer.run({
+    eachMessage: async ({ message }) =&gt; {
+      const event: InventoryEvent = JSON.parse(message.value!.toString());
+      if (event.type !== "StockReserved") return;
+
+      const outcome = await chargeCard(stripe, event);
+      await producer.send({
+        topic: "payments",
+        messages: [{ key: event.orderId, value: JSON.stringify(outcome) }],
+      });
+    },
+  });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="shipping">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">shipping-service/src/paymentCapturedConsumer.ts</span><span class="why">Tries 3 times, waiting longer each time. After that, it copies the event to the dead-letter topic and returns, so the next event in the partition is not blocked.</span></div>
+<pre><code>import { setTimeout as sleep } from "node:timers/promises";
+import { Kafka, Producer } from "kafkajs";
+import { PaymentEvent } from "../../contracts/payments";
+
+export type CarrierClient = { bookPickup(orderId: string): Promise&lt;void&gt; };
+
+const maxAttempts = 3;
+
+export async function startPaymentCapturedConsumer(kafka: Kafka, carrier: CarrierClient, producer: Producer): Promise&lt;void&gt; {
+  const consumer = kafka.consumer({ groupId: "shipping-service" });
+  await consumer.connect();
+  await consumer.subscribe({ topic: "payments" });
+
+  await consumer.run({
+    eachMessage: async ({ message }) =&gt; {
+      const event: PaymentEvent = JSON.parse(message.value!.toString());
+      if (event.type !== "PaymentCaptured") return;
+
+      for (let attempt = 1; attempt &lt;= maxAttempts; attempt++) {
+        try {
+          await carrier.bookPickup(event.orderId);
+          return;
+        } catch (error) {
+          if (attempt === maxAttempts) {
+            await producer.send({
+              topic: "shipping.dead-letter",
+              messages: [{
+                key: message.key,
+                value: message.value,
+                headers: { error: String(error), "failed-at": new Date().toISOString(), attempts: String(attempt) },
+              }],
+            });
+            return;
+          }
+          await sleep(attempt * 1000);
+        }
+      }
+    },
+  });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="notification">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">notification-service/src/consumer.ts</span><span class="why">Reads two topics. It saves the email from <code>OrderPlaced</code> in its own table and uses it when <code>PaymentCaptured</code> arrives, instead of calling the order service. A duplicate email is acceptable here, so this consumer does not check for duplicates.</span></div>
+<pre><code>import { Kafka } from "kafkajs";
+import { Pool } from "pg";
+import { Transporter } from "nodemailer";
+import { OrderPlaced } from "../../contracts/orders";
+import { PaymentEvent } from "../../contracts/payments";
+
+export async function startNotificationConsumer(kafka: Kafka, db: Pool, mailer: Transporter): Promise&lt;void&gt; {
+  const consumer = kafka.consumer({ groupId: "notification-service" });
+  await consumer.connect();
+  await consumer.subscribe({ topics: ["orders", "payments"] });
+
+  await consumer.run({
+    eachMessage: async ({ message }) =&gt; {
+      const event: OrderPlaced | PaymentEvent = JSON.parse(message.value!.toString());
+
+      if (event.type === "OrderPlaced") {
+        await db.query(
+          "INSERT INTO order_contacts (order_id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+          [event.orderId, event.customerEmail],
+        );
+        await mailer.sendMail({ to: event.customerEmail, subject: "Order received", text: `Order ${event.orderId} is received.` });
+      }
+
+      if (event.type === "PaymentCaptured") {
+        const contact = await db.query("SELECT email FROM order_contacts WHERE order_id = $1", [event.orderId]);
+        await mailer.sendMail({ to: contact.rows[0].email, subject: "Payment received", text: `We received ${event.amount} EUR.` });
+      }
+    },
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="topic-orders">
+      <div class="file-head"><span class="chip tone-blue">Events</span><span class="name">src/Shop.Contracts/OrderEvents.cs</span><span class="why">Events in the <code>orders</code> topic. <code>Type</code> is written into the JSON, so consumers can tell event types apart.</span></div>
+<pre><code>namespace Shop.Contracts;
+
+public record OrderItem(string ProductId, int Quantity);
+
+public record OrderPlaced(
+    string EventId, DateTimeOffset OccurredAt, Guid OrderId, string CustomerEmail,
+    List&lt;OrderItem&gt; Items, decimal Total, string PaymentMethodId)
+{
+    public string Type =&gt; nameof(OrderPlaced);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="topic-inventory">
+      <div class="file-head"><span class="chip tone-blue">Events</span><span class="name">src/Shop.Contracts/InventoryEvents.cs</span><span class="why">Events in the <code>inventory</code> topic.</span></div>
+<pre><code>namespace Shop.Contracts;
+
+public record StockReserved(string EventId, DateTimeOffset OccurredAt, Guid OrderId, decimal Total, string PaymentMethodId)
+{
+    public string Type =&gt; nameof(StockReserved);
+}
+
+public record StockUnavailable(string EventId, DateTimeOffset OccurredAt, Guid OrderId)
+{
+    public string Type =&gt; nameof(StockUnavailable);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="topic-payments">
+      <div class="file-head"><span class="chip tone-blue">Events</span><span class="name">src/Shop.Contracts/PaymentEvents.cs</span><span class="why">Events in the <code>payments</code> topic.</span></div>
+<pre><code>namespace Shop.Contracts;
+
+public record PaymentCaptured(string EventId, DateTimeOffset OccurredAt, Guid OrderId, decimal Amount, string ProviderId)
+{
+    public string Type =&gt; nameof(PaymentCaptured);
+}
+
+public record PaymentFailed(string EventId, DateTimeOffset OccurredAt, Guid OrderId, string Reason)
+{
+    public string Type =&gt; nameof(PaymentFailed);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="order">
+      <div class="file-head"><span class="chip tone-teal">Producer</span><span class="name">src/OrderService/OrderPlacement.cs</span><span class="why">The order ID is the message key, so all events for one order go to the same partition and stay in order. Saving and sending are two separate steps: if the service stops between them, the event is lost. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
+<pre><code>using System.Text.Json;
+using Confluent.Kafka;
+using Dapper;
+using Npgsql;
+using Shop.Contracts;
+
+namespace OrderService;
+
+public record PlaceOrderRequest(string CustomerEmail, List&lt;OrderItem&gt; Items, decimal Total, string PaymentMethodId);
+
+public class OrderPlacement(NpgsqlDataSource db, IProducer&lt;string, string&gt; producer)
+{
+    public async Task&lt;Guid&gt; PlaceOrderAsync(PlaceOrderRequest request)
+    {
+        var orderId = Guid.NewGuid();
+        await using var connection = await db.OpenConnectionAsync();
+        await connection.ExecuteAsync(
+            "INSERT INTO orders (id, customer_email, total, status) VALUES (@orderId, @CustomerEmail, @Total, 'placed')",
+            new { orderId, request.CustomerEmail, request.Total });
+
+        var orderPlaced = new OrderPlaced(
+            Guid.NewGuid().ToString(), DateTimeOffset.UtcNow, orderId,
+            request.CustomerEmail, request.Items, request.Total, request.PaymentMethodId);
+
+        await producer.ProduceAsync("orders", new Message&lt;string, string&gt;
+        {
+            Key = orderId.ToString(),
+            Value = JsonSerializer.Serialize(orderPlaced),
+        });
+
+        return orderId;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="inventory">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">src/InventoryService/OrderPlacedConsumer.cs</span><span class="why">Idempotent: the event ID and the stock change are saved in one transaction, so a second delivery is skipped. The offset is committed only after the work is done, which is what makes delivery at-least-once. If the service stops after the commit but before the reply is sent, the reply is lost, because a resend is skipped. The <a href="../outbox/">outbox</a> page fixes this.</span></div>
+<pre><code>using System.Text.Json;
+using Confluent.Kafka;
+using Dapper;
+using Npgsql;
+using Shop.Contracts;
+
+namespace InventoryService;
+
+public class OrderPlacedConsumer(
+    IConsumer&lt;string, string&gt; consumer,
+    IProducer&lt;string, string&gt; producer,
+    NpgsqlDataSource db) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await Task.Yield();
+        consumer.Subscribe("orders");
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var result = consumer.Consume(stoppingToken);
+            var orderPlaced = JsonSerializer.Deserialize&lt;OrderPlaced&gt;(result.Message.Value)!;
+
+            var reply = await ReserveOnceAsync(orderPlaced);
+            if (reply is not null)
+            {
+                await producer.ProduceAsync("inventory", new Message&lt;string, string&gt;
+                {
+                    Key = orderPlaced.OrderId.ToString(),
+                    Value = JsonSerializer.Serialize(reply, reply.GetType()),
+                });
+            }
+
+            consumer.Commit(result);
+        }
+    }
+
+    private async Task&lt;object?&gt; ReserveOnceAsync(OrderPlaced orderPlaced)
+    {
+        await using var connection = await db.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        var firstDelivery = await connection.ExecuteAsync(
+            "INSERT INTO processed_events (event_id) VALUES (@EventId) ON CONFLICT DO NOTHING",
+            new { orderPlaced.EventId }, transaction);
+        if (firstDelivery == 0) return null;
+
+        await transaction.SaveAsync("reserve");
+        var reserved = await ReserveStockAsync(connection, transaction, orderPlaced.Items);
+        if (!reserved) await transaction.RollbackAsync("reserve");
+        await transaction.CommitAsync();
+
+        return reserved
+            ? new StockReserved($"stock-reserved-{orderPlaced.EventId}", DateTimeOffset.UtcNow, orderPlaced.OrderId, orderPlaced.Total, orderPlaced.PaymentMethodId)
+            : new StockUnavailable($"stock-unavailable-{orderPlaced.EventId}", DateTimeOffset.UtcNow, orderPlaced.OrderId);
+    }
+
+    private static async Task&lt;bool&gt; ReserveStockAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, List&lt;OrderItem&gt; items)
+    {
+        foreach (var item in items)
+        {
+            var updated = await connection.ExecuteAsync(
+                "UPDATE stock SET reserved = reserved + @Quantity WHERE product_id = @ProductId AND on_hand - reserved &gt;= @Quantity",
+                item, transaction);
+            if (updated == 0) return false;
+        }
+        return true;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="payment">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">src/PaymentService/StockReservedConsumer.cs</span><span class="why">The event ID is passed to Stripe as an idempotency key, so a second delivery does not charge the card twice. The new event's ID is built from the old one, so a resend produces the same ID.</span></div>
+<pre><code>using System.Text.Json;
+using Confluent.Kafka;
+using Shop.Contracts;
+using Stripe;
+
+namespace PaymentService;
+
+public class StockReservedConsumer(
+    IConsumer&lt;string, string&gt; consumer,
+    IProducer&lt;string, string&gt; producer,
+    PaymentIntentService stripePayments) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await Task.Yield();
+        consumer.Subscribe("inventory");
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var result = consumer.Consume(stoppingToken);
+            using var document = JsonDocument.Parse(result.Message.Value);
+
+            if (document.RootElement.GetProperty("Type").GetString() == nameof(StockReserved))
+            {
+                var stockReserved = document.Deserialize&lt;StockReserved&gt;()!;
+                var outcome = await ChargeCardAsync(stockReserved);
+                await producer.ProduceAsync("payments", new Message&lt;string, string&gt;
+                {
+                    Key = stockReserved.OrderId.ToString(),
+                    Value = JsonSerializer.Serialize(outcome, outcome.GetType()),
+                });
+            }
+
+            consumer.Commit(result);
+        }
+    }
+
+    private async Task&lt;object&gt; ChargeCardAsync(StockReserved stockReserved)
+    {
+        try
+        {
+            var paymentIntent = await stripePayments.CreateAsync(
+                new PaymentIntentCreateOptions
+                {
+                    Amount = (long)Math.Round(stockReserved.Total * 100),
+                    Currency = "eur",
+                    PaymentMethod = stockReserved.PaymentMethodId,
+                    Confirm = true,
+                },
+                new RequestOptions { IdempotencyKey = stockReserved.EventId });
+
+            return new PaymentCaptured($"payment-captured-{stockReserved.EventId}", DateTimeOffset.UtcNow,
+                stockReserved.OrderId, stockReserved.Total, paymentIntent.Id);
+        }
+        catch (StripeException error) when (error.StripeError?.Type == "card_error")
+        {
+            return new PaymentFailed($"payment-failed-{stockReserved.EventId}", DateTimeOffset.UtcNow,
+                stockReserved.OrderId, error.Message);
+        }
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="shipping">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">src/ShippingService/PaymentCapturedConsumer.cs</span><span class="why">Tries 3 times, waiting longer each time. After that, it copies the event to the dead-letter topic and commits the offset, so the next event in the partition is not blocked.</span></div>
+<pre><code>using System.Text;
+using System.Text.Json;
+using Confluent.Kafka;
+using Shop.Contracts;
+
+namespace ShippingService;
+
+public interface ICarrierClient
+{
+    Task BookPickupAsync(Guid orderId);
+}
+
+public class PaymentCapturedConsumer(
+    IConsumer&lt;string, string&gt; consumer,
+    IProducer&lt;string, string&gt; producer,
+    ICarrierClient carrier) : BackgroundService
+{
+    private const int MaxAttempts = 3;
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await Task.Yield();
+        consumer.Subscribe("payments");
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var result = consumer.Consume(stoppingToken);
+            using var document = JsonDocument.Parse(result.Message.Value);
+
+            if (document.RootElement.GetProperty("Type").GetString() == nameof(PaymentCaptured))
+            {
+                var paymentCaptured = document.Deserialize&lt;PaymentCaptured&gt;()!;
+                await BookPickupOrDeadLetterAsync(paymentCaptured, result.Message, stoppingToken);
+            }
+
+            consumer.Commit(result);
+        }
+    }
+
+    private async Task BookPickupOrDeadLetterAsync(PaymentCaptured paymentCaptured, Message&lt;string, string&gt; original, CancellationToken stoppingToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await carrier.BookPickupAsync(paymentCaptured.OrderId);
+                return;
+            }
+            catch (HttpRequestException) when (attempt &lt; MaxAttempts)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(attempt), stoppingToken);
+            }
+            catch (HttpRequestException error)
+            {
+                await producer.ProduceAsync("shipping.dead-letter", new Message&lt;string, string&gt;
+                {
+                    Key = original.Key,
+                    Value = original.Value,
+                    Headers = new Headers
+                    {
+                        { "error", Encoding.UTF8.GetBytes(error.Message) },
+                        { "failed-at", Encoding.UTF8.GetBytes(DateTimeOffset.UtcNow.ToString("O")) },
+                        { "attempts", Encoding.UTF8.GetBytes(attempt.ToString()) },
+                    },
+                });
+                return;
+            }
+        }
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="notification">
+      <div class="file-head"><span class="chip tone-teal">Consumer</span><span class="name">src/NotificationService/NotificationConsumer.cs</span><span class="why">Reads two topics. It saves the email from <code>OrderPlaced</code> in its own table and uses it when <code>PaymentCaptured</code> arrives, instead of calling the order service. A duplicate email is acceptable here, so this consumer does not check for duplicates.</span></div>
+<pre><code>using System.Net.Mail;
+using System.Text.Json;
+using Confluent.Kafka;
+using Dapper;
+using Npgsql;
+using Shop.Contracts;
+
+namespace NotificationService;
+
+public class NotificationConsumer(
+    IConsumer&lt;string, string&gt; consumer,
+    NpgsqlDataSource db,
+    SmtpClient smtp) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await Task.Yield();
+        consumer.Subscribe(["orders", "payments"]);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var result = consumer.Consume(stoppingToken);
+            using var document = JsonDocument.Parse(result.Message.Value);
+            await using var connection = await db.OpenConnectionAsync(stoppingToken);
+
+            switch (document.RootElement.GetProperty("Type").GetString())
+            {
+                case nameof(OrderPlaced):
+                    var orderPlaced = document.Deserialize&lt;OrderPlaced&gt;()!;
+                    await connection.ExecuteAsync(
+                        "INSERT INTO order_contacts (order_id, email) VALUES (@OrderId, @CustomerEmail) ON CONFLICT DO NOTHING",
+                        new { orderPlaced.OrderId, orderPlaced.CustomerEmail });
+                    await smtp.SendMailAsync("shop@example.com", orderPlaced.CustomerEmail,
+                        "Order received", $"Order {orderPlaced.OrderId} is received.", stoppingToken);
+                    break;
+
+                case nameof(PaymentCaptured):
+                    var paymentCaptured = document.Deserialize&lt;PaymentCaptured&gt;()!;
+                    var email = await connection.QuerySingleAsync&lt;string&gt;(
+                        "SELECT email FROM order_contacts WHERE order_id = @OrderId", new { paymentCaptured.OrderId });
+                    await smtp.SendMailAsync("shop@example.com", email,
+                        "Payment received", $"We received {paymentCaptured.Amount} EUR.", stoppingToken);
+                    break;
+            }
+
+            consumer.Commit(result);
+        }
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
