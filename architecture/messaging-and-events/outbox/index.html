@@ -63,7 +63,9 @@
         <tbody>
           <tr><td>Service, after the transaction commits</td><td>Order ID, event ID, event type, correlation ID</td><td>info</td></tr>
           <tr><td>Relay, after publishing a row</td><td>Event ID, event type, topic, partition, offset, correlation ID read from the row</td><td>info</td></tr>
-          <tr><td>Relay, when a batch fails</td><td>Error message. The rows stay unsent and are tried on the next poll.</td><td>warn</td></tr>
+          <tr><td>Relay, when a row fails to publish</td><td>Event ID, attempt number, error message. The row is tried again on the next poll.</td><td>warn</td></tr>
+          <tr><td>Relay, when it gives up on a row</td><td>Event ID, number of attempts, last error. The row is marked as failed and no longer picked.</td><td>error</td></tr>
+          <tr><td>Metric: number of failed rows</td><td>Rows the relay gave up on</td><td>Alert if above 0</td></tr>
           <tr><td>Metric: age of the oldest unsent row</td><td>How long the oldest waiting event has waited</td><td>Alert if over 1 minute</td></tr>
           <tr><td>Metric: number of unsent rows</td><td>How many events are waiting</td><td>Alert if it keeps growing</td></tr>
           <tr><td>Cleanup job</td><td>Number of sent rows deleted</td><td>info</td></tr>
@@ -72,6 +74,23 @@
       </table>
     </div>
     <p>The correlation ID is saved in the outbox row, so the relay can put it back in the Kafka headers. Without that column, the link between the HTTP request and the event would be lost at the relay.</p>
+  </section>
+
+  <section>
+    <h2>Things to know before you build an outbox</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Point</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Same database as the data</td><td>The outbox table must be in the same database as the data it describes. One transaction cannot cover two databases, so an outbox in a separate "events" database brings the dual write back.</td></tr>
+          <tr><td>Libraries already do this</td><td>In .NET, MassTransit, NServiceBus and Wolverine include a transactional outbox, so you rarely write the relay yourself. Node has no common library, so teams write a relay like the one below or use Debezium.</td></tr>
+          <tr><td>A row that always fails</td><td>A message that Kafka always rejects, for example one over the 1 MB default size limit, must not block the rows behind it. The relay counts attempts per row and marks a row as failed after 5. Skipping a row means later events for the same key are published before it.</td></tr>
+          <tr><td>It only covers messages</td><td>Other side effects, such as charging a card or sending an email from the request, are not covered. Use idempotency keys for those, as the payment service does on the <a href="../event-driven/">event-driven architecture</a> page.</td></tr>
+          <tr><td>Waking the relay sooner</td><td>Postgres <code>LISTEN</code> and <code>NOTIFY</code> can wake the relay as soon as a row is inserted. The timer then only acts as a backup.</td></tr>
+          <tr><td>Event versions</td><td>Old rows and old messages stay around for days, so put a version number in each payload. Consumers then know which shape they are reading.</td></tr>
+        </tbody>
+      </table>
+    </div>
   </section>
 
   <section>
@@ -154,6 +173,7 @@
         <button type="button" data-flow="outbox" aria-pressed="true">Place an order with an outbox</button>
         <button type="button" data-flow="without" aria-pressed="false">Without an outbox</button>
         <button type="button" data-flow="relay-stops" aria-pressed="false">The relay stops after publishing</button>
+        <button type="button" data-flow="poison" aria-pressed="false">A row keeps failing</button>
       </div>
       <div class="flow-controls">
         <button type="button" class="flow-play">Play</button>
@@ -181,6 +201,12 @@
         <li data-highlight="n-relay a-relay-kafka n-kafka">The relay publishes <code>OrderPlaced</code> to Kafka. Then it stops before it marks the row as sent.</li>
         <li data-highlight="n-outbox-table a-outbox-relay n-relay">When it starts again, the row is still unsent, so it publishes the same event again.</li>
         <li data-highlight="n-kafka a-kafka-inventory n-inventory">Inventory gets <code>OrderPlaced</code> twice. Its <code>processed_events</code> table already holds the event ID, so it skips the second copy. The outbox gives at-least-once delivery, and the consumer handles duplicates.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="poison" hidden>
+        <li data-highlight="n-outbox-table a-outbox-relay n-relay a-relay-kafka n-kafka">The relay picks a row whose message is larger than Kafka's 1 MB limit. Kafka rejects it.</li>
+        <li data-highlight="n-relay r-relay-outbox n-outbox-table">The relay adds 1 to the row's <code>attempts</code>, saves the error in <code>last_error</code> and logs a warning. It goes on to the next row, so the rest of the batch is still published.</li>
+        <li data-highlight="n-relay r-relay-outbox n-outbox-table">After 5 failed attempts, the relay sets <code>failed_at</code> and logs an error. The row is no longer picked, and the failed-rows alert fires.</li>
+        <li data-highlight="n-outbox-table">A developer fixes the cause and resets <code>failed_at</code> and <code>attempts</code>. The relay picks the row up on its next poll.</li>
       </ol>
     </div>
     <div class="legend">
@@ -233,6 +259,7 @@
         <li><strong>The table keeps growing</strong><span>Sent rows need a cleanup job, or queries on the table get slower.</span></li>
         <li><strong>Extra database load</strong><span>Polling runs a query every interval. A partial index on unsent rows keeps it fast.</span></li>
         <li><strong>Order with several relay copies</strong><span>Two relays can pick rows out of order. Run one relay, or make sure each copy handles different message keys.</span></li>
+        <li><strong>Failed rows need a person</strong><span>A row marked as failed waits until someone fixes the cause and resets it. Until then, that event has not been sent.</span></li>
       </ul>
     </div>
   </section>
@@ -241,7 +268,7 @@
 <div class="code-store" hidden>
   <div class="language-sql">
     <div class="file" data-lang="any" data-node="schema">
-      <div class="file-head"><span class="chip tone-amber">Tables</span><span class="name">db/schema.sql</span><span class="why"><code>id</code> grows with each insert, so the relay sends rows in the order they were written. The partial index covers only unsent rows, so the relay's query stays fast as the table grows. <code>correlation_id</code> keeps the link to the original request.</span></div>
+      <div class="file-head"><span class="chip tone-amber">Tables</span><span class="name">db/schema.sql</span><span class="why"><code>id</code> grows with each insert, so the relay sends rows in the order they were written. <code>attempts</code>, <code>last_error</code> and <code>failed_at</code> let the relay give up on a row that always fails. The partial index covers only rows still waiting, so the relay's query stays fast as the table grows. <code>correlation_id</code> keeps the link to the original request.</span></div>
 <pre><code>CREATE TABLE orders (
   id              UUID PRIMARY KEY,
   customer_email  TEXT NOT NULL,
@@ -258,19 +285,27 @@ CREATE TABLE outbox (
   payload         JSONB NOT NULL,
   correlation_id  TEXT NOT NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  sent_at         TIMESTAMPTZ
+  sent_at         TIMESTAMPTZ,
+  attempts        INT NOT NULL DEFAULT 0,
+  last_error      TEXT,
+  failed_at       TIMESTAMPTZ
 );
 
-CREATE INDEX outbox_unsent ON outbox (id) WHERE sent_at IS NULL;</code></pre>
+CREATE INDEX outbox_waiting ON outbox (id) WHERE sent_at IS NULL AND failed_at IS NULL;</code></pre>
     </div>
 
     <div class="file" data-lang="any" data-node="maintenance">
-      <div class="file-head"><span class="chip tone-amber">Monitoring and cleanup</span><span class="name">db/outbox-maintenance.sql</span><span class="why">The first query feeds the two metrics from the monitoring table. The second runs once a day and keeps the table small.</span></div>
+      <div class="file-head"><span class="chip tone-amber">Monitoring and cleanup</span><span class="name">db/outbox-maintenance.sql</span><span class="why">The first query feeds the three metrics from the monitoring table. The second sends a failed row again after the cause is fixed. The third runs once a day and deletes sent rows; failed rows are kept until someone looks at them.</span></div>
 <pre><code>SELECT
-  count(*) AS unsent_events,
-  COALESCE(EXTRACT(EPOCH FROM now() - min(created_at)), 0) AS oldest_unsent_age_seconds
-FROM outbox
-WHERE sent_at IS NULL;
+  count(*) FILTER (WHERE sent_at IS NULL AND failed_at IS NULL) AS waiting_events,
+  count(*) FILTER (WHERE failed_at IS NOT NULL) AS failed_events,
+  COALESCE(EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE sent_at IS NULL AND failed_at IS NULL)), 0)
+    AS oldest_waiting_age_seconds
+FROM outbox;
+
+UPDATE outbox
+SET failed_at = NULL, attempts = 0, last_error = NULL
+WHERE id = $1;
 
 DELETE FROM outbox
 WHERE sent_at &lt; now() - INTERVAL '7 days';</code></pre>
@@ -373,14 +408,15 @@ export async function placeOrder(db: Pool, logger: Logger, correlationId: string
     </div>
 
     <div class="file" data-lang="ts" data-node="relay">
-      <div class="file-head"><span class="chip tone-teal">Relay</span><span class="name">order-service/src/outboxRelay.ts</span><span class="why"><code>FOR UPDATE SKIP LOCKED</code> locks the rows it picks, so a second relay copy picks other rows instead of waiting. The rows are marked as sent in the same transaction. If the relay stops mid-batch, the whole batch is unsent again and is published again.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Relay</span><span class="name">order-service/src/outboxRelay.ts</span><span class="why"><code>FOR UPDATE SKIP LOCKED</code> locks the rows it picks, so a second relay copy picks other rows instead of waiting. Each row is published on its own: a failure only adds to that row's <code>attempts</code>, and after 5 the row is marked as failed so it stops blocking the rest. If the relay stops mid-batch, the whole batch is waiting again and is published again.</span></div>
 <pre><code>import { setTimeout as sleep } from "node:timers/promises";
 import { Producer } from "kafkajs";
-import { Pool } from "pg";
+import { Pool, PoolClient } from "pg";
 import { Logger } from "pino";
 
 const batchSize = 100;
 const pollIntervalMs = 1000;
+const maxAttempts = 5;
 
 type OutboxRow = {
   id: string;
@@ -390,16 +426,47 @@ type OutboxRow = {
   event_type: string;
   payload: unknown;
   correlation_id: string;
+  attempts: number;
 };
+
+async function publishRow(transaction: PoolClient, producer: Producer, logger: Logger, row: OutboxRow): Promise&lt;void&gt; {
+  const rowLog = logger.child({ correlationId: row.correlation_id, eventId: row.event_id, eventType: row.event_type });
+  try {
+    const [stored] = await producer.send({
+      topic: row.topic,
+      messages: [{
+        key: row.message_key,
+        value: JSON.stringify(row.payload),
+        headers: { "correlation-id": row.correlation_id, "causation-id": row.correlation_id },
+      }],
+    });
+    await transaction.query("UPDATE outbox SET sent_at = now() WHERE id = $1", [row.id]);
+    rowLog.info({ topic: row.topic, partition: stored.partition, offset: stored.baseOffset }, "published outbox event");
+  } catch (error) {
+    const attempts = row.attempts + 1;
+    const givingUp = attempts &gt;= maxAttempts;
+    await transaction.query(
+      `UPDATE outbox
+       SET attempts = $2, last_error = $3, failed_at = CASE WHEN $4::boolean THEN now() END
+       WHERE id = $1`,
+      [row.id, attempts, String(error), givingUp],
+    );
+    if (givingUp) {
+      rowLog.error({ attempts, err: error }, "outbox event failed too many times and is marked as failed");
+    } else {
+      rowLog.warn({ attempts, err: error }, "could not publish outbox event, will try again on the next poll");
+    }
+  }
+}
 
 async function publishBatch(db: Pool, producer: Producer, logger: Logger): Promise&lt;number&gt; {
   const transaction = await db.connect();
   try {
     await transaction.query("BEGIN");
     const { rows } = await transaction.query&lt;OutboxRow&gt;(
-      `SELECT id, event_id, topic, message_key, event_type, payload, correlation_id
+      `SELECT id, event_id, topic, message_key, event_type, payload, correlation_id, attempts
        FROM outbox
-       WHERE sent_at IS NULL
+       WHERE sent_at IS NULL AND failed_at IS NULL
        ORDER BY id
        LIMIT $1
        FOR UPDATE SKIP LOCKED`,
@@ -407,19 +474,7 @@ async function publishBatch(db: Pool, producer: Producer, logger: Logger): Promi
     );
 
     for (const row of rows) {
-      const [stored] = await producer.send({
-        topic: row.topic,
-        messages: [{
-          key: row.message_key,
-          value: JSON.stringify(row.payload),
-          headers: { "correlation-id": row.correlation_id, "causation-id": row.correlation_id },
-        }],
-      });
-      await transaction.query("UPDATE outbox SET sent_at = now() WHERE id = $1", [row.id]);
-      logger.info(
-        { correlationId: row.correlation_id, eventId: row.event_id, eventType: row.event_type, topic: row.topic, partition: stored.partition, offset: stored.baseOffset },
-        "published outbox event",
-      );
+      await publishRow(transaction, producer, logger, row);
     }
 
     await transaction.query("COMMIT");
@@ -435,10 +490,10 @@ async function publishBatch(db: Pool, producer: Producer, logger: Logger): Promi
 export async function runOutboxRelay(db: Pool, producer: Producer, logger: Logger, stopSignal: AbortSignal): Promise&lt;void&gt; {
   while (!stopSignal.aborted) {
     try {
-      const publishedCount = await publishBatch(db, producer, logger);
-      if (publishedCount === batchSize) continue;
+      const pickedCount = await publishBatch(db, producer, logger);
+      if (pickedCount === batchSize) continue;
     } catch (error) {
-      logger.warn({ err: error }, "outbox relay batch failed, rows stay unsent until the next poll");
+      logger.warn({ err: error }, "outbox relay could not read the outbox, trying again on the next poll");
     }
     await sleep(pollIntervalMs);
   }
@@ -576,7 +631,7 @@ public class PlaceOrderHandler(NpgsqlDataSource db, ILogger&lt;PlaceOrderHandler
     </div>
 
     <div class="file" data-lang="cs" data-node="relay">
-      <div class="file-head"><span class="chip tone-teal">Relay</span><span class="name">src/OrderService/OutboxRelay.cs</span><span class="why"><code>FOR UPDATE SKIP LOCKED</code> locks the rows it picks, so a second relay copy picks other rows instead of waiting. The rows are marked as sent in the same transaction. If the relay stops mid-batch, the whole batch is unsent again and is published again.</span></div>
+      <div class="file-head"><span class="chip tone-teal">Relay</span><span class="name">src/OrderService/OutboxRelay.cs</span><span class="why"><code>FOR UPDATE SKIP LOCKED</code> locks the rows it picks, so a second relay copy picks other rows instead of waiting. Each row is published on its own: a failure only adds to that row's <code>attempts</code>, and after 5 the row is marked as failed so it stops blocking the rest. If the relay stops mid-batch, the whole batch is waiting again and is published again.</span></div>
 <pre><code>using System.Text;
 using Confluent.Kafka;
 using Dapper;
@@ -587,9 +642,10 @@ namespace OrderService;
 public class OutboxRelay(NpgsqlDataSource db, IProducer&lt;string, string&gt; producer, ILogger&lt;OutboxRelay&gt; logger) : BackgroundService
 {
     private const int BatchSize = 100;
+    private const int MaxAttempts = 5;
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
 
-    private record OutboxRow(long Id, string EventId, string Topic, string MessageKey, string EventType, string Payload, string CorrelationId);
+    private record OutboxRow(long Id, string EventId, string Topic, string MessageKey, string EventType, string Payload, string CorrelationId, int Attempts);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -597,12 +653,12 @@ public class OutboxRelay(NpgsqlDataSource db, IProducer&lt;string, string&gt; pr
         {
             try
             {
-                var publishedCount = await PublishBatchAsync(stoppingToken);
-                if (publishedCount == BatchSize) continue;
+                var pickedCount = await PublishBatchAsync(stoppingToken);
+                if (pickedCount == BatchSize) continue;
             }
             catch (Exception error) when (error is not OperationCanceledException)
             {
-                logger.LogWarning(error, "Outbox relay batch failed, rows stay unsent until the next poll");
+                logger.LogWarning(error, "Outbox relay could not read the outbox, trying again on the next poll");
             }
 
             await Task.Delay(PollInterval, stoppingToken);
@@ -617,9 +673,9 @@ public class OutboxRelay(NpgsqlDataSource db, IProducer&lt;string, string&gt; pr
         var rows = (await connection.QueryAsync&lt;OutboxRow&gt;(
             """
             SELECT id, event_id AS EventId, topic, message_key AS MessageKey, event_type AS EventType,
-                   payload::text AS Payload, correlation_id AS CorrelationId
+                   payload::text AS Payload, correlation_id AS CorrelationId, attempts
             FROM outbox
-            WHERE sent_at IS NULL
+            WHERE sent_at IS NULL AND failed_at IS NULL
             ORDER BY id
             LIMIT @BatchSize
             FOR UPDATE SKIP LOCKED
@@ -627,6 +683,15 @@ public class OutboxRelay(NpgsqlDataSource db, IProducer&lt;string, string&gt; pr
             new { BatchSize }, transaction)).ToList();
 
         foreach (var row in rows)
+            await PublishRowAsync(connection, transaction, row, stoppingToken);
+
+        await transaction.CommitAsync(stoppingToken);
+        return rows.Count;
+    }
+
+    private async Task PublishRowAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, OutboxRow row, CancellationToken stoppingToken)
+    {
+        try
         {
             var stored = await producer.ProduceAsync(row.Topic, new Message&lt;string, string&gt;
             {
@@ -644,9 +709,25 @@ public class OutboxRelay(NpgsqlDataSource db, IProducer&lt;string, string&gt; pr
                 "Published {EventType} {EventId} to {Topic} partition {Partition} offset {Offset}, correlation {CorrelationId}",
                 row.EventType, row.EventId, stored.Topic, stored.Partition.Value, stored.Offset.Value, row.CorrelationId);
         }
+        catch (ProduceException&lt;string, string&gt; error)
+        {
+            var attempts = row.Attempts + 1;
+            var givingUp = attempts &gt;= MaxAttempts;
+            await connection.ExecuteAsync(
+                """
+                UPDATE outbox
+                SET attempts = @attempts, last_error = @LastError, failed_at = CASE WHEN @givingUp THEN now() END
+                WHERE id = @Id
+                """,
+                new { row.Id, attempts, LastError = error.Error.Reason, givingUp }, transaction);
 
-        await transaction.CommitAsync(stoppingToken);
-        return rows.Count;
+            if (givingUp)
+                logger.LogError(error, "Outbox event {EventId} failed {Attempts} times and is marked as failed, correlation {CorrelationId}",
+                    row.EventId, attempts, row.CorrelationId);
+            else
+                logger.LogWarning(error, "Could not publish outbox event {EventId}, attempt {Attempts}, correlation {CorrelationId}",
+                    row.EventId, attempts, row.CorrelationId);
+        }
     }
 }</code></pre>
     </div>
