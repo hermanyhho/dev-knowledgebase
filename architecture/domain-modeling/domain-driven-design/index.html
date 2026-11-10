@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domain-Driven Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Architecture</a> / Domain modeling</div>
+    <h1>Domain-Driven Design</h1>
+    <p class="aka">Usually shortened to <strong>DDD</strong>. Described by Eric Evans in his 2003 book of the same name.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A way to design software by modelling the business it serves. Developers and the people who know the business agree on the words, and the code uses those exact words.</p>
+    <p>DDD has two parts. <strong>Strategic design</strong> splits the business into bounded contexts, each with its own model and its own words. <strong>Tactical design</strong> gives building blocks for the code inside one context: entities, value objects, aggregates, domain events and repositories.</p>
+    <p>DDD is about the model, not about deployment. A bounded context can be a module in a <a href="../../system-topology/monolith/">monolith</a> or its own <a href="../../system-topology/microservices/">microservice</a>. Teams often use bounded contexts to decide where to split services.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Domain</span></td><td>The business area the software serves.</td><td>Selling and delivering products online</td></tr>
+          <tr><td><span class="chip tone-neutral">Ubiquitous language</span></td><td>The shared words of developers and business experts. Class and method names use them.</td><td><code>order.place()</code>, not <code>order.setStatus(2)</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Bounded context</span></td><td>An area of the business with its own model. Inside it, each word has one meaning.</td><td>Sales, Billing, Shipping</td></tr>
+          <tr><td><span class="chip tone-teal">Entity</span></td><td>An object with an ID. It stays the same object even when its data changes.</td><td><code>Order</code>, <code>OrderLine</code></td></tr>
+          <tr><td><span class="chip tone-amber">Value object</span></td><td>An object with no ID, defined only by its values. It never changes; you replace it.</td><td><code>Money</code>, <code>Address</code></td></tr>
+          <tr><td><span class="chip tone-teal">Aggregate</span></td><td>A group of objects saved and changed together, so their rules always hold.</td><td>Order with its lines</td></tr>
+          <tr><td><span class="chip tone-teal">Aggregate root</span></td><td>The one entity of an aggregate that outside code may call.</td><td><code>Order</code></td></tr>
+          <tr><td><span class="chip tone-blue">Domain event</span></td><td>A fact that happened, named in past tense in the business's words.</td><td><code>OrderPlaced</code></td></tr>
+          <tr><td><span class="chip tone-blue">Repository</span></td><td>Loads and saves whole aggregates, so the domain code does not deal with tables.</td><td><code>OrderRepository</code></td></tr>
+          <tr><td><span class="chip tone-blue">Application service</span></td><td>Runs one use case: load or create an aggregate, call it, save it. Holds no business rules.</td><td><code>PlaceOrderHandler</code></td></tr>
+          <tr><td><span class="chip tone-blue">Anti-corruption layer</span></td><td>Code that translates an outside system's model into your own, so its terms do not spread into your code.</td><td><code>StripeGateway</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>The one rule:</strong> each bounded context has its own model and its own words. A context never uses another context's classes. Contexts share only messages, such as <code>OrderPlaced</code>.</div>
+  </section>
+
+  <section>
+    <h2>One word, three meanings</h2>
+    <p>The word "order" means something different in each part of the shop. One shared <code>Order</code> class would need every field for every team. DDD gives each context its own model.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Context</th><th>"Order" means</th><th>Its model</th><th>Fields it cares about</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Sales</span></td><td>What a customer is buying</td><td><code>Order</code></td><td>Lines, prices, status, total</td></tr>
+          <tr><td><span class="chip tone-teal">Billing</span></td><td>An amount to collect</td><td><code>Invoice</code></td><td>Amount due, currency, paid or not</td></tr>
+          <tr><td><span class="chip tone-teal">Shipping</span></td><td>A parcel to deliver</td><td><code>Shipment</code></td><td>Address, tracking number</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 380" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The Sales context holds the Order aggregate: the Order root, OrderLine entities and the Money and Address value objects. PlaceOrderHandler creates the order and saves it through OrderRepository. The aggregate raises an OrderPlaced event, which the Billing context turns into an Invoice and the Shipping context turns into a Shipment. Billing calls Stripe through the StripeGateway anti-corruption layer.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="12" y="90" width="430" height="360" rx="10"/>
+        <text class="t-label" x="227" y="110">SALES CONTEXT</text>
+        <rect class="frame copy" x="32" y="122" width="390" height="200" rx="8"/>
+        <text class="t-label" x="227" y="140">ORDER AGGREGATE</text>
+
+        <rect class="frame" x="640" y="90" width="268" height="150" rx="10"/>
+        <text class="t-label" x="774" y="110">BILLING CONTEXT</text>
+        <rect class="frame" x="640" y="258" width="268" height="104" rx="10"/>
+        <text class="t-label" x="774" y="278">SHIPPING CONTEXT</text>
+
+        <g class="node" id="n-order" tabindex="0" role="button" aria-label="Show code for the Order aggregate root" data-title="Order: aggregate root" data-node="order">
+          <rect class="shape tone-teal" x="52" y="152" width="160" height="56" rx="6"/>
+          <text class="t-name" x="132" y="176">Order</text>
+          <text class="t-kind" x="132" y="194">aggregate root</text>
+        </g>
+        <g class="node" id="n-orderline" tabindex="0" role="button" aria-label="Show code for the OrderLine entity" data-title="OrderLine: entity" data-node="orderline">
+          <rect class="shape tone-teal" x="52" y="246" width="160" height="56" rx="6"/>
+          <text class="t-name" x="132" y="270">OrderLine</text>
+          <text class="t-kind" x="132" y="288">entity, has an ID</text>
+        </g>
+        <g class="node" id="n-money" tabindex="0" role="button" aria-label="Show code for the Money value object" data-title="Money: value object" data-node="money">
+          <rect class="shape tone-amber" x="252" y="152" width="150" height="56" rx="6"/>
+          <text class="t-name" x="327" y="176">Money</text>
+          <text class="t-kind" x="327" y="194">value object</text>
+        </g>
+        <g class="node" id="n-address" tabindex="0" role="button" aria-label="Show code for the Address value object" data-title="Address: value object" data-node="address">
+          <rect class="shape tone-amber" x="252" y="246" width="150" height="56" rx="6"/>
+          <text class="t-name" x="327" y="270">Address</text>
+          <text class="t-kind" x="327" y="288">value object</text>
+        </g>
+
+        <g class="node" id="n-handler" tabindex="0" role="button" aria-label="Show code for PlaceOrderHandler" data-title="PlaceOrderHandler: application service" data-node="handler">
+          <rect class="shape tone-blue" x="32" y="356" width="190" height="56" rx="6"/>
+          <text class="t-name" x="127" y="380">PlaceOrderHandler</text>
+          <text class="t-kind" x="127" y="398">application service</text>
+        </g>
+        <g class="node" id="n-repository" tabindex="0" role="button" aria-label="Show code for OrderRepository" data-title="OrderRepository" data-node="repository">
+          <rect class="shape tone-blue" x="242" y="356" width="180" height="56" rx="6"/>
+          <text class="t-name" x="332" y="380">OrderRepository</text>
+          <text class="t-kind" x="332" y="398">saves whole aggregates</text>
+        </g>
+
+        <g class="node" id="n-event" tabindex="0" role="button" aria-label="Show code for the OrderPlaced domain event" data-title="OrderPlaced: domain event" data-node="event">
+          <rect class="shape tone-blue" x="472" y="225" width="136" height="56" rx="6"/>
+          <text class="t-name" x="540" y="249">OrderPlaced</text>
+          <text class="t-kind" x="540" y="267">domain event</text>
+        </g>
+
+        <g class="node" id="n-invoice" tabindex="0" role="button" aria-label="Show code for the Invoice" data-title="Billing: Invoice" data-node="invoice">
+          <rect class="shape tone-teal" x="656" y="122" width="236" height="50" rx="6"/>
+          <text class="t-name" x="774" y="143">Invoice</text>
+          <text class="t-kind" x="774" y="160">order here: an amount to collect</text>
+        </g>
+        <g class="node" id="n-acl" tabindex="0" role="button" aria-label="Show code for the Stripe anti-corruption layer" data-title="Billing: StripeGateway, anti-corruption layer" data-node="acl">
+          <rect class="shape tone-blue" x="656" y="182" width="236" height="46" rx="6"/>
+          <text class="t-name" x="774" y="201">StripeGateway</text>
+          <text class="t-kind" x="774" y="218">anti-corruption layer for Stripe</text>
+        </g>
+        <g class="node" id="n-shipment" tabindex="0" role="button" aria-label="Show code for the Shipment" data-title="Shipping: Shipment" data-node="shipment">
+          <rect class="shape tone-teal" x="656" y="292" width="236" height="56" rx="6"/>
+          <text class="t-name" x="774" y="316">Shipment</text>
+          <text class="t-kind" x="774" y="334">order here: a parcel to deliver</text>
+        </g>
+
+        <path class="flow" id="a-handler-order" d="M42,356 L42,180 L50,180" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-line" d="M132,208 L132,244" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-money" d="M212,180 L250,180" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-address" d="M212,198 L250,262" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-handler-repo" d="M222,384 L240,384" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-order-event" d="M422,245 L470,252" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-event-invoice" d="M608,240 L654,150" marker-end="url(#arrow)"/>
+        <path class="flow async" id="a-event-shipment" d="M608,266 L654,318" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="place" aria-pressed="true">Place an order</button>
+        <button type="button" data-flow="contexts" aria-pressed="false">Event to other contexts</button>
+        <button type="button" data-flow="rule" aria-pressed="false">A rule blocks a change</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="place" hidden>
+        <li data-highlight="n-handler"><code>PlaceOrderHandler</code> receives the command: customer 7 wants 1 desk lamp and 2 LED bulbs, shipped to Oslo.</li>
+        <li data-highlight="n-handler a-handler-order n-order">It creates a new <code>Order</code>. The order is the aggregate root: every change to the aggregate goes through it.</li>
+        <li data-highlight="n-order a-order-line n-orderline a-order-money n-money"><code>order.addLine(...)</code> creates <code>OrderLine</code> entities. Prices are <code>Money</code> value objects, so euros can never be added to kroner by mistake.</li>
+        <li data-highlight="n-order a-order-address n-address"><code>order.place(address)</code> checks the rules: the order is still a draft and has at least one line. <code>Address</code> is a value object: it has no ID.</li>
+        <li data-highlight="n-handler a-handler-repo n-repository">The handler saves the whole aggregate, the order and all its lines, through <code>OrderRepository</code> in one transaction.</li>
+        <li data-highlight="n-order a-order-event n-event">Placing the order recorded an <code>OrderPlaced</code> domain event. The handler publishes it after the save.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="contexts" hidden>
+        <li data-highlight="n-event"><code>OrderPlaced</code> leaves the Sales context as a message. Other contexts never see the <code>Order</code> class itself.</li>
+        <li data-highlight="n-event a-event-invoice n-invoice">Billing turns the message into an <code>Invoice</code>. It reads only the order ID and the total.</li>
+        <li data-highlight="n-invoice n-acl">To collect the money, Billing calls Stripe through <code>StripeGateway</code>. It turns Stripe's <code>PaymentIntent</code> statuses into Billing's own <code>PaymentResult</code>.</li>
+        <li data-highlight="n-event a-event-shipment n-shipment">Shipping turns the same message into a <code>Shipment</code>. It reads only the order ID and the address, and ignores prices.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="rule" hidden>
+        <li data-highlight="n-handler a-handler-order n-order">A request tries to add a line to an order that was already placed.</li>
+        <li data-highlight="n-order"><code>Order.addLine</code> checks the status and throws "The order is already placed." The order is not changed.</li>
+        <li data-highlight="n-order n-orderline">The lines list is read-only from outside, and only <code>Order</code> creates an <code>OrderLine</code>. No other code can change the lines, so the lines and the total always agree.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Entity</span>
+      <span class="chip tone-amber">Value object</span>
+      <span class="chip tone-blue">Service, event or layer</span>
+      <span>Large boxes are bounded contexts. The dashed box is the aggregate. Dotted arrows are events. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop/</div>
+      <button type="button" class="tree-row" data-file="docs/glossary.md"><span class="path">├─ docs/glossary.md</span><span class="chip tone-neutral">Ubiquitous language</span></button>
+      <button type="button" class="tree-row" data-file="sales/domain/Order.ts"><span class="path">├─ sales/domain/Order.ts</span><span class="chip tone-teal">Aggregate root</span></button>
+      <button type="button" class="tree-row" data-file="sales/domain/OrderLine.ts"><span class="path">├─ sales/domain/OrderLine.ts</span><span class="chip tone-teal">Entity</span></button>
+      <button type="button" class="tree-row" data-file="sales/domain/Money.ts"><span class="path">├─ sales/domain/Money.ts</span><span class="chip tone-amber">Value object</span></button>
+      <button type="button" class="tree-row" data-file="sales/domain/Address.ts"><span class="path">├─ sales/domain/Address.ts</span><span class="chip tone-amber">Value object</span></button>
+      <button type="button" class="tree-row" data-file="sales/domain/OrderPlaced.ts"><span class="path">├─ sales/domain/OrderPlaced.ts</span><span class="chip tone-blue">Domain event</span></button>
+      <button type="button" class="tree-row" data-file="sales/domain/OrderRepository.ts"><span class="path">├─ sales/domain/OrderRepository.ts</span><span class="chip tone-blue">Repository</span></button>
+      <button type="button" class="tree-row" data-file="sales/application/PlaceOrderHandler.ts"><span class="path">├─ sales/application/PlaceOrderHandler.ts</span><span class="chip tone-blue">Application service</span></button>
+      <button type="button" class="tree-row" data-file="billing/domain/Invoice.ts"><span class="path">├─ billing/domain/Invoice.ts</span><span class="chip tone-teal">Entity</span></button>
+      <button type="button" class="tree-row" data-file="billing/infrastructure/StripeGateway.ts"><span class="path">├─ billing/infrastructure/StripeGateway.ts</span><span class="chip tone-blue">Anti-corruption layer</span></button>
+      <button type="button" class="tree-row" data-file="shipping/domain/Shipment.ts"><span class="path">└─ shipping/domain/Shipment.ts</span><span class="chip tone-teal">Entity</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">Shop.sln</div>
+      <button type="button" class="tree-row" data-file="docs/glossary.md"><span class="path">├─ docs/glossary.md</span><span class="chip tone-neutral">Ubiquitous language</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Sales/Domain/Order.cs"><span class="path">├─ src/Shop.Sales/Domain/Order.cs</span><span class="chip tone-teal">Aggregate root</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Sales/Domain/OrderLine.cs"><span class="path">├─ src/Shop.Sales/Domain/OrderLine.cs</span><span class="chip tone-teal">Entity</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Sales/Domain/Money.cs"><span class="path">├─ src/Shop.Sales/Domain/Money.cs</span><span class="chip tone-amber">Value object</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Sales/Domain/Address.cs"><span class="path">├─ src/Shop.Sales/Domain/Address.cs</span><span class="chip tone-amber">Value object</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Sales/Domain/OrderPlaced.cs"><span class="path">├─ src/Shop.Sales/Domain/OrderPlaced.cs</span><span class="chip tone-blue">Domain event</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Sales/Domain/IOrderRepository.cs"><span class="path">├─ src/Shop.Sales/Domain/IOrderRepository.cs</span><span class="chip tone-blue">Repository</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Sales/Application/PlaceOrderHandler.cs"><span class="path">├─ src/Shop.Sales/Application/PlaceOrderHandler.cs</span><span class="chip tone-blue">Application service</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Billing/Domain/Invoice.cs"><span class="path">├─ src/Shop.Billing/Domain/Invoice.cs</span><span class="chip tone-teal">Entity</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Billing/Infrastructure/StripeGateway.cs"><span class="path">├─ src/Shop.Billing/Infrastructure/StripeGateway.cs</span><span class="chip tone-blue">Anti-corruption layer</span></button>
+      <button type="button" class="tree-row" data-file="src/Shop.Shipping/Domain/Shipment.cs"><span class="path">└─ src/Shop.Shipping/Domain/Shipment.cs</span><span class="chip tone-teal">Entity</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Code that does not match the business</strong><span>Names come from the shared glossary. A business expert can read <code>order.place()</code> and check the rules.</span></li>
+        <li><strong>One huge shared model</strong><span>Instead of one <code>Order</code> class with every field for every team, each context has a small model of its own.</span></li>
+        <li><strong>Business rules spread across the code</strong><span>The rules live in the aggregate. No other code can create an order that breaks them.</span></li>
+        <li><strong>Unclear module or service boundaries</strong><span>Bounded contexts give clear lines for splitting modules or services.</span></li>
+        <li><strong>A change in one area breaks another</strong><span>Billing can change <code>Invoice</code> without touching Sales, because they share only the event.</span></li>
+        <li><strong>Outside systems leak into your code</strong><span>The anti-corruption layer keeps Stripe's terms at the edge of Billing.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Many new terms to learn</strong><span>Entities, value objects, aggregates, contexts. Teams often copy the patterns without the reasons behind them.</span></li>
+        <li><strong>Needs business experts</strong><span>The model depends on regular talks with people who know the business. Without them, it is guesswork.</span></li>
+        <li><strong>Too much for simple apps</strong><span>For a form that saves rows to a table, aggregates and value objects add code without adding value.</span></li>
+        <li><strong>Mapping code</strong><span>Aggregates must be mapped to tables, and domain events to messages. This is extra code or ORM setup.</span></li>
+        <li><strong>Data copied between contexts</strong><span>Shipping keeps its own copy of the address. Copies can be out of date for a short time.</span></li>
+        <li><strong>Choosing aggregate size is hard</strong><span>Too big, and saves conflict and load slowly. Too small, and rules across aggregates need events and delays.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-markdown">
+    <div class="file" data-lang="any" data-node="glossary">
+      <div class="file-head"><span class="chip tone-neutral">Ubiquitous language</span><span class="name">docs/glossary.md</span><span class="why">The words the business and the code share, per context. Class and method names use these exact words.</span></div>
+<pre><code># Glossary
+
+## Sales
+- Order: what a customer is buying. Has lines, a total and a status: draft or placed.
+- Order line: one product with its unit price and quantity.
+- Place an order: the customer confirms the order. After this, the lines cannot change.
+
+## Billing
+- Invoice: the amount to collect for one placed order.
+- Collect: take payment for an invoice.
+
+## Shipping
+- Shipment: a parcel for one placed order, with a delivery address.
+- Hand over: give the shipment to a carrier and get a tracking number.</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="order">
+      <div class="file-head"><span class="chip tone-teal">Aggregate root</span><span class="name">sales/domain/Order.ts</span><span class="why">All changes go through these methods, and each one checks the rules first. The lines are read-only from outside. Placing the order records an <code>OrderPlaced</code> event.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Address } from "./Address";
+import { Money } from "./Money";
+import { OrderLine } from "./OrderLine";
+import { OrderPlaced } from "./OrderPlaced";
+
+type OrderStatus = "draft" | "placed";
+
+export class Order {
+  private readonly orderLines: OrderLine[] = [];
+  private status: OrderStatus = "draft";
+  readonly events: OrderPlaced[] = [];
+
+  constructor(
+    readonly id: string,
+    readonly customerId: string,
+    readonly currency: string,
+  ) {}
+
+  get lines(): readonly OrderLine[] {
+    return this.orderLines;
+  }
+
+  get total(): Money {
+    return this.orderLines.reduce((sum, line) =&gt; sum.add(line.subtotal), Money.zero(this.currency));
+  }
+
+  addLine(productId: string, unitPrice: Money, quantity: number): void {
+    if (this.status !== "draft") throw new Error("The order is already placed.");
+    if (this.orderLines.length &gt;= 50) throw new Error("An order can have at most 50 lines.");
+
+    this.orderLines.push(new OrderLine(randomUUID(), productId, unitPrice, quantity));
+  }
+
+  place(shippingAddress: Address): void {
+    if (this.status !== "draft") throw new Error("The order is already placed.");
+    if (this.orderLines.length === 0) throw new Error("An order needs at least one line.");
+
+    this.status = "placed";
+    this.events.push({ orderId: this.id, customerId: this.customerId, total: this.total, shippingAddress });
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="orderline">
+      <div class="file-head"><span class="chip tone-teal">Entity</span><span class="name">sales/domain/OrderLine.ts</span><span class="why">It has an ID, so two lines for the same product are still two different lines. Its fields are read-only, and only <code>Order</code> creates lines.</span></div>
+<pre><code>import { Money } from "./Money";
+
+export class OrderLine {
+  constructor(
+    readonly id: string,
+    readonly productId: string,
+    readonly unitPrice: Money,
+    readonly quantity: number,
+  ) {
+    if (quantity &lt; 1) throw new Error("A line needs a quantity of at least 1.");
+  }
+
+  get subtotal(): Money {
+    return this.unitPrice.times(this.quantity);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="money">
+      <div class="file-head"><span class="chip tone-amber">Value object</span><span class="name">sales/domain/Money.ts</span><span class="why">No ID, and it never changes after it is made. Every method returns a new <code>Money</code>. Two values with the same amount and currency are equal.</span></div>
+<pre><code>export class Money {
+  private constructor(
+    readonly cents: number,
+    readonly currency: string,
+  ) {}
+
+  static of(amount: number, currency: string): Money {
+    if (amount &lt; 0) throw new Error("An amount cannot be negative.");
+    return new Money(Math.round(amount * 100), currency);
+  }
+
+  static zero(currency: string): Money {
+    return new Money(0, currency);
+  }
+
+  add(other: Money): Money {
+    if (other.currency !== this.currency) {
+      throw new Error(`Cannot add ${other.currency} to ${this.currency}.`);
+    }
+    return new Money(this.cents + other.cents, this.currency);
+  }
+
+  times(quantity: number): Money {
+    return new Money(this.cents * quantity, this.currency);
+  }
+
+  equals(other: Money): boolean {
+    return this.cents === other.cents &amp;&amp; this.currency === other.currency;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="address">
+      <div class="file-head"><span class="chip tone-amber">Value object</span><span class="name">sales/domain/Address.ts</span><span class="why">An address is checked once, when it is made, and never changes. To move an order to a new address, you replace the whole address.</span></div>
+<pre><code>export class Address {
+  constructor(
+    readonly street: string,
+    readonly city: string,
+    readonly postcode: string,
+    readonly country: string,
+  ) {
+    if (!street || !city || !postcode) {
+      throw new Error("An address needs a street, city and postcode.");
+    }
+  }
+
+  equals(other: Address): boolean {
+    return this.street === other.street
+      &amp;&amp; this.city === other.city
+      &amp;&amp; this.postcode === other.postcode
+      &amp;&amp; this.country === other.country;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="event">
+      <div class="file-head"><span class="chip tone-blue">Domain event</span><span class="name">sales/domain/OrderPlaced.ts</span><span class="why">A fact in past tense, in the business's words. It holds what other contexts need, so they never call Sales to ask.</span></div>
+<pre><code>import { Address } from "./Address";
+import { Money } from "./Money";
+
+export type OrderPlaced = {
+  orderId: string;
+  customerId: string;
+  total: Money;
+  shippingAddress: Address;
+};</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="repository">
+      <div class="file-head"><span class="chip tone-blue">Repository</span><span class="name">sales/domain/OrderRepository.ts</span><span class="why">One repository per aggregate, not per table. <code>save</code> stores the order and all its lines together, in one transaction.</span></div>
+<pre><code>import { Order } from "./Order";
+
+export interface OrderRepository {
+  findById(orderId: string): Promise&lt;Order | null&gt;;
+  save(order: Order): Promise&lt;void&gt;;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="handler">
+      <div class="file-head"><span class="chip tone-blue">Application service</span><span class="name">sales/application/PlaceOrderHandler.ts</span><span class="why">Runs the use case step by step but holds no business rules. Those live in <code>Order</code>.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import { Address } from "../domain/Address";
+import { Money } from "../domain/Money";
+import { Order } from "../domain/Order";
+import { OrderRepository } from "../domain/OrderRepository";
+
+export interface EventPublisher {
+  publishAll(events: object[]): Promise&lt;void&gt;;
+}
+
+export type PlaceOrderCommand = {
+  customerId: string;
+  lines: { productId: string; unitPrice: number; quantity: number }[];
+  address: { street: string; city: string; postcode: string; country: string };
+};
+
+export class PlaceOrderHandler {
+  constructor(
+    private readonly orders: OrderRepository,
+    private readonly events: EventPublisher,
+  ) {}
+
+  async handle(command: PlaceOrderCommand): Promise&lt;string&gt; {
+    const order = new Order(randomUUID(), command.customerId, "EUR");
+    for (const line of command.lines) {
+      order.addLine(line.productId, Money.of(line.unitPrice, "EUR"), line.quantity);
+    }
+
+    const { street, city, postcode, country } = command.address;
+    order.place(new Address(street, city, postcode, country));
+
+    await this.orders.save(order);
+    await this.events.publishAll(order.events);
+    return order.id;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="invoice">
+      <div class="file-head"><span class="chip tone-teal">Entity</span><span class="name">billing/domain/Invoice.ts</span><span class="why">Billing's own model. It imports nothing from Sales. It reads only the two fields of the event it needs, and ignores the lines and the address.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+
+type OrderPlacedMessage = {
+  orderId: string;
+  total: { cents: number; currency: string };
+};
+
+export class Invoice {
+  private status: "open" | "paid" = "open";
+
+  private constructor(
+    readonly id: string,
+    readonly orderId: string,
+    readonly amountDueCents: number,
+    readonly currency: string,
+  ) {}
+
+  static fromOrderPlaced(message: OrderPlacedMessage): Invoice {
+    return new Invoice(randomUUID(), message.orderId, message.total.cents, message.total.currency);
+  }
+
+  markPaid(): void {
+    if (this.status === "paid") throw new Error("The invoice is already paid.");
+    this.status = "paid";
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="acl">
+      <div class="file-head"><span class="chip tone-blue">Anti-corruption layer</span><span class="name">billing/infrastructure/StripeGateway.ts</span><span class="why">Stripe's words, such as <code>PaymentIntent</code> and <code>requires_action</code>, stop here. The rest of Billing only sees <code>PaymentResult</code>, in Billing's own words.</span></div>
+<pre><code>import Stripe from "stripe";
+
+export type PaymentResult =
+  | { outcome: "collected"; reference: string }
+  | { outcome: "declined"; reason: string }
+  | { outcome: "needs-customer-action" }
+  | { outcome: "pending" };
+
+export class StripeGateway {
+  constructor(private readonly stripe: Stripe) {}
+
+  async collect(amountDueCents: number, currency: string, paymentMethodId: string): Promise&lt;PaymentResult&gt; {
+    try {
+      const paymentIntent = await this.stripe.paymentIntents.create({
+        amount: amountDueCents,
+        currency: currency.toLowerCase(),
+        payment_method: paymentMethodId,
+        confirm: true,
+      });
+
+      switch (paymentIntent.status) {
+        case "succeeded":
+          return { outcome: "collected", reference: paymentIntent.id };
+        case "requires_action":
+          return { outcome: "needs-customer-action" };
+        default:
+          return { outcome: "pending" };
+      }
+    } catch (error) {
+      if (error instanceof Stripe.errors.StripeCardError) {
+        return { outcome: "declined", reason: error.message };
+      }
+      throw error;
+    }
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="shipment">
+      <div class="file-head"><span class="chip tone-teal">Entity</span><span class="name">shipping/domain/Shipment.ts</span><span class="why">Shipping's own model of an order: where it goes and whether the carrier has it. It ignores prices.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+
+type DeliveryAddress = { street: string; city: string; postcode: string; country: string };
+type OrderPlacedMessage = { orderId: string; shippingAddress: DeliveryAddress };
+
+export class Shipment {
+  private trackingNumber?: string;
+
+  private constructor(
+    readonly id: string,
+    readonly orderId: string,
+    readonly deliverTo: DeliveryAddress,
+  ) {}
+
+  static fromOrderPlaced(message: OrderPlacedMessage): Shipment {
+    return new Shipment(randomUUID(), message.orderId, message.shippingAddress);
+  }
+
+  handOverToCarrier(trackingNumber: string): void {
+    if (this.trackingNumber) throw new Error("The shipment is already with the carrier.");
+    this.trackingNumber = trackingNumber;
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="order">
+      <div class="file-head"><span class="chip tone-teal">Aggregate root</span><span class="name">src/Shop.Sales/Domain/Order.cs</span><span class="why">All changes go through these methods, and each one checks the rules first. <code>Lines</code> is read-only from outside. Placing the order records an <code>OrderPlaced</code> event.</span></div>
+<pre><code>namespace Shop.Sales.Domain;
+
+public enum OrderStatus { Draft, Placed }
+
+public class Order
+{
+    private readonly List&lt;OrderLine&gt; lines = [];
+    private readonly List&lt;OrderPlaced&gt; events = [];
+
+    public Order(Guid id, Guid customerId, string currency)
+    {
+        Id = id;
+        CustomerId = customerId;
+        Currency = currency;
+    }
+
+    public Guid Id { get; }
+    public Guid CustomerId { get; }
+    public string Currency { get; }
+    public OrderStatus Status { get; private set; } = OrderStatus.Draft;
+    public IReadOnlyList&lt;OrderLine&gt; Lines =&gt; lines;
+    public IReadOnlyList&lt;OrderPlaced&gt; Events =&gt; events;
+
+    public Money Total =&gt; lines.Aggregate(Money.Zero(Currency), (sum, line) =&gt; sum.Add(line.Subtotal));
+
+    public void AddLine(string productId, Money unitPrice, int quantity)
+    {
+        if (Status != OrderStatus.Draft) throw new InvalidOperationException("The order is already placed.");
+        if (lines.Count &gt;= 50) throw new InvalidOperationException("An order can have at most 50 lines.");
+
+        lines.Add(new OrderLine(Guid.NewGuid(), productId, unitPrice, quantity));
+    }
+
+    public void Place(Address shippingAddress)
+    {
+        if (Status != OrderStatus.Draft) throw new InvalidOperationException("The order is already placed.");
+        if (lines.Count == 0) throw new InvalidOperationException("An order needs at least one line.");
+
+        Status = OrderStatus.Placed;
+        events.Add(new OrderPlaced(Id, CustomerId, Total, shippingAddress));
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="orderline">
+      <div class="file-head"><span class="chip tone-teal">Entity</span><span class="name">src/Shop.Sales/Domain/OrderLine.cs</span><span class="why">It has an ID, so two lines for the same product are still two different lines. The constructor is <code>internal</code>, so only code in the Sales project, in practice <code>Order</code>, can create a line.</span></div>
+<pre><code>namespace Shop.Sales.Domain;
+
+public class OrderLine
+{
+    internal OrderLine(Guid id, string productId, Money unitPrice, int quantity)
+    {
+        if (quantity &lt; 1) throw new ArgumentException("A line needs a quantity of at least 1.");
+
+        Id = id;
+        ProductId = productId;
+        UnitPrice = unitPrice;
+        Quantity = quantity;
+    }
+
+    public Guid Id { get; }
+    public string ProductId { get; }
+    public Money UnitPrice { get; }
+    public int Quantity { get; }
+    public Money Subtotal =&gt; UnitPrice.Times(Quantity);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="money">
+      <div class="file-head"><span class="chip tone-amber">Value object</span><span class="name">src/Shop.Sales/Domain/Money.cs</span><span class="why">A <code>record</code> compares by value, so two <code>Money</code> values with the same cents and currency are equal. Every method returns a new <code>Money</code>.</span></div>
+<pre><code>namespace Shop.Sales.Domain;
+
+public sealed record Money
+{
+    private Money(long cents, string currency)
+    {
+        Cents = cents;
+        Currency = currency;
+    }
+
+    public long Cents { get; }
+    public string Currency { get; }
+
+    public static Money Of(decimal amount, string currency) =&gt;
+        amount &lt; 0
+            ? throw new ArgumentException("An amount cannot be negative.")
+            : new Money((long)Math.Round(amount * 100), currency);
+
+    public static Money Zero(string currency) =&gt; new(0, currency);
+
+    public Money Add(Money other) =&gt;
+        other.Currency == Currency
+            ? new Money(Cents + other.Cents, Currency)
+            : throw new InvalidOperationException($"Cannot add {other.Currency} to {Currency}.");
+
+    public Money Times(int quantity) =&gt; new(Cents * quantity, Currency);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="address">
+      <div class="file-head"><span class="chip tone-amber">Value object</span><span class="name">src/Shop.Sales/Domain/Address.cs</span><span class="why">Checked once, when it is made, and never changed. As a <code>record</code>, two addresses with the same values are equal.</span></div>
+<pre><code>namespace Shop.Sales.Domain;
+
+public sealed record Address
+{
+    public Address(string street, string city, string postcode, string country)
+    {
+        if (string.IsNullOrWhiteSpace(street) || string.IsNullOrWhiteSpace(city) || string.IsNullOrWhiteSpace(postcode))
+            throw new ArgumentException("An address needs a street, city and postcode.");
+
+        Street = street;
+        City = city;
+        Postcode = postcode;
+        Country = country;
+    }
+
+    public string Street { get; }
+    public string City { get; }
+    public string Postcode { get; }
+    public string Country { get; }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="event">
+      <div class="file-head"><span class="chip tone-blue">Domain event</span><span class="name">src/Shop.Sales/Domain/OrderPlaced.cs</span><span class="why">A fact in past tense, in the business's words. It holds what other contexts need, so they never call Sales to ask.</span></div>
+<pre><code>namespace Shop.Sales.Domain;
+
+public sealed record OrderPlaced(Guid OrderId, Guid CustomerId, Money Total, Address ShippingAddress);</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="repository">
+      <div class="file-head"><span class="chip tone-blue">Repository</span><span class="name">src/Shop.Sales/Domain/IOrderRepository.cs</span><span class="why">One repository per aggregate, not per table. <code>SaveAsync</code> stores the order and all its lines together, in one transaction.</span></div>
+<pre><code>namespace Shop.Sales.Domain;
+
+public interface IOrderRepository
+{
+    Task&lt;Order?&gt; FindByIdAsync(Guid orderId);
+    Task SaveAsync(Order order);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="handler">
+      <div class="file-head"><span class="chip tone-blue">Application service</span><span class="name">src/Shop.Sales/Application/PlaceOrderHandler.cs</span><span class="why">Runs the use case step by step but holds no business rules. Those live in <code>Order</code>.</span></div>
+<pre><code>using Shop.Sales.Domain;
+
+namespace Shop.Sales.Application;
+
+public interface IEventPublisher
+{
+    Task PublishAllAsync(IEnumerable&lt;object&gt; events);
+}
+
+public record PlaceOrderLine(string ProductId, decimal UnitPrice, int Quantity);
+public record PlaceOrderCommand(
+    Guid CustomerId, List&lt;PlaceOrderLine&gt; Lines,
+    string Street, string City, string Postcode, string Country);
+
+public class PlaceOrderHandler(IOrderRepository orders, IEventPublisher events)
+{
+    public async Task&lt;Guid&gt; HandleAsync(PlaceOrderCommand command)
+    {
+        var order = new Order(Guid.NewGuid(), command.CustomerId, "EUR");
+        foreach (var line in command.Lines)
+            order.AddLine(line.ProductId, Money.Of(line.UnitPrice, "EUR"), line.Quantity);
+
+        order.Place(new Address(command.Street, command.City, command.Postcode, command.Country));
+
+        await orders.SaveAsync(order);
+        await events.PublishAllAsync(order.Events);
+        return order.Id;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="invoice">
+      <div class="file-head"><span class="chip tone-teal">Entity</span><span class="name">src/Shop.Billing/Domain/Invoice.cs</span><span class="why">Billing's own model. The Billing project has no reference to Sales, so it cannot use the <code>Order</code> class. It reads only the two fields of the event it needs.</span></div>
+<pre><code>namespace Shop.Billing.Domain;
+
+public record PlacedOrderTotal(long Cents, string Currency);
+public record OrderPlacedMessage(Guid OrderId, PlacedOrderTotal Total);
+
+public enum InvoiceStatus { Open, Paid }
+
+public class Invoice
+{
+    private Invoice(Guid id, Guid orderId, long amountDueCents, string currency)
+    {
+        Id = id;
+        OrderId = orderId;
+        AmountDueCents = amountDueCents;
+        Currency = currency;
+    }
+
+    public Guid Id { get; }
+    public Guid OrderId { get; }
+    public long AmountDueCents { get; }
+    public string Currency { get; }
+    public InvoiceStatus Status { get; private set; } = InvoiceStatus.Open;
+
+    public static Invoice FromOrderPlaced(OrderPlacedMessage message) =&gt;
+        new(Guid.NewGuid(), message.OrderId, message.Total.Cents, message.Total.Currency);
+
+    public void MarkPaid()
+    {
+        if (Status == InvoiceStatus.Paid) throw new InvalidOperationException("The invoice is already paid.");
+        Status = InvoiceStatus.Paid;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="acl">
+      <div class="file-head"><span class="chip tone-blue">Anti-corruption layer</span><span class="name">src/Shop.Billing/Infrastructure/StripeGateway.cs</span><span class="why">Stripe's words, such as <code>PaymentIntent</code> and <code>requires_action</code>, stop here. The rest of Billing only sees <code>PaymentResult</code>, in Billing's own words.</span></div>
+<pre><code>using Stripe;
+
+namespace Shop.Billing.Infrastructure;
+
+public abstract record PaymentResult
+{
+    public sealed record Collected(string Reference) : PaymentResult;
+    public sealed record Declined(string Reason) : PaymentResult;
+    public sealed record NeedsCustomerAction : PaymentResult;
+    public sealed record Pending : PaymentResult;
+}
+
+public class StripeGateway(PaymentIntentService stripePayments)
+{
+    public async Task&lt;PaymentResult&gt; CollectAsync(long amountDueCents, string currency, string paymentMethodId)
+    {
+        try
+        {
+            var paymentIntent = await stripePayments.CreateAsync(new PaymentIntentCreateOptions
+            {
+                Amount = amountDueCents,
+                Currency = currency.ToLowerInvariant(),
+                PaymentMethod = paymentMethodId,
+                Confirm = true,
+            });
+
+            return paymentIntent.Status switch
+            {
+                "succeeded" =&gt; new PaymentResult.Collected(paymentIntent.Id),
+                "requires_action" =&gt; new PaymentResult.NeedsCustomerAction(),
+                _ =&gt; new PaymentResult.Pending(),
+            };
+        }
+        catch (StripeException error) when (error.StripeError?.Type == "card_error")
+        {
+            return new PaymentResult.Declined(error.Message);
+        }
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="shipment">
+      <div class="file-head"><span class="chip tone-teal">Entity</span><span class="name">src/Shop.Shipping/Domain/Shipment.cs</span><span class="why">Shipping's own model of an order: where it goes and whether the carrier has it. It ignores prices.</span></div>
+<pre><code>namespace Shop.Shipping.Domain;
+
+public record DeliveryAddress(string Street, string City, string Postcode, string Country);
+public record OrderPlacedMessage(Guid OrderId, DeliveryAddress ShippingAddress);
+
+public class Shipment
+{
+    private Shipment(Guid id, Guid orderId, DeliveryAddress deliverTo)
+    {
+        Id = id;
+        OrderId = orderId;
+        DeliverTo = deliverTo;
+    }
+
+    public Guid Id { get; }
+    public Guid OrderId { get; }
+    public DeliveryAddress DeliverTo { get; }
+    public string? TrackingNumber { get; private set; }
+
+    public static Shipment FromOrderPlaced(OrderPlacedMessage message) =&gt;
+        new(Guid.NewGuid(), message.OrderId, message.ShippingAddress);
+
+    public void HandOverToCarrier(string trackingNumber)
+    {
+        if (TrackingNumber is not null) throw new InvalidOperationException("The shipment is already with the carrier.");
+        TrackingNumber = trackingNumber;
+    }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markdown.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
