@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Runtime</div>
+    <h1>Event Loop</h1>
+    <p class="aka">How JavaScript does many things at once with one thread, in browsers and in Node.js.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>JavaScript runs your code on one thread, one function at a time. Waiting work, such as a timer, a network request or reading a file, is handed to the browser or to Node.js, which wait outside your thread. When the wait is over, they put a callback in a queue.</p>
+    <p>The <strong>event loop</strong> is the cycle that decides what runs next. Each turn, it waits until the call stack is empty, then runs every callback in the <strong>microtask queue</strong>, then takes one callback from the <strong>task queue</strong>. In a browser, it may also redraw the page between turns.</p>
+    <p>Promise callbacks and the code after <code>await</code> are microtasks. Timer callbacks, finished network requests and clicks are tasks. That is why a resolved promise always runs before a <code>setTimeout(..., 0)</code> callback.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Call stack</span></td><td>The functions running right now, each on top of the one that called it.</td><td><code>loadOrders</code> calling <code>fetch</code></td></tr>
+          <tr><td><span class="chip tone-amber">Task queue</span></td><td>Callbacks waiting for their turn: timers, finished I/O, clicks. Also called the macrotask queue.</td><td>The <code>setTimeout</code> callback</td></tr>
+          <tr><td><span class="chip tone-amber">Microtask queue</span></td><td>Callbacks that run as soon as the stack is empty, before the next task.</td><td><code>.then</code> callbacks, code after <code>await</code></td></tr>
+          <tr><td><span class="chip tone-blue">Web APIs and libuv</span></td><td>The parts of the browser, or the C library inside Node.js, that wait for timers, network and files outside your thread.</td><td>The timer counting 0 ms</td></tr>
+          <tr><td><span class="chip tone-neutral">Blocking</span></td><td>Code that runs a long time without giving the thread back. Nothing else can run meanwhile.</td><td>A 2-second loop</td></tr>
+          <tr><td><span class="chip tone-neutral">Starvation</span></td><td>When microtasks keep adding new microtasks, so tasks never get a turn.</td><td>A promise chain that never ends</td></tr>
+          <tr><td><span class="chip tone-blue">Worker thread</span></td><td>A second JavaScript thread with its own event loop, for CPU-heavy work.</td><td><code>node:worker_threads</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> JavaScript runs one piece of your code at a time. Code that runs long without giving the thread back stops everything else on it: timers, other requests, clicks and page updates.</div>
+  </section>
+
+  <section>
+    <h2>Why the output comes in this order</h2>
+    <p>Click "Your script" in the diagram to see the program. It prints its lines in this order:</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Printed</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>1: script start</code></td><td>Plain code runs at once, on the call stack.</td></tr>
+          <tr><td><code>2: script end</code></td><td>Also plain code. The timer and the promise only queued callbacks; nothing waited.</td></tr>
+          <tr><td><code>3: promise callback</code></td><td>The stack is empty, so the loop runs all microtasks, in the order they were queued.</td></tr>
+          <tr><td><code>4: queueMicrotask callback</code></td><td>The second microtask.</td></tr>
+          <tr><td><code>5: timeout callback</code></td><td>A task. It runs only after every microtask, even with a delay of 0 ms.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The Node.js loop, phase by phase</h2>
+    <p>Node.js splits the task queue into phases. Each turn of the loop visits them in this order. Between every single callback, Node.js runs all <code>process.nextTick</code> callbacks first, then all promise microtasks.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Phase</th><th>Runs</th></tr></thead>
+        <tbody>
+          <tr><td>1. Timers</td><td><code>setTimeout</code> and <code>setInterval</code> callbacks whose time has come</td></tr>
+          <tr><td>2. Pending callbacks</td><td>Some I/O error callbacks held back from the previous turn</td></tr>
+          <tr><td>3. Poll</td><td>Callbacks for finished I/O: network, files. Waits here when there is nothing else to do.</td></tr>
+          <tr><td>4. Check</td><td><code>setImmediate</code> callbacks</td></tr>
+          <tr><td>5. Close callbacks</td><td><code>close</code> events, such as a socket closing</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Inside an I/O callback, <code>setImmediate</code> runs before <code>setTimeout(..., 0)</code>, because the check phase comes before the loop returns to timers. Click "Event loop" in the diagram to see this.</p>
+  </section>
+
+  <section>
+    <h2>How C# and .NET differ</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>JavaScript</th><th>C# and .NET</th></tr></thead>
+        <tbody>
+          <tr><td>Threads running your code</td><td>One per process, or per worker</td><td>A pool of threads. ASP.NET Core runs each request on any free one.</td></tr>
+          <tr><td>After <code>await</code></td><td>The rest runs as a microtask, on the same thread</td><td>The rest runs on any free pool thread</td></tr>
+          <tr><td>A blocking call</td><td>Stops everything in the process</td><td>Stops one thread. Many blocking calls at once use up the pool, called thread pool starvation.</td></tr>
+          <tr><td>Two pieces of code touching the same object</td><td>Never at the same moment, so no locks are needed</td><td>Can happen at the same moment, so shared data needs locks</td></tr>
+          <tr><td>CPU-heavy work</td><td>Move it to a worker thread</td><td><code>Task.Run</code> or <code>Parallel.For</code> on pool threads</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Metric: event loop delay</td><td>How late timers fire, 99th percentile, from <code>perf_hooks.monitorEventLoopDelay</code></td><td>Alert if over 100 ms for several minutes</td></tr>
+          <tr><td>Slow request handlers</td><td>Route and duration, when a request takes much longer than usual</td><td>warn</td></tr>
+          <tr><td>Unhandled promise rejections</td><td>The error and its stack. Node.js stops the process on one by default.</td><td>error</td></tr>
+          <tr><td>The logger itself</td><td>Use an asynchronous logger such as pino. Heavy synchronous logging, for example <code>console.log</code> to a slow pipe or file, can block the loop.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 370" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">Your script runs on the call stack. Waiting work is handed to timers, network and file APIs, which put callbacks in the task queue. Resolved promises put callbacks in the microtask queue. The event loop moves callbacks from the queues to the call stack: all microtasks first, then one task.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-script" tabindex="0" role="button" aria-label="Show the output order program" data-title="Your script: output order" data-node="script">
+          <rect class="shape tone-neutral" x="12" y="100" width="170" height="50" rx="6"/>
+          <text class="t-name" x="97" y="121">Your script</text>
+          <text class="t-kind" x="97" y="138">plain code runs first</text>
+        </g>
+        <g class="node" id="n-stack" tabindex="0" role="button" aria-label="Show a server that blocks its call stack" data-title="Call stack: blocking it" data-node="stack">
+          <rect class="shape tone-teal" x="12" y="190" width="170" height="210" rx="6"/>
+          <text class="t-name" x="97" y="288">Call stack</text>
+          <text class="t-kind" x="97" y="306">one function at a time</text>
+        </g>
+        <g class="node" id="n-loop" tabindex="0" role="button" aria-label="Show the Node.js phase order program" data-title="Event loop: Node.js phase order" data-node="loop">
+          <rect class="shape tone-blue" x="330" y="180" width="180" height="70" rx="35"/>
+          <text class="t-name" x="420" y="210">Event loop</text>
+          <text class="t-kind" x="420" y="228">picks the next work</text>
+        </g>
+        <g class="node" id="n-apis" tabindex="0" role="button" aria-label="Show an await example" data-title="Timers, network and files: await" data-node="apis">
+          <rect class="shape tone-blue" x="640" y="100" width="260" height="60" rx="6"/>
+          <text class="t-name" x="770" y="124">Timers, network, files</text>
+          <text class="t-kind" x="770" y="142">browser Web APIs or Node's libuv</text>
+        </g>
+        <g class="node" id="n-micro" tabindex="0" role="button" aria-label="Show a program that starves the task queue" data-title="Microtask queue: starvation" data-node="micro">
+          <rect class="shape tone-amber" x="640" y="225" width="260" height="56" rx="6"/>
+          <text class="t-name" x="770" y="249">Microtask queue</text>
+          <text class="t-kind" x="770" y="267">promise callbacks, code after await</text>
+        </g>
+        <g class="node" id="n-tasks" tabindex="0" role="button" aria-label="Show how to split long work into tasks" data-title="Task queue: splitting long work" data-node="tasks">
+          <rect class="shape tone-amber" x="640" y="330" width="260" height="56" rx="6"/>
+          <text class="t-name" x="770" y="354">Task queue</text>
+          <text class="t-kind" x="770" y="372">timers, finished I/O, clicks</text>
+        </g>
+
+        <path class="flow" id="a-script-stack" d="M97,150 L97,188" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-stack-apis" d="M182,205 L638,132" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-apis-tasks" d="M900,135 L912,135 L912,358 L902,358" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-stack-micro" d="M182,320 L638,262" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-micro-loop" d="M638,248 L512,222" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-tasks-loop" d="M638,350 L470,252" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-loop-stack" d="M330,215 L184,240" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-blocked" x="97" y="425">BUSY FOR 2 SECONDS</text>
+        <text class="ghost-label" id="t-starved" x="770" y="410">NEVER GETS A TURN</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="order" aria-pressed="true">Output order</button>
+        <button type="button" data-flow="await" aria-pressed="false">An await</button>
+        <button type="button" data-flow="blocking" aria-pressed="false">A blocking loop</button>
+        <button type="button" data-flow="starvation" aria-pressed="false">Endless microtasks</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="order" hidden>
+        <li data-highlight="n-script a-script-stack n-stack">The script starts on the call stack and prints <code>1: script start</code>.</li>
+        <li data-highlight="n-stack a-stack-apis n-apis">It calls <code>setTimeout(..., 0)</code>. The timer is handed to the browser or Node.js, which counts 0 ms outside the thread.</li>
+        <li data-highlight="n-apis a-apis-tasks n-tasks">The time is up at once, so the timer's callback goes into the task queue. It must wait for its turn.</li>
+        <li data-highlight="n-stack a-stack-micro n-micro">The script resolves a promise and calls <code>queueMicrotask</code>. Two callbacks go into the microtask queue.</li>
+        <li data-highlight="n-stack">The script prints <code>2: script end</code> and finishes. The call stack is now empty.</li>
+        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack">The event loop runs every microtask, in order: <code>3: promise callback</code>, then <code>4: queueMicrotask callback</code>.</li>
+        <li data-highlight="n-tasks a-tasks-loop n-loop a-loop-stack n-stack">The microtask queue is empty, so the loop takes one task: <code>5: timeout callback</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="await" hidden>
+        <li data-highlight="n-script a-script-stack n-stack">The script prints <code>1: before</code> and calls the async function <code>loadOrders</code>, which prints <code>2: request sent</code>.</li>
+        <li data-highlight="n-stack a-stack-apis n-apis">At <code>await fetch(...)</code>, the request is handed to the network layer. <code>loadOrders</code> pauses and leaves the call stack.</li>
+        <li data-highlight="n-stack">The script goes on and prints <code>3: after</code>. The thread is free to handle other work while the request travels.</li>
+        <li data-highlight="n-apis a-apis-tasks n-tasks a-tasks-loop n-loop">The response arrives. The network layer queues a task, and the loop runs it, which resolves the promise.</li>
+        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack">Resolving the promise queues the rest of <code>loadOrders</code> as a microtask. It runs next and prints <code>4: response arrived</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="blocking" hidden>
+        <li data-highlight="n-stack t-blocked">A Node.js server gets a request for <code>/slow-report</code>. Its handler runs a loop that takes 2 seconds and never awaits.</li>
+        <li data-highlight="n-apis a-apis-tasks n-tasks t-blocked">Meanwhile, other requests arrive and a 100 ms timer fires. Their callbacks wait in the task queue.</li>
+        <li data-highlight="n-loop t-blocked n-stack">The event loop cannot pick anything, because the call stack is never empty. Every other user waits 2 seconds, even for <code>/health</code>.</li>
+        <li data-highlight="n-stack a-loop-stack n-loop">The fix is to give the thread back: split the work into pieces with <code>setImmediate</code> between them, or move it to a worker thread. Click "Task queue" or see the worker file.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="starvation" hidden>
+        <li data-highlight="n-stack a-stack-apis n-apis a-apis-tasks n-tasks">The script sets a timer. Its callback goes into the task queue.</li>
+        <li data-highlight="n-stack a-stack-micro n-micro">Then it starts a function that queues a microtask, and that microtask queues the same function again.</li>
+        <li data-highlight="n-micro a-micro-loop n-loop a-loop-stack n-stack">The loop must empty the microtask queue before any task, but the queue is never empty.</li>
+        <li data-highlight="n-tasks t-starved">The timer callback never runs, and in a browser the page never redraws. Long chains of microtasks block the loop just like a long loop does.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Your thread</span>
+      <span class="chip tone-blue">Event loop and outside APIs</span>
+      <span class="chip tone-amber">Queues</span>
+      <span>Click a box to see a small program that shows it.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">examples/</div>
+      <button type="button" class="tree-row" data-file="output-order.js"><span class="path">├─ output-order.js</span><span class="chip tone-neutral">Output order</span></button>
+      <button type="button" class="tree-row" data-file="await-fetch.js"><span class="path">├─ await-fetch.js</span><span class="chip tone-blue">await</span></button>
+      <button type="button" class="tree-row" data-file="node-loop-phases.js"><span class="path">├─ node-loop-phases.js</span><span class="chip tone-blue">Node.js phases</span></button>
+      <button type="button" class="tree-row" data-file="blocking-server.js"><span class="path">├─ blocking-server.js</span><span class="chip tone-teal">Blocking</span></button>
+      <button type="button" class="tree-row" data-file="starvation.js"><span class="path">├─ starvation.js</span><span class="chip tone-amber">Starvation</span></button>
+      <button type="button" class="tree-row" data-file="split-work.js"><span class="path">├─ split-work.js</span><span class="chip tone-amber">Fix: split work</span></button>
+      <button type="button" class="tree-row" data-file="report-worker.js"><span class="path">├─ report-worker.js</span><span class="chip tone-blue">Fix: worker thread</span></button>
+      <button type="button" class="tree-row" data-file="event-loop-delay.js"><span class="path">├─ event-loop-delay.js</span><span class="chip tone-neutral">Monitoring</span></button>
+      <button type="button" class="tree-row" data-file="DotnetComparison.cs"><span class="path">└─ DotnetComparison.cs</span><span class="chip tone-neutral">C# comparison</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Many waiting operations</strong><span>One thread can have thousands of network requests or file reads in progress, because waiting happens outside it.</span></li>
+        <li><strong>Locks around shared data</strong><span>Two pieces of your code never run at the same moment on one thread, so plain objects need no locks.</span></li>
+        <li><strong>Memory per connection</strong><span>No thread per request, so each open connection costs little memory.</span></li>
+        <li><strong>Unclear order of callbacks</strong><span>The rules are fixed: plain code, then all microtasks, then one task.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>CPU-heavy work blocks everything</strong><span>Large JSON parsing, hashing or long loops delay every other request and timer.</span></li>
+        <li><strong>One slow handler affects all users</strong><span>A bug in one route can make the whole service slow, not only that route.</span></li>
+        <li><strong>Endless microtasks</strong><span>A promise chain that keeps adding work stops timers and, in browsers, page updates.</span></li>
+        <li><strong>One CPU core per process</strong><span>To use more cores, run several processes or add worker threads.</span></li>
+        <li><strong>Unhandled rejections</strong><span>A promise error that nobody catches stops a Node.js process by default.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="script">
+      <div class="file-head"><span class="chip tone-neutral">Output order</span><span class="name">output-order.js</span><span class="why">The numbers show the order the lines are printed in, not the order they are written in. The table above the diagram explains each one.</span></div>
+<pre><code>console.log("1: script start");
+
+setTimeout(() =&gt; console.log("5: timeout callback"), 0);
+
+Promise.resolve().then(() =&gt; console.log("3: promise callback"));
+
+queueMicrotask(() =&gt; console.log("4: queueMicrotask callback"));
+
+console.log("2: script end");</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="apis">
+      <div class="file-head"><span class="chip tone-blue">await</span><span class="name">await-fetch.js</span><span class="why"><code>await</code> pauses only <code>loadOrders</code>, not the thread. The code after it runs later as a microtask, once the response has arrived.</span></div>
+<pre><code>async function loadOrders() {
+  console.log("2: request sent");
+  const response = await fetch("https://orders.shop.example.com/orders");
+  console.log("4: response arrived");
+  return response.json();
+}
+
+console.log("1: before");
+loadOrders();
+console.log("3: after, while loadOrders waits for the response");</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="loop">
+      <div class="file-head"><span class="chip tone-blue">Node.js phases</span><span class="name">node-loop-phases.js</span><span class="why">All four callbacks are queued inside a file-read callback, in the poll phase. <code>nextTick</code> runs first, then promise microtasks. <code>setImmediate</code> runs in the check phase of this same turn, before the loop gets back to timers.</span></div>
+<pre><code>import { readFile } from "node:fs";
+
+readFile(import.meta.filename, () =&gt; {
+  setTimeout(() =&gt; console.log("4: timers phase, next turn of the loop"), 0);
+  setImmediate(() =&gt; console.log("3: check phase, this turn of the loop"));
+  Promise.resolve().then(() =&gt; console.log("2: promise microtask"));
+  process.nextTick(() =&gt; console.log("1: process.nextTick"));
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="stack">
+      <div class="file-head"><span class="chip tone-teal">Blocking</span><span class="name">blocking-server.js</span><span class="why">While one request for <code>/slow-report</code> runs the loop, every other request, including <code>/health</code>, waits up to 2 seconds. A load balancer may even decide the server is down.</span></div>
+<pre><code>import http from "node:http";
+
+function keepThreadBusyFor(milliseconds) {
+  const end = Date.now() + milliseconds;
+  while (Date.now() &lt; end) {}
+}
+
+http
+  .createServer((req, res) =&gt; {
+    if (req.url === "/slow-report") {
+      keepThreadBusyFor(2000);
+      return res.end("report done");
+    }
+    res.end("ok");
+  })
+  .listen(3000);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="micro">
+      <div class="file-head"><span class="chip tone-amber">Starvation</span><span class="name">starvation.js</span><span class="why">Each microtask queues another one, so the microtask queue is never empty and the timer task never runs. Running this keeps the process busy until you stop it.</span></div>
+<pre><code>setTimeout(() =&gt; console.log("this line is never printed"), 0);
+
+function queueAgainForever() {
+  Promise.resolve().then(queueAgainForever);
+}
+
+queueAgainForever();</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="tasks">
+      <div class="file-head"><span class="chip tone-amber">Fix: split work</span><span class="name">split-work.js</span><span class="why">Prices 1,000 products, then awaits <code>setImmediate</code>, which gives the thread back for one turn of the loop. Other requests and timers run between batches. The total time is about the same, but nobody waits long.</span></div>
+<pre><code>import { setImmediate as waitForNextLoopTurn } from "node:timers/promises";
+
+const batchSize = 1000;
+
+function calculatePrice(product) {
+  return Math.round(product.basePrice * (1 + product.taxRate) * 100) / 100;
+}
+
+export async function priceAllProducts(products) {
+  for (let start = 0; start &lt; products.length; start += batchSize) {
+    for (const product of products.slice(start, start + batchSize)) {
+      product.price = calculatePrice(product);
+    }
+    await waitForNextLoopTurn();
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="worker">
+      <div class="file-head"><span class="chip tone-blue">Fix: worker thread</span><span class="name">report-worker.js</span><span class="why">The same file runs twice: once as the main thread, which starts a worker, and once as the worker, which does the heavy work on its own thread and event loop. The main thread stays free and gets the result as a message.</span></div>
+<pre><code>import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
+
+function buildRevenueReport(orders) {
+  let totalRevenue = 0;
+  for (const order of orders) totalRevenue += order.total;
+  return { orderCount: orders.length, totalRevenue };
+}
+
+if (isMainThread) {
+  const orders = Array.from({ length: 5_000_000 }, (_, index) =&gt; ({ total: index % 100 }));
+  const worker = new Worker(new URL(import.meta.url), { workerData: { orders } });
+
+  worker.on("message", (report) =&gt; console.log("report ready", report));
+  worker.on("error", (error) =&gt; console.error("report failed", error));
+  console.log("main thread is free while the worker counts");
+} else {
+  parentPort.postMessage(buildRevenueReport(workerData.orders));
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="delay">
+      <div class="file-head"><span class="chip tone-neutral">Monitoring</span><span class="name">event-loop-delay.js</span><span class="why">Measures how late the loop runs scheduled work. Every 10 seconds it logs the 99th percentile and the maximum, as a warning when the 99th percentile is over 100 ms. <code>unref</code> keeps this timer from holding the process open.</span></div>
+<pre><code>import { monitorEventLoopDelay } from "node:perf_hooks";
+import pino from "pino";
+
+const logger = pino();
+const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+loopDelay.enable();
+
+setInterval(() =&gt; {
+  const p99Milliseconds = Math.round(loopDelay.percentile(99) / 1e6);
+  const maxMilliseconds = Math.round(loopDelay.max / 1e6);
+  const level = p99Milliseconds &gt; 100 ? "warn" : "info";
+
+  logger[level]({ p99Milliseconds, maxMilliseconds }, "event loop delay");
+  loopDelay.reset();
+}, 10_000).unref();</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="any" data-node="dotnet">
+      <div class="file-head"><span class="chip tone-neutral">C# comparison</span><span class="name">DotnetComparison.cs</span><span class="why">The same blocking route in ASP.NET Core. <code>Thread.Sleep</code> blocks one pool thread, so <code>/health</code> still answers on another. The code after <code>await</code> continues on any free pool thread. Blocking is still wrong here: many slow requests at once use up the pool.</span></div>
+<pre><code>var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHttpClient();
+var app = builder.Build();
+
+app.MapGet("/slow-report", () =&gt;
+{
+    Thread.Sleep(2000);
+    return "report done";
+});
+
+app.MapGet("/health", () =&gt; "ok");
+
+app.MapGet("/orders", async (IHttpClientFactory httpClients) =&gt;
+{
+    var response = await httpClients.CreateClient().GetAsync("https://orders.shop.example.com/orders");
+    return await response.Content.ReadAsStringAsync();
+});
+
+app.Run();</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
