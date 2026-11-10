@@ -39,3 +39,15 @@ What each category covers: [javascript/README.md](javascript/README.md)
 |---|---|---|---|
 | Event Loop | Runtime | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/runtime/event-loop/) | [index.html](javascript/runtime/event-loop/index.html) |
 | Node.js | Node | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/node/how-nodejs-works/) | [index.html](javascript/node/how-nodejs-works/index.html) |
+| Node Streams | Node | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/node/streams/) | [index.html](javascript/node/streams/index.html) |
+| Express | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/express/) | [index.html](javascript/web/express/index.html) |
+| Fastify | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/fastify/) | [index.html](javascript/web/fastify/index.html) |
+
+## .NET
+
+What each category covers: [dotnet/README.md](dotnet/README.md)
+
+| Topic | Category | Page | Source |
+|---|---|---|---|
+| .NET | Runtime | [open](https://hermanyhho.github.io/dev-knowledgebase/dotnet/runtime/how-dotnet-works/) | [index.html](dotnet/runtime/how-dotnet-works/index.html) |
+| ASP.NET Core | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/dotnet/web/aspnet-core/) | [index.html](dotnet/web/aspnet-core/index.html) |

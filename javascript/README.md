@@ -6,6 +6,7 @@
 |---|---|---|
 | `runtime/` | How does JavaScript run code? | event loop, promises and microtasks |
 | `node/` | What is Node.js, and what does it add on top of the language? | how Node.js works, streams, worker threads, cluster |
+| `web/` | How do I build an HTTP API on Node.js? | Express, Fastify |
 
 A folder is created when its first topic is added.
 
@@ -20,3 +21,6 @@ javascript/<category>/<topic>/
 
 - [Event Loop](runtime/event-loop/index.html) - runtime
 - [Node.js](node/how-nodejs-works/index.html) - node
+- [Node Streams](node/streams/index.html) - node
+- [Express](web/express/index.html) - web
+- [Fastify](web/fastify/index.html) - web
