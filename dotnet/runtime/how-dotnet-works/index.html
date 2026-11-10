@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>.NET</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">.NET</a> / Runtime</div>
+    <h1>.NET</h1>
+    <p class="aka">A free, open-source platform from Microsoft for running C# programs on Windows, Linux and macOS.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>.NET is three things that ship together. The <strong>runtime</strong> (CoreCLR) loads your program, turns it into machine code and frees unused memory. The <strong>libraries</strong> (the Base Class Library) give your code files, HTTP, JSON, collections and threads. The <strong>SDK</strong> holds the tools you use while developing: the C# compiler and the <code>dotnet</code> command.</p>
+    <p>C# is not run directly. <code>dotnet build</code> compiles it to <strong>IL</strong> (intermediate language), a CPU-independent instruction set, and saves it in a <code>.dll</code> file. When the program starts, the runtime's <strong>JIT compiler</strong> turns each method's IL into machine code for the CPU it runs on.</p>
+    <p>One .NET process uses many threads. Request handlers and the code after <code>await</code> run on a shared <strong>thread pool</strong>, so one process uses all CPU cores.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">CoreCLR</span></td><td>The runtime: type loader, JIT compiler, garbage collector, thread pool.</td><td>Started by <code>dotnet ShopApi.dll</code></td></tr>
+          <tr><td><span class="chip tone-amber">IL</span></td><td>Intermediate language. The instructions the C# compiler writes into a <code>.dll</code>.</td><td><code>ldarg.0</code>, <code>add</code>, <code>ret</code></td></tr>
+          <tr><td><span class="chip tone-amber">Assembly</span></td><td>A <code>.dll</code> file with IL and metadata: the types, methods and references it contains.</td><td><code>ShopApi.dll</code></td></tr>
+          <tr><td><span class="chip tone-teal">JIT (RyuJIT)</span></td><td>Just-in-time compiler. Turns a method's IL into machine code the first time the method is called.</td><td>Tier 0, then tier 1</td></tr>
+          <tr><td><span class="chip tone-teal">Garbage collector (GC)</span></td><td>Finds objects nothing uses any more and frees their memory.</td><td>Generations 0, 1, 2</td></tr>
+          <tr><td><span class="chip tone-blue">BCL</span></td><td>Base Class Library. The standard library that ships with the runtime.</td><td><code>System.IO</code>, <code>System.Text.Json</code></td></tr>
+          <tr><td><span class="chip tone-blue">Thread pool</span></td><td>A shared set of worker threads that run queued work and <code>await</code> continuations.</td><td>Starts with one thread per CPU core</td></tr>
+          <tr><td><span class="chip tone-neutral">NuGet</span></td><td>The package manager and public package registry for .NET.</td><td><code>dotnet add package Npgsql</code></td></tr>
+          <tr><td><span class="chip tone-neutral"><code>.csproj</code></span></td><td>The project file: target .NET version, packages, build and publish settings. XML.</td><td><code>ShopApi.csproj</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> C# becomes IL at build time and machine code at run time. Many threads run your code, so never block a thread pool thread while it waits for I/O: use <code>await</code>.</div>
+  </section>
+
+  <section>
+    <h2>How C# code becomes machine code</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>Done by</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>1. Build</td><td><code>dotnet build</code> runs the C# compiler (Roslyn)</td><td><code>bin/Debug/net10.0/ShopApi.dll</code> with IL and metadata</td></tr>
+          <tr><td>2. Start</td><td><code>dotnet ShopApi.dll</code> starts the host, which starts CoreCLR</td><td>A process with the runtime loaded</td></tr>
+          <tr><td>3. Load</td><td>The type loader reads assemblies when code first needs them</td><td>Types and method tables in memory</td></tr>
+          <tr><td>4. Compile</td><td>The JIT compiles each method on its first call</td><td>Machine code for this CPU</td></tr>
+          <tr><td>5. Recompile</td><td>Methods called often are compiled again with full optimization</td><td>Faster machine code after a few seconds</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>JIT, ReadyToRun and Native AOT</h2>
+    <p><strong>Tiered compilation</strong> is on by default. Tier 0 compiles a method fast, with few optimizations, so the app starts quickly. After a method has been called 30 times, a background thread compiles it again at tier 1, using data collected while tier 0 ran (Dynamic PGO, profile-guided optimization).</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Mode</th><th>How to turn it on</th><th>What changes</th></tr></thead>
+        <tbody>
+          <tr><td>JIT (default)</td><td>Nothing</td><td>Slowest start, fastest code after warm-up.</td></tr>
+          <tr><td>ReadyToRun</td><td><code>&lt;PublishReadyToRun&gt;true&lt;/PublishReadyToRun&gt;</code></td><td>Machine code is stored in the <code>.dll</code> next to the IL. Faster start. The JIT still recompiles methods called often.</td></tr>
+          <tr><td>Native AOT</td><td><code>&lt;PublishAot&gt;true&lt;/PublishAot&gt;</code></td><td>One native executable, no JIT. Fastest start, least memory. Code that generates types at run time, and some libraries, do not work.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Garbage collector</h2>
+    <p>You never free memory yourself. Objects are created on the <strong>managed heap</strong>. When an area fills up, the GC pauses your threads for a short time, marks every object that is still reachable from a variable, and frees the rest. Most objects are used only during one request, so the GC splits the heap into generations and checks young objects most often.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Area</th><th>What lives there</th><th>How often it is collected</th></tr></thead>
+        <tbody>
+          <tr><td>Generation 0</td><td>New objects</td><td>Very often. Fast, because the area is small.</td></tr>
+          <tr><td>Generation 1</td><td>Objects that survived one collection</td><td>Less often. A buffer between young and old.</td></tr>
+          <tr><td>Generation 2</td><td>Long-lived objects: caches, singletons, configuration</td><td>Rarely. Slowest, because it checks the whole heap.</td></tr>
+          <tr><td>Large object heap (LOH)</td><td>Objects of 85,000 bytes or more, such as big arrays and strings</td><td>Only with generation 2. Not compacted by default, so it can fragment.</td></tr>
+          <tr><td>Workstation GC</td><td>One heap. Default for console and desktop apps.</td><td>Smaller memory use, lower throughput.</td></tr>
+          <tr><td>Server GC</td><td>One heap per CPU core. Default for ASP.NET Core.</td><td>Higher throughput, more memory. Since .NET 9 it resizes its heaps to the load (DATAS).</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Threads, the thread pool and async/await</h2>
+    <p>.NET has no <a href="../../../javascript/runtime/event-loop/">event loop</a> for your code. The <strong>thread pool</strong> keeps a set of worker threads and a queue of work. Each incoming request runs on a free pool thread. Two requests can run at the same moment on two cores, so shared data needs locks or thread-safe types.</p>
+    <p>When a method reaches <code>await</code> on unfinished I/O, it returns, and its thread goes back to the pool. No thread waits for the network. When the operating system reports the result, the runtime queues the rest of the method to the pool, and whichever thread is free runs it. That is often a different thread from the one before <code>await</code>.</p>
+    <p>Desktop UI apps (WPF, WinForms) are the exception: they send the continuation back to the UI thread. ASP.NET Core and console apps do not.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Situation</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>Code awaits I/O</td><td>The thread is returned to the pool while it waits. Thousands of waiting requests need few threads.</td></tr>
+          <tr><td>Code calls <code>.Result</code> or <code>.Wait()</code> on a task</td><td>The thread is blocked until the task finishes. It cannot run other work.</td></tr>
+          <tr><td>All pool threads are blocked</td><td>New work queues. The pool adds about one or two threads per second. This is <strong>thread pool starvation</strong>.</td></tr>
+          <tr><td>CPU-heavy code</td><td>Runs on its pool thread and uses one core. Other requests use the other cores.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Names and versions of .NET</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Name</th><th>Years</th><th>Platforms</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>.NET Framework 1.0 to 4.8.1</td><td>2002-2022</td><td>Windows only</td><td>Ships with Windows and still gets security fixes, but no new features. Many older business apps run on it.</td></tr>
+          <tr><td>.NET Core 1.0 to 3.1</td><td>2016-2019</td><td>Windows, Linux, macOS</td><td>A rewrite that is cross-platform and open source. Out of support.</td></tr>
+          <tr><td>.NET 5 and later</td><td>2020 onward</td><td>Windows, Linux, macOS</td><td>The continuation of .NET Core. "Core" was dropped from the name, and version 4 was skipped to avoid confusion with .NET Framework 4.x.</td></tr>
+          <tr><td>LTS release</td><td>Even numbers, every second November</td><td></td><td>Long-term support: 3 years of fixes. .NET 8, .NET 10.</td></tr>
+          <tr><td>STS release</td><td>Odd numbers, the November in between</td><td></td><td>Standard-term support: 2 years of fixes (18 months before .NET 9). .NET 9.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>"ASP.NET Core" and "Entity Framework Core" kept the word "Core" to tell them apart from the older ASP.NET and Entity Framework.</p>
+  </section>
+
+  <section>
+    <h2>How .NET compares with Node.js</h2>
+    <p>The web framework that runs on .NET has its own page: <a href="../../web/aspnet-core/">ASP.NET Core</a>.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>.NET</th><th><a href="../../../javascript/node/how-nodejs-works/">Node.js</a></th></tr></thead>
+        <tbody>
+          <tr><td>Runtime</td><td>CoreCLR: JIT, GC, thread pool</td><td>V8 and libuv</td></tr>
+          <tr><td>Compile step</td><td>Yes: C# to IL with <code>dotnet build</code>, then IL to machine code at run time</td><td>None for JavaScript. TypeScript is compiled to JavaScript first.</td></tr>
+          <tr><td>Type errors</td><td>Found at build time</td><td>Found at run time, or by TypeScript before it</td></tr>
+          <tr><td>Threads running your code</td><td>Many: the thread pool, one process uses all cores</td><td>One main thread per process</td></tr>
+          <tr><td>Code after <code>await</code></td><td>Runs on any free pool thread</td><td>Runs on the main thread, from the microtask queue</td></tr>
+          <tr><td>Blocking call</td><td>Blocks one pool thread</td><td>Blocks the whole process</td></tr>
+          <tr><td>Packages</td><td>NuGet, listed in <code>.csproj</code></td><td>npm, listed in <code>package.json</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>NuGet packages and the project file</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Task</th><th>Command or file</th></tr></thead>
+        <tbody>
+          <tr><td>Create a project</td><td><code>dotnet new web -n ShopApi</code></td></tr>
+          <tr><td>Add a package</td><td><code>dotnet add package Npgsql</code> adds a <code>&lt;PackageReference&gt;</code> line to the <code>.csproj</code>.</td></tr>
+          <tr><td>Download packages</td><td><code>dotnet restore</code>. Runs as part of <code>build</code>. Packages are cached in <code>~/.nuget/packages</code>.</td></tr>
+          <tr><td>Lock exact versions</td><td><code>&lt;RestorePackagesWithLockFile&gt;true&lt;/RestorePackagesWithLockFile&gt;</code> writes <code>packages.lock.json</code>.</td></tr>
+          <tr><td>Same versions in many projects</td><td><code>Directory.Packages.props</code> (central package management)</td></tr>
+          <tr><td>Group several projects</td><td>A solution file, <code>.sln</code> or <code>.slnx</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Running .NET in production</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Build output</td><td><code>dotnet publish -c Release</code> writes the app and its dependencies to one folder. Release builds are optimized. Debug builds are not.</td></tr>
+          <tr><td>Container image</td><td>Build with the <code>sdk</code> image, run on the smaller <code>aspnet</code> or <code>runtime</code> image. Run as the non-root <code>app</code> user. The default port is 8080.</td></tr>
+          <tr><td>Version</td><td>Use an LTS release. Pin it in <code>TargetFramework</code> and in the image tag.</td></tr>
+          <tr><td>Memory limit</td><td>The GC reads the container's memory limit. By default the heap may use 75% of it. Change this with <code>DOTNET_GCHeapHardLimitPercent</code>.</td></tr>
+          <tr><td>GC mode</td><td>Server GC for web apps with several cores. Workstation GC for small containers with one core or tight memory: <code>&lt;ServerGarbageCollection&gt;false&lt;/ServerGarbageCollection&gt;</code>.</td></tr>
+          <tr><td>Start time</td><td>ReadyToRun or Native AOT, if fast cold starts matter, such as for serverless functions.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <p>Log through <code>ILogger&lt;T&gt;</code>, which ASP.NET Core and the generic host give you through dependency injection. Use <strong>message templates</strong>: <code>logger.LogInformation("Loading order {OrderId}", orderId)</code>. The provider stores <code>OrderId</code> as its own field, so you can search by it. Do not build the message with string interpolation: the field is lost.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Startup</td><td>.NET version, app version, environment name, server GC on or off. No secrets.</td><td>Information</td></tr>
+          <tr><td>Each request</td><td>Route, status code, duration, and the trace ID that ASP.NET Core sets from the <code>traceparent</code> header, used as the correlation ID</td><td>Information</td></tr>
+          <tr><td>Unhandled exception</td><td>Exception with stack trace and trace ID</td><td>Error</td></tr>
+          <tr><td>Metric: GC</td><td>Time in GC, gen 0/1/2 collection counts, heap size. Read live with <code>dotnet-counters monitor -n ShopApi</code>.</td><td>Alert if time in GC stays above 10%</td></tr>
+          <tr><td>Metric: thread pool</td><td>Queue length and thread count, from the same tool</td><td>Alert if the queue stays above 0</td></tr>
+          <tr><td>Log format</td><td>JSON to standard output with <code>AddJsonConsole()</code>, or send logs and metrics with OpenTelemetry</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>Signs of thread pool starvation:</strong> response times rise to seconds while CPU use stays low, the thread pool queue length grows, the thread count climbs by one or two per second, and health checks time out. Look for <code>.Result</code>, <code>.Wait()</code> and <code>Thread.Sleep</code> in request code.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 410" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">Program.cs is compiled by the C# compiler into IL in a .dll file. CoreCLR loads the .dll with its type loader, compiles it with the JIT and manages memory with the garbage collector. The compiled code uses the Base Class Library and runs on the thread pool, which use the operating system.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="25" y="175" width="870" height="130" rx="10"/>
+        <text class="t-label" x="460" y="193">CORECLR</text>
+
+        <g class="node" id="n-code" tabindex="0" role="button" aria-label="Show Program.cs" data-title="Your C# code: Program.cs" data-node="code">
+          <rect class="shape tone-neutral" x="40" y="95" width="240" height="50" rx="6"/>
+          <text class="t-name" x="160" y="116">Program.cs</text>
+          <text class="t-kind" x="160" y="133">your C# code</text>
+        </g>
+        <g class="node" id="n-build" tabindex="0" role="button" aria-label="Show the project file" data-title="C# compiler: dotnet build" data-node="build">
+          <rect class="shape tone-amber" x="340" y="95" width="240" height="50" rx="6"/>
+          <text class="t-name" x="460" y="116">C# compiler</text>
+          <text class="t-kind" x="460" y="133">dotnet build, NuGet restore</text>
+        </g>
+        <g class="node" id="n-il" tabindex="0" role="button" aria-label="Show the IL in the dll" data-title="IL in ShopApi.dll" data-node="il">
+          <rect class="shape tone-amber" x="640" y="95" width="240" height="50" rx="6"/>
+          <text class="t-name" x="760" y="116">IL in ShopApi.dll</text>
+          <text class="t-kind" x="760" y="133">CPU-independent instructions</text>
+        </g>
+        <g class="node" id="n-gc" tabindex="0" role="button" aria-label="Show garbage collector generations" data-title="Garbage collector: generations" data-node="gc">
+          <rect class="shape tone-teal" x="40" y="205" width="240" height="80" rx="6"/>
+          <text class="t-name" x="160" y="230">Garbage collector</text>
+          <text class="t-kind" x="160" y="248">generations 0, 1, 2 and LOH</text>
+        </g>
+        <g class="node" id="n-jit" tabindex="0" role="button" aria-label="Show tiered compilation timing" data-title="JIT compiler: tiered compilation" data-node="jit">
+          <rect class="shape tone-teal" x="340" y="205" width="240" height="80" rx="6"/>
+          <text class="t-name" x="460" y="230">JIT compiler (RyuJIT)</text>
+          <text class="t-kind" x="460" y="248">IL to machine code</text>
+        </g>
+        <g class="node" id="n-loader" tabindex="0" role="button" aria-label="Show assembly loading" data-title="Type loader: loading assemblies" data-node="loader">
+          <rect class="shape tone-teal" x="640" y="205" width="240" height="80" rx="6"/>
+          <text class="t-name" x="760" y="230">Type loader</text>
+          <text class="t-kind" x="760" y="248">reads assemblies and types</text>
+          <text class="t-kind" x="760" y="264">on first use</text>
+        </g>
+        <g class="node" id="n-bcl" tabindex="0" role="button" aria-label="Show the Base Class Library" data-title="Base Class Library" data-node="bcl">
+          <rect class="shape tone-blue" x="40" y="335" width="400" height="50" rx="6"/>
+          <text class="t-name" x="240" y="356">Base Class Library</text>
+          <text class="t-kind" x="240" y="373">files, HttpClient, JSON, collections</text>
+        </g>
+        <g class="node" id="n-pool" tabindex="0" role="button" aria-label="Show thread pool examples" data-title="Thread pool: await and starvation" data-node="pool">
+          <rect class="shape tone-blue" x="480" y="335" width="400" height="50" rx="6"/>
+          <text class="t-name" x="680" y="356">Thread pool</text>
+          <text class="t-kind" x="680" y="373">worker threads, runs await continuations</text>
+        </g>
+        <g class="node" id="n-os" tabindex="0" role="button" aria-label="Show the production Dockerfile" data-title="Operating system: running in a container" data-node="os">
+          <rect class="shape tone-neutral" x="40" y="425" width="840" height="50" rx="6"/>
+          <text class="t-name" x="460" y="446">Operating system</text>
+          <text class="t-kind" x="460" y="463">threads, memory, sockets (epoll, kqueue, IOCP), files</text>
+        </g>
+
+        <path class="flow" id="a-code-build" d="M280,120 L338,120" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-build-il" d="M580,120 L638,120" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-il-loader" d="M760,145 L760,203" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-loader-jit" d="M640,245 L582,245" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-jit-bcl" d="M400,285 L400,333" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-jit-pool" d="M520,285 L520,333" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-bcl-os" d="M240,385 L240,423" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-pool-os" d="M680,385 L680,423" marker-end="url(#arrow)"/>
+
+        <text class="ghost-label" id="t-tier0" x="460" y="266">TIER 0: QUICK CODE</text>
+        <text class="ghost-label" id="t-tier1" x="460" y="280">TIER 1: OPTIMIZED CODE</text>
+        <text class="ghost-label" id="t-gen0" x="160" y="266">GEN 0 FULL: COLLECTION</text>
+        <text class="ghost-label" id="t-loh" x="160" y="280">100 KB ARRAY: LOH</text>
+        <text class="ghost-label" id="t-before" x="580" y="410">BEFORE AWAIT: THREAD 7</text>
+        <text class="ghost-label" id="t-after" x="780" y="410">AFTER AWAIT: THREAD 12</text>
+        <text class="ghost-label" id="t-blocked" x="580" y="410">EVERY THREAD BLOCKED</text>
+        <text class="ghost-label" id="t-queued" x="780" y="410">CONTINUATIONS QUEUED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="build" aria-pressed="true">Build and run</button>
+        <button type="button" data-flow="jit" aria-pressed="false">First call and recompile</button>
+        <button type="button" data-flow="await" aria-pressed="false">An await on another thread</button>
+        <button type="button" data-flow="starvation" aria-pressed="false">Starvation from .Result</button>
+        <button type="button" data-flow="gc" aria-pressed="false">Garbage collection</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="build" hidden>
+        <li data-highlight="n-code a-code-build n-build">You run <code>dotnet build</code>. It restores NuGet packages, then the C# compiler reads <code>Program.cs</code> and the other <code>.cs</code> files in the project.</li>
+        <li data-highlight="n-build a-build-il n-il">The compiler writes <code>ShopApi.dll</code>: IL plus metadata that describes every type and method. There is no machine code in it yet.</li>
+        <li data-highlight="n-il a-il-loader n-loader">You run <code>dotnet ShopApi.dll</code>. The host starts CoreCLR, and the type loader reads the types that <code>Main</code> needs.</li>
+        <li data-highlight="n-loader a-loader-jit n-jit">The JIT compiles <code>Main</code> from IL to machine code for this CPU, and the runtime calls it.</li>
+        <li data-highlight="n-jit a-jit-bcl n-bcl a-bcl-os n-os">Your code calls the Base Class Library, for example to open a socket. The library calls the operating system.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="jit" hidden>
+        <li data-highlight="n-loader a-loader-jit n-jit">A request calls <code>CalculateTotal</code> for the first time. The method has no machine code yet, so the runtime asks the JIT to compile it.</li>
+        <li data-highlight="n-jit t-tier0">Tier 0: the JIT compiles quickly with few optimizations, and counts how often the method is called. This first call is slower than later ones.</li>
+        <li data-highlight="n-jit t-tier1">After 30 calls, a background thread compiles the method again at tier 1, with full optimizations based on what tier 0 measured.</li>
+        <li data-highlight="n-jit a-jit-pool n-pool">The next request runs the new code. ReadyToRun skips most tier 0 work at startup. Native AOT has no JIT at all.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="await" hidden>
+        <li data-highlight="n-os a-pool-os n-pool t-before">A request arrives. Pool thread 7 runs the handler, which calls <code>await httpClient.GetStringAsync(url)</code>.</li>
+        <li data-highlight="n-pool n-bcl a-bcl-os n-os">The Base Class Library sends the HTTP request through the operating system. The task is not finished, so the handler returns and thread 7 goes back to the pool.</li>
+        <li data-highlight="n-os">No thread waits for the response. Thread 7 runs other requests in the meantime.</li>
+        <li data-highlight="n-os a-pool-os n-pool t-after">The response arrives. The runtime queues the rest of the handler to the pool, and free thread 12 runs it.</li>
+        <li data-highlight="n-pool t-before t-after">There is no event loop. Code after <code>await</code> must not depend on the thread: values in <code>[ThreadStatic]</code> fields differ. <code>AsyncLocal&lt;T&gt;</code> values are carried over.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="starvation" hidden>
+        <li data-highlight="n-pool n-bcl a-bcl-os n-os">A handler calls <code>httpClient.GetStringAsync(url).Result</code>. The request is sent, and the pool thread is blocked until the response arrives.</li>
+        <li data-highlight="n-pool t-blocked">Traffic rises. Every pool thread is now blocked in the same <code>.Result</code> call.</li>
+        <li data-highlight="n-os a-pool-os n-pool t-queued">Responses arrive. Finishing each task needs a free pool thread, so the work sits in the queue. New requests queue too.</li>
+        <li data-highlight="n-pool t-blocked t-queued">The pool adds about one or two threads per second. Response times reach seconds while CPU stays low. Fix: use <code>await</code> in every method from the handler down.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="gc" hidden>
+        <li data-highlight="n-code n-gc">Each request creates objects: the order, a list of lines, strings for the JSON. They go into generation 0.</li>
+        <li data-highlight="n-gc t-gen0">Generation 0 fills. The GC pauses threads for a short time, keeps objects still in use and frees the rest. Most request objects are already unused.</li>
+        <li data-highlight="n-gc">Objects that survive move to generation 1, and later to generation 2. Generation 2 is collected rarely, because checking it takes longer.</li>
+        <li data-highlight="n-gc t-loh">A 100 KB array is 85,000 bytes or more, so it goes to the large object heap. It is freed only in a generation 2 collection.</li>
+        <li data-highlight="n-gc n-os">In a container, the heap may use 75% of the memory limit by default. If live objects need more, the app throws <code>OutOfMemoryException</code>.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Yours or the operating system</span>
+      <span class="chip tone-amber">Build output</span>
+      <span class="chip tone-teal">CoreCLR</span>
+      <span class="chip tone-blue">Libraries and thread pool</span>
+      <span>Arrows point from each step to the next one, and from each layer to the layer it uses. Click a box to see a small program or file that shows it.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">ShopApi/</div>
+      <button type="button" class="tree-row" data-file="ShopApi.csproj"><span class="path">├─ ShopApi.csproj</span><span class="chip tone-amber">Project</span></button>
+      <button type="button" class="tree-row" data-file="Program.cs"><span class="path">├─ Program.cs</span><span class="chip tone-neutral">Server</span></button>
+      <button type="button" class="tree-row" data-file="Dockerfile"><span class="path">├─ Dockerfile</span><span class="chip tone-neutral">Production</span></button>
+      <button type="button" class="tree-row" data-file="bin/Release/net10.0/ShopApi.dll"><span class="path">├─ bin/Release/net10.0/ShopApi.dll</span><span class="chip tone-amber">IL</span></button>
+      <button type="button" class="tree-row" data-file="examples/AssemblyLoading.cs"><span class="path">├─ examples/AssemblyLoading.cs</span><span class="chip tone-teal">Type loader</span></button>
+      <button type="button" class="tree-row" data-file="examples/TieredCompilation.cs"><span class="path">├─ examples/TieredCompilation.cs</span><span class="chip tone-teal">JIT</span></button>
+      <button type="button" class="tree-row" data-file="examples/GcGenerations.cs"><span class="path">├─ examples/GcGenerations.cs</span><span class="chip tone-teal">GC</span></button>
+      <button type="button" class="tree-row" data-file="examples/BaseClassLibrary.cs"><span class="path">├─ examples/BaseClassLibrary.cs</span><span class="chip tone-blue">BCL</span></button>
+      <button type="button" class="tree-row" data-file="examples/AwaitContinuation.cs"><span class="path">├─ examples/AwaitContinuation.cs</span><span class="chip tone-blue">Thread pool</span></button>
+      <button type="button" class="tree-row" data-file="examples/ThreadPoolStarvation.cs"><span class="path">└─ examples/ThreadPoolStarvation.cs</span><span class="chip tone-blue">Thread pool</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Type errors found late</strong><span>The C# compiler rejects wrong types before the app runs.</span></li>
+        <li><strong>Using all CPU cores</strong><span>One process runs code on every core through the thread pool.</span></li>
+        <li><strong>CPU-heavy work in a web server</strong><span>A slow calculation uses one pool thread. Other requests keep running.</span></li>
+        <li><strong>Manual memory management</strong><span>The GC frees unused objects, and generations keep most pauses short.</span></li>
+        <li><strong>Choosing many small libraries</strong><span>The BCL covers HTTP, JSON, files, crypto, collections and logging interfaces.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Shared data across threads</strong><span>Two requests can change the same object at once. You need locks or concurrent collections.</span></li>
+        <li><strong>Thread pool starvation</strong><span>One <code>.Result</code> in a busy path can stall the whole app.</span></li>
+        <li><strong>Slower first requests</strong><span>Tier 0 JIT code and loading assemblies make the first seconds slower. ReadyToRun or AOT helps.</span></li>
+        <li><strong>Higher memory than a small Node.js process</strong><span>Server GC keeps one heap per core. Tune it in small containers.</span></li>
+        <li><strong>Confusing names</strong><span>.NET Framework, .NET Core and .NET are different products, and search results mix them.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-markup">
+    <div class="file" data-lang="any" data-node="build">
+      <div class="file-head"><span class="chip tone-amber">Project</span><span class="name">ShopApi.csproj</span><span class="why">The SDK named on the first line brings in ASP.NET Core and its build defaults. <code>TargetFramework</code> picks the .NET version. <code>PackageReference</code> lines are the NuGet packages that <code>dotnet restore</code> downloads.</span></div>
+<pre><code>&lt;Project Sdk="Microsoft.NET.Sdk.Web"&gt;
+
+  &lt;PropertyGroup&gt;
+    &lt;TargetFramework&gt;net10.0&lt;/TargetFramework&gt;
+    &lt;Nullable&gt;enable&lt;/Nullable&gt;
+    &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt;
+    &lt;InvariantGlobalization&gt;true&lt;/InvariantGlobalization&gt;
+    &lt;ServerGarbageCollection&gt;true&lt;/ServerGarbageCollection&gt;
+    &lt;PublishReadyToRun&gt;true&lt;/PublishReadyToRun&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;PackageReference Include="Npgsql" Version="9.0.3" /&gt;
+  &lt;/ItemGroup&gt;
+
+&lt;/Project&gt;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-none">
+    <div class="file" data-lang="any" data-node="il">
+      <div class="file-head"><span class="chip tone-amber">IL</span><span class="name">bin/Release/net10.0/ShopApi.dll</span><span class="why">What a disassembler such as ILSpy or <code>ildasm</code> shows for <code>static decimal LineTotal(decimal unitPrice, int quantity) =&gt; unitPrice * quantity;</code>. IL works on a stack: push both arguments, convert, multiply, return. The JIT turns this into CPU instructions at run time.</span></div>
+<pre><code>.method private hidebysig static valuetype [System.Runtime]System.Decimal
+        LineTotal(valuetype [System.Runtime]System.Decimal unitPrice, int32 quantity) cil managed
+{
+  .maxstack 8
+  IL_0000: ldarg.0
+  IL_0001: ldarg.1
+  IL_0002: call valuetype [System.Runtime]System.Decimal [System.Runtime]System.Decimal::op_Implicit(int32)
+  IL_0007: call valuetype [System.Runtime]System.Decimal [System.Runtime]System.Decimal::op_Multiply(valuetype [System.Runtime]System.Decimal, valuetype [System.Runtime]System.Decimal)
+  IL_000c: ret
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-docker">
+    <div class="file" data-lang="any" data-node="os">
+      <div class="file-head"><span class="chip tone-neutral">Production</span><span class="name">Dockerfile</span><span class="why">Builds with the large <code>sdk</code> image and runs on the smaller <code>aspnet</code> image, as the non-root user the image provides. <code>DOTNET_GCHeapHardLimitPercent</code> is read as hexadecimal: <code>0x46</code> is 70% of the container's memory limit.</span></div>
+<pre><code>FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY ShopApi.csproj ./
+RUN dotnet restore -r linux-x64
+COPY . ./
+RUN dotnet publish -c Release -r linux-x64 --no-restore -o /app
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+COPY --from=build /app ./
+ENV DOTNET_GCHeapHardLimitPercent=0x46
+USER $APP_UID
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "ShopApi.dll"]</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="any" data-node="code">
+      <div class="file-head"><span class="chip tone-neutral">Server</span><span class="name">Program.cs</span><span class="why">A small web API. Logs go to standard output as JSON. <code>{OrderId}</code> in the message template becomes its own field in the log entry. The startup log records the runtime version and GC mode.</span></div>
+<pre><code>using System.Runtime;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole();
+
+var app = builder.Build();
+
+app.MapGet("/health", () =&gt; "ok");
+
+app.MapGet("/orders/{orderId:int}", async (int orderId, ILogger&lt;Program&gt; logger, CancellationToken cancellationToken) =&gt;
+{
+    logger.LogInformation("Loading order {OrderId}", orderId);
+    await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+    return Results.Ok(new { orderId, status = "shipped" });
+});
+
+app.Logger.LogInformation(
+    "Starting on .NET {RuntimeVersion} in {Environment}, server GC: {IsServerGC}",
+    Environment.Version,
+    app.Environment.EnvironmentName,
+    GCSettings.IsServerGC);
+
+app.Run();</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="loader">
+      <div class="file-head"><span class="chip tone-teal">Type loader</span><span class="name">examples/AssemblyLoading.cs</span><span class="why">Assemblies are loaded when code first uses a type from them. The count goes up after the first call to <code>JsonSerializer</code>, because <code>System.Text.Json.dll</code> is loaded only then.</span></div>
+<pre><code>using System.Runtime.InteropServices;
+using System.Text.Json;
+
+Console.WriteLine($"Runtime: {RuntimeInformation.FrameworkDescription}");
+Console.WriteLine($"This program: {typeof(Program).Assembly.Location}");
+Console.WriteLine($"Assemblies loaded at start: {AppDomain.CurrentDomain.GetAssemblies().Length}");
+
+PrintOrderAsJson();
+
+Console.WriteLine($"Assemblies loaded after JSON: {AppDomain.CurrentDomain.GetAssemblies().Length}");
+
+foreach (var loadedAssembly in AppDomain.CurrentDomain.GetAssemblies())
+{
+    Console.WriteLine($"  {loadedAssembly.GetName().Name}");
+}
+
+static void PrintOrderAsJson() =&gt;
+    Console.WriteLine(JsonSerializer.Serialize(new { orderId = 42, status = "shipped" }));</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="jit">
+      <div class="file-head"><span class="chip tone-teal">JIT</span><span class="name">examples/TieredCompilation.cs</span><span class="why">Times the same method on call 1, call 2 and after tier 1 has had time to run. Call 1 includes JIT compilation. Later calls are faster. Run it again with <code>DOTNET_TieredCompilation=0</code> to compile fully optimized code on the first call. Exact numbers depend on the machine.</span></div>
+<pre><code>using System.Diagnostics;
+
+for (int callNumber = 1; callNumber &lt;= 60; callNumber++)
+{
+    var stopwatch = Stopwatch.StartNew();
+    SumOfSquares(100_000);
+    stopwatch.Stop();
+
+    if (callNumber is 1 or 2 or 31 or 60)
+    {
+        Console.WriteLine($"call {callNumber}: {stopwatch.Elapsed.TotalMicroseconds:F0} microseconds");
+    }
+
+    Thread.Sleep(20);
+}
+
+static long SumOfSquares(int count)
+{
+    long total = 0;
+    for (int number = 0; number &lt; count; number++)
+    {
+        total += (long)number * number;
+    }
+    return total;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="gc">
+      <div class="file-head"><span class="chip tone-teal">GC</span><span class="name">examples/GcGenerations.cs</span><span class="why">Shows a small array moving from generation 0 to 1 to 2, and a large array starting in the large object heap, which reports as generation 2. <code>GC.Collect()</code> is here only to make the steps visible. Do not call it in application code.</span></div>
+<pre><code>using System.Runtime;
+
+var orderLines = new byte[1_000];
+var reportBuffer = new byte[100_000];
+
+Console.WriteLine($"small array: generation {GC.GetGeneration(orderLines)}");
+Console.WriteLine($"100 KB array: generation {GC.GetGeneration(reportBuffer)} (large object heap)");
+
+GC.Collect();
+Console.WriteLine($"small array after 1 collection: generation {GC.GetGeneration(orderLines)}");
+
+GC.Collect();
+Console.WriteLine($"small array after 2 collections: generation {GC.GetGeneration(orderLines)}");
+
+Console.WriteLine($"collections so far: gen 0 = {GC.CollectionCount(0)}, gen 1 = {GC.CollectionCount(1)}, gen 2 = {GC.CollectionCount(2)}");
+Console.WriteLine($"server GC: {GCSettings.IsServerGC}");
+Console.WriteLine($"memory the GC may use: {GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1_048_576} MB");
+
+GC.KeepAlive(orderLines);
+GC.KeepAlive(reportBuffer);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="bcl">
+      <div class="file-head"><span class="chip tone-blue">BCL</span><span class="name">examples/BaseClassLibrary.cs</span><span class="why">Files, HTTP, JSON, collections, LINQ and time, all from the Base Class Library. None of them need a NuGet package.</span></div>
+<pre><code>using System.Net.Http.Json;
+using System.Text.Json;
+
+var orders = new List&lt;Order&gt;
+{
+    new(1, "shipped", 120.50m),
+    new(2, "pending", 80.00m),
+    new(3, "shipped", 42.25m),
+};
+
+var totalByStatus = orders
+    .GroupBy(order =&gt; order.Status)
+    .ToDictionary(group =&gt; group.Key, group =&gt; group.Sum(order =&gt; order.Total));
+
+await File.WriteAllTextAsync("orders.json", JsonSerializer.Serialize(orders));
+var ordersFromFile = JsonSerializer.Deserialize&lt;List&lt;Order&gt;&gt;(await File.ReadAllTextAsync("orders.json"));
+
+using var httpClient = new HttpClient { BaseAddress = new Uri("https://api.example.com") };
+var remoteOrder = await httpClient.GetFromJsonAsync&lt;Order&gt;("/orders/1");
+
+Console.WriteLine($"{DateTimeOffset.UtcNow:O}: {totalByStatus["shipped"]} shipped, {ordersFromFile?.Count} in file, remote {remoteOrder?.Status}");
+
+record Order(int Id, string Status, decimal Total);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="pool">
+      <div class="file-head"><span class="chip tone-blue">Thread pool</span><span class="name">examples/AwaitContinuation.cs</span><span class="why">Prints the thread ID before and after <code>await</code>. Before, it is the main thread. After, it is a thread pool thread, because a console app has no UI thread to return to.</span></div>
+<pre><code>using var httpClient = new HttpClient();
+
+Console.WriteLine($"before await: thread {Environment.CurrentManagedThreadId}, pool thread: {Thread.CurrentThread.IsThreadPoolThread}");
+
+string homePage = await httpClient.GetStringAsync("https://example.com");
+
+Console.WriteLine($"after await: thread {Environment.CurrentManagedThreadId}, pool thread: {Thread.CurrentThread.IsThreadPoolThread}");
+Console.WriteLine($"received {homePage.Length} characters");</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="pool">
+      <div class="file-head"><span class="chip tone-blue">Thread pool</span><span class="name">examples/ThreadPoolStarvation.cs</span><span class="why">Starts 200 work items that each block a pool thread for 1 second. Finishing the delay needs a pool thread too, so the queue grows and the thread count rises slowly. It takes far longer than 1 second. Replace <code>.Wait()</code> with <code>await</code> and all 200 finish in about 1 second.</span></div>
+<pre><code>using System.Diagnostics;
+
+var stopwatch = Stopwatch.StartNew();
+
+var blockingWorkItems = Enumerable.Range(1, 200)
+    .Select(_ =&gt; Task.Run(() =&gt; Task.Delay(TimeSpan.FromSeconds(1)).Wait()))
+    .ToArray();
+
+while (!Task.WaitAll(blockingWorkItems, TimeSpan.FromSeconds(1)))
+{
+    Console.WriteLine(
+        $"{stopwatch.Elapsed.TotalSeconds:F0} s: pool threads = {ThreadPool.ThreadCount}, queued = {ThreadPool.PendingWorkItemCount}");
+}
+
+Console.WriteLine($"200 one-second waits took {stopwatch.Elapsed.TotalSeconds:F0} s");</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-docker.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
