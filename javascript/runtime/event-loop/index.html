@@ -18,7 +18,7 @@
 
   <section>
     <h2>What it is</h2>
-    <p>JavaScript runs your code on one thread, one function at a time. Waiting work, such as a timer, a network request or reading a file, is handed to the browser or to Node.js, which wait outside your thread. When the wait is over, they put a callback in a queue.</p>
+    <p>JavaScript runs your code on one thread, one function at a time. Waiting work, such as a timer, a network request or reading a file, is handed to the browser or to <a href="../../node/how-nodejs-works/">Node.js</a>, which wait outside your thread. When the wait is over, they put a callback in a queue.</p>
     <p>The <strong>event loop</strong> is the cycle that decides what runs next. Each turn, it waits until the call stack is empty, then runs every callback in the <strong>microtask queue</strong>, then takes one callback from the <strong>task queue</strong>. In a browser, it may also redraw the page between turns.</p>
     <p>Promise callbacks and the code after <code>await</code> are microtasks. Timer callbacks, finished network requests and clicks are tasks. That is why a resolved promise always runs before a <code>setTimeout(..., 0)</code> callback.</p>
     <div class="table-wrap">
@@ -57,7 +57,7 @@
 
   <section>
     <h2>The Node.js loop, phase by phase</h2>
-    <p>Node.js splits the task queue into phases. Each turn of the loop visits them in this order. Between every single callback, Node.js runs all <code>process.nextTick</code> callbacks first, then all promise microtasks.</p>
+    <p>Node.js splits the task queue into phases. The <a href="../../node/how-nodejs-works/">Node.js</a> page shows where the loop sits inside Node.js, next to V8 and the thread pool. Each turn of the loop visits them in this order. Between every single callback, Node.js runs all <code>process.nextTick</code> callbacks first, then all promise microtasks.</p>
     <div class="table-wrap">
       <table class="terms">
         <thead><tr><th>Phase</th><th>Runs</th></tr></thead>

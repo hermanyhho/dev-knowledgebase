@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Node.js</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Node</div>
+    <h1>Node.js</h1>
+    <p class="aka">A program that runs JavaScript outside the browser. Created by Ryan Dahl in 2009.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Node.js runs JavaScript on servers, laptops and build machines. It is not a language or a framework. It is a runtime: a program you start with <code>node server.js</code>, which reads your JavaScript and runs it.</p>
+    <p>It is built from two main parts. <strong>V8</strong>, the JavaScript engine from Google Chrome, turns your JavaScript into machine code and runs it. <strong>libuv</strong>, a C library, runs the <a href="../../runtime/event-loop/">event loop</a> and does the waiting: network, files, timers. On top sit the <strong>core modules</strong>, such as <code>fs</code> and <code>http</code>, which give JavaScript access to the operating system.</p>
+    <p>Your JavaScript runs on one main thread. Network waiting needs no extra threads, because the operating system tells libuv when data arrives. Work that the operating system cannot do without blocking, such as reading files or hashing passwords, goes to a small <strong>thread pool</strong> inside libuv.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">V8</span></td><td>The engine that compiles and runs JavaScript and frees unused memory (garbage collection).</td><td>Shared with Google Chrome</td></tr>
+          <tr><td><span class="chip tone-blue">libuv</span></td><td>The C library that runs the event loop and talks to the operating system.</td><td>Also used by other runtimes</td></tr>
+          <tr><td><span class="chip tone-blue">Thread pool</span></td><td>Worker threads inside libuv for file access, DNS lookups, some crypto and compression. 4 threads by default.</td><td><code>UV_THREADPOOL_SIZE=4</code></td></tr>
+          <tr><td><span class="chip tone-amber">Core module</span></td><td>A module that ships with Node.js. Imported with the <code>node:</code> prefix.</td><td><code>node:fs</code>, <code>node:http</code></td></tr>
+          <tr><td><span class="chip tone-neutral">npm</span></td><td>The package manager that comes with Node.js, and the public registry of packages.</td><td><code>npm install pino</code></td></tr>
+          <tr><td><span class="chip tone-neutral"><code>package.json</code></span></td><td>The file that names a project, its dependencies, its scripts and its module type.</td><td><code>"type": "module"</code></td></tr>
+          <tr><td><span class="chip tone-neutral">ES modules and CommonJS</span></td><td>The two module systems: <code>import</code>/<code>export</code>, and the older <code>require</code>/<code>module.exports</code>.</td><td>This page uses ES modules</td></tr>
+          <tr><td><span class="chip tone-neutral">LTS release</span></td><td>Long-term support. Even-numbered versions get fixes for 30 months. Use these in production.</td><td>Node.js 22, Node.js 24</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> your JavaScript runs on one thread and must keep handing control back. Node.js does the waiting for you, in the operating system or in libuv's thread pool.</div>
+  </section>
+
+  <section>
+    <h2>Where each kind of work happens</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Work</th><th>Runs on</th><th>What it means for you</th></tr></thead>
+        <tbody>
+          <tr><td>Your JavaScript code</td><td>The main thread, in V8</td><td>Long-running code blocks everything else.</td></tr>
+          <tr><td>Network: HTTP, database connections, sockets</td><td>The operating system. libuv waits for its signals (epoll on Linux, kqueue on macOS, IOCP on Windows).</td><td>Thousands of open connections need no extra threads.</td></tr>
+          <tr><td>Files, <code>dns.lookup</code>, <code>crypto.pbkdf2</code>, <code>scrypt</code>, <code>zlib</code></td><td>libuv's thread pool, 4 threads by default</td><td>A fifth slow job waits for a free thread, and file reads queue behind password hashes.</td></tr>
+          <tr><td>CPU-heavy JavaScript, such as a big report</td><td>The main thread, unless you move it</td><td>Move it to <code>worker_threads</code>. Each worker has its own V8 and event loop.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How browser JavaScript and Node.js differ</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Browser</th><th>Node.js</th></tr></thead>
+        <tbody>
+          <tr><td>Global objects</td><td><code>window</code>, <code>document</code></td><td><code>process</code>, <code>globalThis</code>, <code>Buffer</code></td></tr>
+          <tr><td>APIs</td><td>The page (DOM), <code>fetch</code>, <code>localStorage</code></td><td>Files, HTTP servers, sockets, child processes. <code>fetch</code> too, since Node.js 18.</td></tr>
+          <tr><td>Access to the computer</td><td>None. The page runs in a sandbox.</td><td>Full, with the rights of the user that started it</td></tr>
+          <tr><td>Extra threads</td><td>Web Workers</td><td><code>worker_threads</code></td></tr>
+          <tr><td>Event loop</td><td>Tasks, microtasks and page redraws</td><td>Tasks split into phases, plus <code>process.nextTick</code></td></tr>
+          <tr><td>Who picks the version</td><td>Each visitor's browser</td><td>You, on your server</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How Node.js compares with ASP.NET Core</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Node.js</th><th>ASP.NET Core</th></tr></thead>
+        <tbody>
+          <tr><td>Runtime</td><td>V8 and libuv</td><td>The .NET runtime (CLR)</td></tr>
+          <tr><td>Language</td><td>JavaScript, or TypeScript compiled to JavaScript</td><td>C# and other .NET languages</td></tr>
+          <tr><td>Threads running request code</td><td>One per process</td><td>A pool of threads per process</td></tr>
+          <tr><td>Using all CPU cores</td><td>Several processes, or worker threads</td><td>One process uses all cores</td></tr>
+          <tr><td>Packages</td><td>npm</td><td>NuGet</td></tr>
+          <tr><td>Common fits</td><td>I/O-heavy APIs, backends for frontends, real-time apps, tooling</td><td>Same, plus CPU-heavy services</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Running Node.js in production</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Version</td><td>Use an LTS release and pin it in <code>package.json</code> under <code>engines</code> and in the Docker image tag.</td></tr>
+          <tr><td>Using more than one core</td><td>Run several containers or processes, about one per CPU core, behind a load balancer.</td></tr>
+          <tr><td>Shutting down</td><td>On <code>SIGTERM</code>, stop taking new requests, finish the ones in progress, close database pools, then exit.</td></tr>
+          <tr><td>Crashes</td><td>Log uncaught exceptions and unhandled rejections, then exit and let the container restart. The process may be in a broken state.</td></tr>
+          <tr><td>Memory</td><td>Set <code>--max-old-space-size</code> below the container's memory limit, so V8 cleans up before the container is killed.</td></tr>
+          <tr><td>Running as root</td><td>Do not. The official image has a <code>node</code> user.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Startup</td><td>Node.js version, app version, port, environment name. No secrets.</td><td>info</td></tr>
+          <tr><td>Uncaught exception or unhandled rejection</td><td>Error and stack, then exit</td><td>fatal</td></tr>
+          <tr><td>Shutdown</td><td>Signal received, requests still in progress, time taken</td><td>info</td></tr>
+          <tr><td>Metric: event loop delay</td><td>See the <a href="../../runtime/event-loop/">event loop</a> page</td><td>Alert if over 100 ms</td></tr>
+          <tr><td>Metric: memory</td><td>Heap used and RSS (all memory the process holds), from <code>process.memoryUsage()</code></td><td>Alert if it keeps growing: a memory leak</td></tr>
+          <tr><td>Log format</td><td>JSON lines to standard output, with an asynchronous logger such as pino. The platform collects them.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 80 920 380" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">Your code and npm packages call the Node.js core modules. The core modules use V8 to run JavaScript, and libuv's event loop and thread pool to wait for the operating system.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="325" y="240" width="570" height="120" rx="10"/>
+        <text class="t-label" x="610" y="257">LIBUV</text>
+
+        <g class="node" id="n-code" tabindex="0" role="button" aria-label="Show a small Node.js server" data-title="Your JavaScript code: a server" data-node="code">
+          <rect class="shape tone-neutral" x="40" y="95" width="400" height="50" rx="6"/>
+          <text class="t-name" x="240" y="116">Your JavaScript code</text>
+          <text class="t-kind" x="240" y="133">runs on one main thread</text>
+        </g>
+        <g class="node" id="n-npm" tabindex="0" role="button" aria-label="Show package.json" data-title="npm packages: package.json" data-node="npm">
+          <rect class="shape tone-neutral" x="480" y="95" width="400" height="50" rx="6"/>
+          <text class="t-name" x="680" y="116">npm packages</text>
+          <text class="t-kind" x="680" y="133">express, pg, pino</text>
+        </g>
+        <g class="node" id="n-core" tabindex="0" role="button" aria-label="Show the core modules" data-title="Node.js core modules" data-node="core">
+          <rect class="shape tone-amber" x="40" y="175" width="840" height="50" rx="6"/>
+          <text class="t-name" x="460" y="196">Node.js core modules</text>
+          <text class="t-kind" x="460" y="213">fs, http, net, crypto, stream, worker_threads</text>
+        </g>
+        <g class="node" id="n-v8" tabindex="0" role="button" aria-label="Show memory and V8 settings" data-title="V8 engine: memory" data-node="v8">
+          <rect class="shape tone-teal" x="40" y="255" width="260" height="90" rx="6"/>
+          <text class="t-name" x="170" y="295">V8 engine</text>
+          <text class="t-kind" x="170" y="313">compiles and runs JavaScript</text>
+          <text class="t-kind" x="170" y="329">frees unused memory</text>
+        </g>
+        <g class="node" id="n-loop" tabindex="0" role="button" aria-label="Show network I/O with no extra threads" data-title="Event loop: network without extra threads" data-node="loop">
+          <rect class="shape tone-blue" x="340" y="265" width="260" height="80" rx="6"/>
+          <text class="t-name" x="470" y="296">Event loop</text>
+          <text class="t-kind" x="470" y="314">waits for network events</text>
+          <text class="t-kind" x="470" y="330">from the operating system</text>
+        </g>
+        <g class="node" id="n-pool" tabindex="0" role="button" aria-label="Show the thread pool limit" data-title="Thread pool: 4 threads" data-node="pool">
+          <rect class="shape tone-blue" x="640" y="265" width="240" height="80" rx="6"/>
+          <text class="t-name" x="760" y="296">Thread pool</text>
+          <text class="t-kind" x="760" y="314">4 threads by default</text>
+          <text class="t-kind" x="760" y="330">files, DNS, crypto, zlib</text>
+        </g>
+        <g class="node" id="n-os" tabindex="0" role="button" aria-label="Show the production Dockerfile" data-title="Operating system: running in a container" data-node="os">
+          <rect class="shape tone-neutral" x="40" y="395" width="840" height="50" rx="6"/>
+          <text class="t-name" x="460" y="416">Operating system</text>
+          <text class="t-kind" x="460" y="433">sockets (epoll, kqueue, IOCP), files, timers, CPU cores</text>
+        </g>
+
+        <path class="flow" id="a-code-core" d="M240,145 L240,173" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-npm-core" d="M680,145 L680,173" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-core-v8" d="M170,225 L170,253" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-core-loop" d="M470,225 L470,263" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-core-pool" d="M760,225 L760,263" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-loop-os" d="M470,345 L470,393" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-pool-os" d="M760,345 L760,393" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-loop-v8" d="M340,305 L302,305" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-pool-loop" d="M638,305 L602,305" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-pool-full" x="760" y="378">HASH 5 WAITS FOR A THREAD</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="http" aria-pressed="true">An HTTP request</button>
+        <button type="button" data-flow="file" aria-pressed="false">Reading a file</button>
+        <button type="button" data-flow="pool" aria-pressed="false">Five password hashes at once</button>
+        <button type="button" data-flow="v8" aria-pressed="false">Running your JavaScript</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="http" hidden>
+        <li data-highlight="n-os">A browser connects and sends an HTTP request. The bytes arrive at the operating system's network stack.</li>
+        <li data-highlight="n-os a-loop-os n-loop">The operating system tells libuv that the socket has data. No thread was waiting on this socket.</li>
+        <li data-highlight="n-loop a-core-loop n-core">On its next turn, the event loop passes the bytes to the <code>http</code> core module, which parses the request.</li>
+        <li data-highlight="n-core a-loop-v8 n-v8 a-code-core n-code">V8 runs your request handler on the main thread.</li>
+        <li data-highlight="n-code a-code-core n-core a-core-loop n-loop a-loop-os n-os">Your handler writes the response. libuv hands the bytes to the operating system to send. Again, no thread pool is used.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="file" hidden>
+        <li data-highlight="n-code a-code-core n-core">Your code calls <code>await readFile("orders.csv")</code> from <code>node:fs/promises</code>.</li>
+        <li data-highlight="n-core a-core-pool n-pool">Most operating systems have no general non-blocking file API, so libuv gives the read to one of its 4 pool threads.</li>
+        <li data-highlight="n-pool a-pool-os n-os">That pool thread makes a normal, blocking read call. The main thread is not affected.</li>
+        <li data-highlight="n-pool a-pool-loop n-loop a-loop-v8 n-v8 n-code">When the read finishes, the pool thread tells the event loop. The rest of your function continues on the main thread.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="pool" hidden>
+        <li data-highlight="n-code a-code-core n-core">Five users log in at the same moment. Your code calls <code>crypto.pbkdf2</code> five times to check their passwords.</li>
+        <li data-highlight="n-core a-core-pool n-pool">Hashing is slow on purpose, about 100 ms each. Four calls take the four pool threads.</li>
+        <li data-highlight="n-pool t-pool-full">The fifth hash waits for a free thread, so it takes about 200 ms. A file read started now would also wait.</li>
+        <li data-highlight="n-pool">Options: set <code>UV_THREADPOOL_SIZE</code> higher, up to the number of CPU cores, or run more processes. Click "Thread pool" to see the timing program.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="v8" hidden>
+        <li data-highlight="n-code a-code-core n-core a-core-v8 n-v8">V8 reads your JavaScript and first runs it quickly without much optimization.</li>
+        <li data-highlight="n-v8">Functions that run often are compiled again into faster machine code. This is just-in-time compilation.</li>
+        <li data-highlight="n-v8">From time to time, V8 pauses your code to free memory that nothing uses any more. Short pauses are normal. Long ones show up as event loop delay.</li>
+        <li data-highlight="n-v8 n-os">If the heap reaches its limit, the process crashes with "heap out of memory". Set the limit with <code>--max-old-space-size</code>, below the container's limit.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Yours or the operating system</span>
+      <span class="chip tone-amber">Core modules</span>
+      <span class="chip tone-teal">V8</span>
+      <span class="chip tone-blue">libuv</span>
+      <span>Arrows point from each layer to the layer it uses. Data coming back, such as an arriving request, travels the other way. Click a box to see a small program or file that shows it.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">shop-api/</div>
+      <button type="button" class="tree-row" data-file="package.json"><span class="path">├─ package.json</span><span class="chip tone-neutral">Project</span></button>
+      <button type="button" class="tree-row" data-file="Dockerfile"><span class="path">├─ Dockerfile</span><span class="chip tone-neutral">Production</span></button>
+      <button type="button" class="tree-row" data-file="src/server.js"><span class="path">├─ src/server.js</span><span class="chip tone-neutral">Server</span></button>
+      <button type="button" class="tree-row" data-file="examples/core-modules.js"><span class="path">├─ examples/core-modules.js</span><span class="chip tone-amber">Core modules</span></button>
+      <button type="button" class="tree-row" data-file="examples/many-connections.js"><span class="path">├─ examples/many-connections.js</span><span class="chip tone-blue">Event loop</span></button>
+      <button type="button" class="tree-row" data-file="examples/thread-pool-limit.js"><span class="path">├─ examples/thread-pool-limit.js</span><span class="chip tone-blue">Thread pool</span></button>
+      <button type="button" class="tree-row" data-file="examples/memory-usage.js"><span class="path">└─ examples/memory-usage.js</span><span class="chip tone-teal">V8 memory</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Many connections, little memory</strong><span>One thread handles thousands of open connections, because the operating system does the waiting.</span></li>
+        <li><strong>Two languages for one product</strong><span>Frontend and backend can share JavaScript or TypeScript code, types and developers.</span></li>
+        <li><strong>Slow start for small services</strong><span>A working HTTP server is a few lines, and it starts in well under a second.</span></li>
+        <li><strong>Finding libraries</strong><span>npm has packages for almost every protocol, database and file format.</span></li>
+        <li><strong>Locks around shared data</strong><span>Your code runs on one thread, so in-memory data needs no locks.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>CPU-heavy work blocks the server</strong><span>Reports, image work or big JSON files need worker threads or a different service.</span></li>
+        <li><strong>One core per process</strong><span>Using a whole machine needs several processes or containers.</span></li>
+        <li><strong>A small thread pool</strong><span>File access, DNS lookups and password hashing share 4 threads by default.</span></li>
+        <li><strong>Many small dependencies</strong><span>One package can pull in hundreds of others. Each is code you run and must keep updated.</span></li>
+        <li><strong>A crash stops every request</strong><span>An unhandled error ends the process, and every request in it.</span></li>
+        <li><strong>Two module systems</strong><span>ES modules and CommonJS mix poorly, which causes import errors in older packages.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="npm">
+      <div class="file-head"><span class="chip tone-neutral">Project</span><span class="name">package.json</span><span class="why"><code>"type": "module"</code> turns on ES modules. <code>engines</code> records the Node.js version the app expects. Exact versions in <code>package-lock.json</code>, created by <code>npm install</code>, make every install the same.</span></div>
+<pre><code>{
+  "name": "shop-api",
+  "version": "1.4.0",
+  "type": "module",
+  "engines": { "node": "&gt;=22" },
+  "scripts": {
+    "start": "node --max-old-space-size=768 src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "pg": "^8.13.0",
+    "pino": "^9.5.0"
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-docker">
+    <div class="file" data-lang="any" data-node="os">
+      <div class="file-head"><span class="chip tone-neutral">Production</span><span class="name">Dockerfile</span><span class="why">An LTS image, production dependencies only, and the unprivileged <code>node</code> user. <code>CMD</code> starts <code>node</code> directly rather than through <code>npm start</code>, so the process receives <code>SIGTERM</code> and can shut down cleanly.</span></div>
+<pre><code>FROM node:22-slim
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY src ./src
+
+USER node
+EXPOSE 3000
+CMD ["node", "--max-old-space-size=768", "src/server.js"]</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="code">
+      <div class="file-head"><span class="chip tone-neutral">Server</span><span class="name">src/server.js</span><span class="why">A complete small service: JSON logs to standard output, a startup log, a clean shutdown on <code>SIGTERM</code>, and exit after an unexpected error so the container restarts.</span></div>
+<pre><code>import http from "node:http";
+import pino from "pino";
+
+const logger = pino();
+const port = Number(process.env.PORT ?? 3000);
+
+const server = http.createServer((req, res) =&gt; {
+  if (req.url === "/health") return res.end("ok");
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ message: "hello from Node.js" }));
+});
+
+server.listen(port, () =&gt; {
+  logger.info({ nodeVersion: process.version, port, environment: process.env.NODE_ENV }, "server started");
+});
+
+process.on("SIGTERM", () =&gt; {
+  logger.info("SIGTERM received, closing the server");
+  server.close(() =&gt; {
+    logger.info("all open requests finished, exiting");
+    process.exit(0);
+  });
+});
+
+process.on("uncaughtException", (error) =&gt; {
+  logger.fatal({ err: error }, "uncaught exception, exiting");
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) =&gt; {
+  logger.fatal({ err: reason }, "unhandled promise rejection, exiting");
+  process.exit(1);
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="core">
+      <div class="file-head"><span class="chip tone-amber">Core modules</span><span class="name">examples/core-modules.js</span><span class="why">The core modules used most often, each with one line showing what it is for. None of them need <code>npm install</code>.</span></div>
+<pre><code>import { readFile } from "node:fs/promises";
+import http from "node:http";
+import { randomUUID, createHash } from "node:crypto";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
+import { createReadStream, createWriteStream } from "node:fs";
+import { Worker } from "node:worker_threads";
+import path from "node:path";
+
+const config = JSON.parse(await readFile(path.join(import.meta.dirname, "config.json"), "utf8"));
+const requestId = randomUUID();
+const fileHash = createHash("sha256").update("file contents").digest("hex");
+
+await pipeline(createReadStream("orders.csv"), createGzip(), createWriteStream("orders.csv.gz"));
+
+http.createServer((req, res) =&gt; res.end("ok")).listen(3000);
+new Worker(new URL("./report-worker.js", import.meta.url));
+
+console.log({ config, requestId, fileHash });</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="loop">
+      <div class="file-head"><span class="chip tone-blue">Event loop</span><span class="name">examples/many-connections.js</span><span class="why">An echo server. Idle connections cost only a little memory each, because no thread waits on them: the operating system tells libuv when one has data. Thousands of open connections still run on one JavaScript thread.</span></div>
+<pre><code>import net from "node:net";
+
+let openConnections = 0;
+
+net
+  .createServer((socket) =&gt; {
+    openConnections += 1;
+    socket.on("data", (chunk) =&gt; socket.write(chunk));
+    socket.on("close", () =&gt; {
+      openConnections -= 1;
+    });
+  })
+  .listen(4000);
+
+setInterval(() =&gt; {
+  console.log({ openConnections, heapUsedMegabytes: Math.round(process.memoryUsage().heapUsed / 1e6) });
+}, 5000);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="pool">
+      <div class="file-head"><span class="chip tone-blue">Thread pool</span><span class="name">examples/thread-pool-limit.js</span><span class="why">Starts five slow hashes at once and prints when each finishes. With the default pool of 4, the first four finish together and the fifth about twice as late. Run it again with <code>UV_THREADPOOL_SIZE=8 node thread-pool-limit.js</code> and all five finish together.</span></div>
+<pre><code>import { pbkdf2 } from "node:crypto";
+
+const startedAt = Date.now();
+
+for (let hashNumber = 1; hashNumber &lt;= 5; hashNumber++) {
+  pbkdf2("password", "salt", 600_000, 64, "sha512", () =&gt; {
+    console.log(`hash ${hashNumber} done after ${Date.now() - startedAt} ms`);
+  });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="v8">
+      <div class="file-head"><span class="chip tone-teal">V8 memory</span><span class="name">examples/memory-usage.js</span><span class="why">Logs the V8 heap and the whole process memory every 30 seconds. If both keep growing over hours, something keeps objects alive: a memory leak. <code>heapLimitMegabytes</code> shows the limit set with <code>--max-old-space-size</code>.</span></div>
+<pre><code>import { getHeapStatistics } from "node:v8";
+import pino from "pino";
+
+const logger = pino();
+const bytesPerMegabyte = 1024 * 1024;
+
+setInterval(() =&gt; {
+  const memory = process.memoryUsage();
+  logger.info(
+    {
+      heapUsedMegabytes: Math.round(memory.heapUsed / bytesPerMegabyte),
+      rssMegabytes: Math.round(memory.rss / bytesPerMegabyte),
+      heapLimitMegabytes: Math.round(getHeapStatistics().heap_size_limit / bytesPerMegabyte),
+    },
+    "memory usage",
+  );
+}, 30_000).unref();</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-docker.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

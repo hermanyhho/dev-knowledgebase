@@ -38,3 +38,4 @@ What each category covers: [javascript/README.md](javascript/README.md)
 | Topic | Category | Page | Source |
 |---|---|---|---|
 | Event Loop | Runtime | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/runtime/event-loop/) | [index.html](javascript/runtime/event-loop/index.html) |
+| Node.js | Node | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/node/how-nodejs-works/) | [index.html](javascript/node/how-nodejs-works/index.html) |

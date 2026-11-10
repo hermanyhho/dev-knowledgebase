@@ -5,7 +5,7 @@
 | Folder | Question it answers | Topics |
 |---|---|---|
 | `runtime/` | How does JavaScript run code? | event loop, promises and microtasks |
-| `node/` | What does Node.js add on top of the language? | streams, worker threads, cluster |
+| `node/` | What is Node.js, and what does it add on top of the language? | how Node.js works, streams, worker threads, cluster |
 
 A folder is created when its first topic is added.
 
@@ -19,3 +19,4 @@ javascript/<category>/<topic>/
 ## Topics
 
 - [Event Loop](runtime/event-loop/index.html) - runtime
+- [Node.js](node/how-nodejs-works/index.html) - node
