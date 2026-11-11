@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CommonJS and ES Modules</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Modules</div>
+    <h1>CommonJS and ES Modules</h1>
+    <p class="aka">The two module systems in JavaScript: <code>require</code> with <code>module.exports</code>, and <code>import</code> with <code>export</code>.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A module is one JavaScript file with its own scope. Variables declared in it are not visible in other files. A module exports the values other files may use, and imports values from other modules.</p>
+    <p>JavaScript has two module systems. <strong>CommonJS</strong> uses <code>require</code> and <code>module.exports</code>. <a href="../../node/how-nodejs-works/">Node.js</a> created it in 2009, because the language had no modules then. <strong>ES modules</strong> (ESM) use <code>import</code> and <code>export</code>. They became part of the language in ES2015 and work in browsers and in Node.js.</p>
+    <p>Both are still in use, because hundreds of thousands of npm packages were written in CommonJS before Node.js supported ES modules in 2019.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Module</span></td><td>One file with its own scope. It exports some values and imports others.</td><td><code>src/counter.js</code></td></tr>
+          <tr><td><span class="chip tone-amber">CommonJS (CJS)</span></td><td>The original Node.js module system. <code>require</code> loads a file when that line runs.</td><td><code>require("../src/counter.cjs")</code></td></tr>
+          <tr><td><span class="chip tone-blue">ES module (ESM)</span></td><td>The module system of the language standard. Imports are found and connected before any code runs.</td><td><code>import { count } from "../src/counter.js"</code></td></tr>
+          <tr><td><span class="chip tone-amber"><code>module.exports</code></span></td><td>The object a CommonJS file gives to every file that requires it. <code>exports</code> points to the same object at the start.</td><td><code>module.exports = { count, increment }</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Specifier</span></td><td>The string after <code>require</code> or <code>from</code>. Relative, a package name, or a built-in module.</td><td><code>"./counter.js"</code>, <code>"pino"</code>, <code>"node:fs"</code></td></tr>
+          <tr><td><span class="chip tone-teal">Module cache</span></td><td>Stores each loaded module under its full path, so each file runs once per process.</td><td><code>require.cache</code></td></tr>
+          <tr><td><span class="chip tone-blue">Live binding</span></td><td>An import that reads the exporting module's variable itself, not a copy of its value.</td><td><code>count</code> after <code>increment()</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Dual package</span></td><td>A package that ships an ES module file and a CommonJS file. The <code>"exports"</code> field in <code>package.json</code> picks one.</td><td><code>"import"</code> and <code>"require"</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> write new code as ES modules. CommonJS loads each file when the <code>require</code> line runs and hands back a copy of its exported values. ES modules load and connect every file before any code runs, and imports read the exported variables directly.</div>
+  </section>
+
+  <section>
+    <h2>Why there are two systems</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Year</th><th>What happened</th></tr></thead>
+        <tbody>
+          <tr><td>Before 2009</td><td>Browsers load scripts with <code>&lt;script&gt;</code> tags. All files share global variables. The language has no way to import a file.</td></tr>
+          <tr><td>2009</td><td>Node.js starts and uses CommonJS. Files are on a local disk, so loading them synchronously at the <code>require</code> line is fast enough.</td></tr>
+          <tr><td>2015</td><td>ES2015 adds <code>import</code> and <code>export</code> to the language. The design must also work in browsers, where files arrive over the network, so loading cannot block.</td></tr>
+          <tr><td>2017-2018</td><td>Browsers support <code>&lt;script type="module"&gt;</code>.</td></tr>
+          <tr><td>2019</td><td>Node.js 13.2 supports ES modules without a flag.</td></tr>
+          <tr><td>2024-2025</td><td>Node.js 22.12 and 20.19 let CommonJS code <code>require</code> an ES module without a flag.</td></tr>
+          <tr><td>2026</td><td>Node.js 20 reached end of life in April. Both supported LTS versions, 24 (current LTS) and 22 (maintenance LTS), can require ES modules.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How CommonJS loads a file</h2>
+    <p><code>require</code> is a normal function. It can sit inside an <code>if</code> or a function, and its path can be built at run time. Each call goes through these steps before it returns.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What Node.js does</th><th>What it means for you</th></tr></thead>
+        <tbody>
+          <tr><td>1. Resolve</td><td>Turns the specifier into a full path. For a relative path it tries the exact name, then <code>.js</code>, <code>.json</code>, <code>.node</code>, then a folder's <code>index.js</code>. Package names are looked up in <code>node_modules</code> folders, from the current folder upwards.</td><td>If the path is already in <code>require.cache</code>, steps 2 to 4 are skipped.</td></tr>
+          <tr><td>2. Read</td><td>Reads the file from disk synchronously.</td><td>The thread waits. Fine at startup, slow inside a request handler.</td></tr>
+          <tr><td>3. Wrap</td><td>Puts the file's text inside <code>function (exports, require, module, __filename, __dirname) { ... }</code>.</td><td>Each file has its own scope. These five names are parameters, not globals.</td></tr>
+          <tr><td>4. Run</td><td>Stores the new module in <code>require.cache</code>, then calls the function once.</td><td>The whole file runs before <code>require</code> returns.</td></tr>
+          <tr><td>5. Return</td><td>Returns <code>module.exports</code>.</td><td>Numbers and strings in it are copies taken when the file ran. Later changes to the module's variables do not reach the caller.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Circular requires do not fail. If <code>first.cjs</code> requires <code>second.cjs</code> and <code>second.cjs</code> requires <code>first.cjs</code>, the second file gets <code>first.cjs</code>'s <code>module.exports</code> as it is at that moment: partly filled.</p>
+  </section>
+
+  <section>
+    <h2>How ES modules load a file</h2>
+    <p>Loading has three phases. No code runs until the first two have finished for every file in the graph.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Phase</th><th>What happens</th><th>What it means for you</th></tr></thead>
+        <tbody>
+          <tr><td>1. Parse and load</td><td>Reads each file, finds its <code>import</code> and <code>export</code> statements without running it, then loads every imported file the same way, until the whole graph is known.</td><td>Imports are static: a string literal at the top level of the file. They are processed first wherever they are written (hoisted). A missing file fails before any code runs.</td></tr>
+          <tr><td>2. Link</td><td>Connects every imported name to the exported variable in the other module.</td><td>A misspelled import name fails before any code runs.</td></tr>
+          <tr><td>3. Evaluate</td><td>Runs each module's top-level code once, dependencies first.</td><td>An import is a live binding: the importer sees later changes to the exported variable. The importer cannot assign to it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>Other ES module features</h3>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Feature</th><th>Example</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Strict mode</td><td><code>total = 5</code> without a declaration throws</td><td>Always on. <code>this</code> at the top level is <code>undefined</code>.</td></tr>
+          <tr><td>Top-level await</td><td><code>export const settings = await loadSettings();</code></td><td>Modules that import this one wait until the promise settles. The <a href="../../runtime/event-loop/">event loop</a> keeps running other work.</td></tr>
+          <tr><td>Dynamic import</td><td><code>await import(`./plugins/${pluginName}.js`)</code></td><td>Returns a promise. The path can be computed. Also works in CommonJS files.</td></tr>
+          <tr><td><code>import.meta</code></td><td><code>import.meta.url</code>, <code>import.meta.dirname</code>, <code>import.meta.filename</code></td><td>Replace <code>__filename</code> and <code>__dirname</code>. <code>dirname</code> and <code>filename</code> exist since Node.js 20.11.</td></tr>
+          <tr><td>File extensions</td><td><code>import { count } from "./counter.js"</code></td><td>Node.js needs the full file name for relative imports. It does not try extensions or <code>index.js</code>.</td></tr>
+          <tr><td>JSON files</td><td><code>import defaults from "./defaults.json" with { type: "json" }</code></td><td>The <code>with</code> part is required. JSON modules have a default export only.</td></tr>
+          <tr><td>Tree shaking</td><td>A bundler drops exports that nothing imports</td><td>Bundlers such as Vite, Rollup, esbuild and webpack can see static imports without running the code.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How Node.js decides which system a file uses</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>File</th><th>Loaded as</th></tr></thead>
+        <tbody>
+          <tr><td><code>.cjs</code></td><td>CommonJS, always</td></tr>
+          <tr><td><code>.mjs</code></td><td>ES module, always</td></tr>
+          <tr><td><code>.js</code> with <code>"type": "module"</code></td><td>ES module</td></tr>
+          <tr><td><code>.js</code> with <code>"type": "commonjs"</code></td><td>CommonJS</td></tr>
+          <tr><td><code>.js</code> without <code>"type"</code></td><td>CommonJS. If the file contains <code>import</code> or <code>export</code>, Node.js 22.7 and later run it again as an ES module. Set <code>"type"</code> so Node.js does not parse twice.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Node.js reads <code>"type"</code> from the nearest <code>package.json</code>: the first one found from the file's folder upwards. For packages, the <code>"exports"</code> field in <code>package.json</code> lists the files other code may load. Conditions inside it choose a file by how it is loaded. Node.js uses the first condition that matches, so order matters.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Condition</th><th>Matches when</th></tr></thead>
+        <tbody>
+          <tr><td><code>"import"</code></td><td>The package is loaded with <code>import</code> or <code>import()</code></td></tr>
+          <tr><td><code>"require"</code></td><td>The package is loaded with <code>require</code></td></tr>
+          <tr><td><code>"types"</code></td><td>TypeScript looks for type definitions. Put it first.</td></tr>
+          <tr><td><code>"default"</code></td><td>Always. Put it last, as the fallback.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>Dual package hazard:</strong> if your app imports a dual package and one of your dependencies requires it, Node.js loads both files. You get two copies of the package with separate state, and <code>instanceof</code> checks between them fail. Every supported Node.js version can now require an ES module, so a package can ship one ES module file and avoid the problem.</p>
+  </section>
+
+  <section>
+    <h2>Using one system from the other</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Case</th><th>Code</th><th>What you get</th></tr></thead>
+        <tbody>
+          <tr><td>import of CommonJS</td><td><code>import counter, { increment } from "./counter.cjs"</code></td><td>The default export is <code>module.exports</code>. Named imports work only when Node.js finds the names by reading the source text, for patterns such as <code>exports.name =</code> and <code>module.exports = { name }</code>. Otherwise use the default import.</td></tr>
+          <tr><td><code>require</code> in an ES module</td><td><code>const require = createRequire(import.meta.url)</code></td><td>A <code>require</code> function from <code>node:module</code>, for <code>require.resolve</code> or native addons.</td></tr>
+          <tr><td>require of an ES module</td><td><code>const { formatPrice } = require("./format-price.js")</code></td><td>Works without a flag since Node.js 22.12 and 20.19. Returns the module namespace object. A default export is under <code>.default</code>. Throws <code>ERR_REQUIRE_ASYNC_MODULE</code> if the module or anything it imports uses top-level await. Node.js 22 also prints an <code>ExperimentalWarning</code> the first time.</td></tr>
+          <tr><td><code>import()</code> in CommonJS</td><td><code>const { settings } = await import("./load-settings.js")</code></td><td>Works in every Node.js version, inside an <code>async</code> function. Also works with top-level await.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>TypeScript and browsers</h2>
+    <p>TypeScript source always uses <code>import</code>. The <code>module</code> setting in <code>tsconfig.json</code> decides what the compiled JavaScript uses.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Setting or tag</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>"module": "nodenext"</code></td><td>Uses the Node.js rules per file: <code>.mts</code> becomes an ES module, <code>.cts</code> becomes CommonJS, <code>.ts</code> follows <code>"type"</code>. Relative imports are written with <code>.js</code>, the name of the compiled file.</td></tr>
+          <tr><td><code>"module": "commonjs"</code></td><td>Compiles every <code>import</code> to <code>require</code> and every <code>export</code> to <code>exports.name =</code>.</td></tr>
+          <tr><td><code>"module": "esnext"</code></td><td>Keeps <code>import</code> and <code>export</code>. Used with a bundler and <code>"moduleResolution": "bundler"</code>.</td></tr>
+          <tr><td><code>"verbatimModuleSyntax": true</code></td><td>Emits each import as written and removes only <code>import type</code>. In a file that compiles to CommonJS, <code>import</code> syntax is a compile error.</td></tr>
+          <tr><td><code>&lt;script type="module"&gt;</code></td><td>The browser loads the file as an ES module: own scope, strict mode, runs after the HTML is parsed. Browsers do not support CommonJS.</td></tr>
+          <tr><td><code>&lt;script type="importmap"&gt;</code></td><td>Maps package names such as <code>"order-pricing"</code> to URLs, so the browser can resolve them without a bundler.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>CommonJS and ES modules compared</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>CommonJS</th><th>ES modules</th></tr></thead>
+        <tbody>
+          <tr><td>Syntax</td><td><code>require</code>, <code>module.exports</code></td><td><code>import</code>, <code>export</code></td></tr>
+          <tr><td>When files load</td><td>When the <code>require</code> line runs, synchronously</td><td>All files in the graph, before any code runs</td></tr>
+          <tr><td>Conditional or computed path</td><td>Yes</td><td>Only with <code>import()</code></td></tr>
+          <tr><td>Exported values</td><td>Copies taken when the file ran</td><td>Live bindings</td></tr>
+          <tr><td>Misspelled export name</td><td><code>undefined</code> at run time</td><td><code>SyntaxError</code> before any code runs</td></tr>
+          <tr><td>Circular imports</td><td>Partly filled exports object</td><td><code>ReferenceError</code> if a value is read before its module ran</td></tr>
+          <tr><td>Top-level await</td><td>No</td><td>Yes</td></tr>
+          <tr><td>Strict mode</td><td>Only with <code>"use strict"</code></td><td>Always</td></tr>
+          <tr><td>File location</td><td><code>__filename</code>, <code>__dirname</code></td><td><code>import.meta.filename</code>, <code>import.meta.dirname</code></td></tr>
+          <tr><td>Relative path</td><td><code>./counter</code> works</td><td><code>./counter.js</code> needed</td></tr>
+          <tr><td>Browsers</td><td>Only through a bundler</td><td>Yes</td></tr>
+          <tr><td>Tree shaking</td><td>Limited</td><td>Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Which one to use</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Situation</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td>New app or service</td><td>ES modules, with <code>"type": "module"</code></td></tr>
+          <tr><td>New library</td><td>ES modules only. CommonJS users on Node.js 22.12 or later can <code>require</code> it, as long as its entry graph has no top-level await.</td></tr>
+          <tr><td>Library that must support Node.js older than 20.19</td><td>A dual package, or CommonJS</td></tr>
+          <tr><td>Large existing CommonJS app</td><td>Keep CommonJS. New files can be ES modules, because CommonJS can now require them. Convert old files when you change them.</td></tr>
+          <tr><td>Tests built on <code>jest.mock</code></td><td>CommonJS, or move to a test runner with ES module mocking. <code>jest.mock</code> replaces modules through <code>require</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Common errors and what they mean</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Error code or name</th><th>Message and cause</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td><code>ReferenceError</code></td><td><code>require is not defined in ES module scope</code>. The file is an ES module, and <code>require</code> exists only in CommonJS.</td><td>Use <code>import</code>, or <code>createRequire(import.meta.url)</code>.</td></tr>
+          <tr><td><code>ReferenceError</code></td><td><code>__dirname is not defined in ES module scope</code>. Same cause: <code>__dirname</code> is a parameter of the CommonJS wrapper.</td><td>Use <code>import.meta.dirname</code>.</td></tr>
+          <tr><td><code>SyntaxError</code></td><td><code>Cannot use import statement outside a module</code>. A file loaded as CommonJS contains <code>import</code>: a <code>.cjs</code> file, <code>"type": "commonjs"</code>, or a browser <code>&lt;script&gt;</code> without <code>type="module"</code>.</td><td>Rename to <code>.mjs</code>, set <code>"type": "module"</code>, or add <code>type="module"</code>.</td></tr>
+          <tr><td><code>ERR_MODULE_NOT_FOUND</code></td><td><code>Cannot find module '/app/src/format-price'</code>. A relative import without the file extension.</td><td>Write <code>"./format-price.js"</code>.</td></tr>
+          <tr><td><code>ERR_REQUIRE_ESM</code></td><td><code>require</code> of an ES module on Node.js older than 22.12 or 20.19.</td><td>Upgrade Node.js, or use <code>await import()</code>.</td></tr>
+          <tr><td><code>ERR_REQUIRE_ASYNC_MODULE</code></td><td><code>require</code> of an ES module graph that uses top-level await.</td><td>Use <code>await import()</code>, or remove the top-level await.</td></tr>
+          <tr><td><code>SyntaxError</code></td><td><code>Named export 'increment' not found</code>. Node.js could not find that name in the CommonJS file's source text.</td><td>Import the default export and read the property from it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging module load errors</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log</th><th>Level</th></tr></thead>
+        <tbody>
+          <tr><td>A static import fails at startup</td><td>The process stops before any of your code runs, including the logger setup. Node.js writes the error to standard error, so make sure the platform keeps standard error output.</td><td></td></tr>
+          <tr><td>A module loaded with <code>import()</code> fails</td><td>The specifier, <code>error.code</code> such as <code>ERR_MODULE_NOT_FOUND</code>, and the stack</td><td>fatal if the app cannot work without it, warn if it is optional</td></tr>
+          <tr><td>Warnings at startup</td><td>Node.js prints module warnings, such as a <code>package.json</code> without <code>"type"</code>, to standard error. Fix them rather than hide them.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 642" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The file extension and the type field in package.json decide which loader runs a file. The CommonJS loader resolves, reads, wraps, runs and returns module.exports, one file at a time, when require is called. The ES module loader parses and loads the whole import graph, links imported names to exported variables, then evaluates each module once. Both keep loaded modules in a module cache.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="16" y="96" width="436" height="374" rx="10"/>
+        <text class="t-label" x="320" y="116">COMMONJS LOADER: require()</text>
+        <rect class="frame" x="468" y="96" width="436" height="374" rx="10"/>
+        <text class="t-label" x="580" y="116">ES MODULE LOADER: import</text>
+
+        <g class="node" id="n-decide" tabindex="0" role="button" aria-label="Show package.json and tsconfig.json" data-title="Which loader: package.json and tsconfig.json" data-node="decide">
+          <rect class="shape tone-neutral" x="250" y="14" width="420" height="56" rx="6"/>
+          <text class="t-name" x="460" y="37">Which loader runs this file?</text>
+          <text class="t-kind" x="460" y="55">.cjs or .mjs, otherwise "type" in package.json</text>
+        </g>
+
+        <g class="node" id="n-cjs-require" tabindex="0" role="button" aria-label="Show files that call require" data-title="require call" data-node="cjs-require">
+          <rect class="shape tone-amber" x="32" y="128" width="200" height="40" rx="6"/>
+          <text class="t-name" x="132" y="145">require("./counter.cjs")</text>
+          <text class="t-kind" x="132" y="161">a normal function call</text>
+        </g>
+        <g class="node" id="n-cjs-resolve" tabindex="0" role="button" aria-label="Show how require resolves paths" data-title="Resolve: from specifier to full path" data-node="cjs-resolve">
+          <rect class="shape tone-amber" x="32" y="186" width="200" height="40" rx="6"/>
+          <text class="t-name" x="132" y="203">Resolve</text>
+          <text class="t-kind" x="132" y="219">full path, check the cache</text>
+        </g>
+        <g class="node" id="n-cjs-read" tabindex="0" role="button" aria-label="Show the module wrapper parameters" data-title="Read and wrap: the module wrapper" data-node="wrap">
+          <rect class="shape tone-amber" x="32" y="244" width="200" height="40" rx="6"/>
+          <text class="t-name" x="132" y="261">Read</text>
+          <text class="t-kind" x="132" y="277">file text, synchronously</text>
+        </g>
+        <g class="node" id="n-cjs-wrap" tabindex="0" role="button" aria-label="Show the module wrapper parameters" data-title="Read and wrap: the module wrapper" data-node="wrap">
+          <rect class="shape tone-amber" x="32" y="302" width="200" height="40" rx="6"/>
+          <text class="t-name" x="132" y="319">Wrap</text>
+          <text class="t-kind" x="132" y="335">in a function, 5 parameters</text>
+        </g>
+        <g class="node" id="n-cjs-run" tabindex="0" role="button" aria-label="Show the CommonJS counter" data-title="Run: the CommonJS counter" data-node="cjs-run">
+          <rect class="shape tone-amber" x="32" y="360" width="200" height="40" rx="6"/>
+          <text class="t-name" x="132" y="377">Run</text>
+          <text class="t-kind" x="132" y="393">the whole file, once, now</text>
+        </g>
+        <g class="node" id="n-cjs-return" tabindex="0" role="button" aria-label="Show require.cache in use" data-title="Return module.exports: require.cache" data-node="cjs-return">
+          <rect class="shape tone-amber" x="32" y="418" width="200" height="40" rx="6"/>
+          <text class="t-name" x="132" y="435">Return module.exports</text>
+          <text class="t-kind" x="132" y="451">the same object every time</text>
+        </g>
+
+        <g class="node" id="n-esm-parse" tabindex="0" role="button" aria-label="Show the package entry and its imports" data-title="Parse: the package entry" data-node="esm-parse">
+          <rect class="shape tone-blue" x="688" y="128" width="200" height="52" rx="6"/>
+          <text class="t-name" x="788" y="149">Parse</text>
+          <text class="t-kind" x="788" y="167">find imports, run nothing</text>
+        </g>
+        <g class="node" id="n-esm-fetch" tabindex="0" role="button" aria-label="Show loading CommonJS and browser loading" data-title="Load the graph: CommonJS files and browsers" data-node="esm-fetch">
+          <rect class="shape tone-blue" x="688" y="214" width="200" height="52" rx="6"/>
+          <text class="t-name" x="788" y="235">Load the graph</text>
+          <text class="t-kind" x="788" y="253">every imported file</text>
+        </g>
+        <g class="node" id="n-esm-link" tabindex="0" role="button" aria-label="Show a live binding" data-title="Link: live bindings" data-node="esm-link">
+          <rect class="shape tone-blue" x="688" y="300" width="200" height="52" rx="6"/>
+          <text class="t-name" x="788" y="321">Link</text>
+          <text class="t-kind" x="788" y="339">imports to exported variables</text>
+        </g>
+        <g class="node" id="n-esm-eval" tabindex="0" role="button" aria-label="Show top-level await and dynamic import" data-title="Evaluate: top-level await and import()" data-node="esm-eval">
+          <rect class="shape tone-blue" x="688" y="386" width="200" height="52" rx="6"/>
+          <text class="t-name" x="788" y="407">Evaluate</text>
+          <text class="t-kind" x="788" y="425">dependencies first, once each</text>
+        </g>
+
+        <g class="node" id="n-cache" tabindex="0" role="button" aria-label="Show circular dependencies" data-title="Module cache: circular dependencies" data-node="cache">
+          <rect class="shape tone-teal" x="16" y="490" width="888" height="140" rx="6"/>
+          <text class="t-name" x="460" y="511">Module cache</text>
+          <text class="t-kind" x="460" y="528">require.cache for CommonJS, the module map for ES modules. One entry per full file path.</text>
+        </g>
+
+        <path class="flow" id="a-decide-cjs" d="M250,42 L132,42 L132,126" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-decide-esm" d="M670,42 L788,42 L788,126" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-require-resolve" d="M132,168 L132,184" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-resolve-read" d="M132,226 L132,242" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-read-wrap" d="M132,284 L132,300" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-wrap-run" d="M132,342 L132,358" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-run-return" d="M132,400 L132,416" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-return-cache" d="M132,458 L132,488" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-resolve-cache" d="M32,206 L24,206 L24,488" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-parse-fetch" d="M788,180 L788,212" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-fetch-link" d="M788,266 L788,298" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-link-eval" d="M788,352 L788,384" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-eval-cache" d="M788,438 L788,488" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-cjs-to-esm" d="M232,206 L660,206 L660,154 L686,154" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-esm-to-cjs" d="M688,240 L460,240 L460,322 L234,322" marker-end="url(#arrow)"/>
+
+        <g class="state-item" id="s-req-path"><rect class="slot tone-amber" x="252" y="191" width="184" height="30" rx="4"/><text class="t-item" x="344" y="210">/app/src/counter.cjs</text></g>
+        <g class="state-item" id="s-req-wrapper"><rect class="slot tone-amber" x="252" y="304" width="184" height="36" rx="4"/><text class="t-item" x="344" y="319">(exports, require, module,</text><text class="t-item" x="344" y="333">__filename, __dirname)</text></g>
+        <g class="state-item" id="s-req-exports"><rect class="slot tone-amber" x="252" y="365" width="184" height="30" rx="4"/><text class="t-item" x="344" y="384">{ count: 0, increment }</text></g>
+        <g class="state-item" id="c-req-running"><rect class="slot tone-teal" x="28" y="540" width="412" height="24" rx="4"/><text class="t-item" x="234" y="556">src/counter.cjs: running</text></g>
+        <g class="state-item" id="c-req-done"><rect class="slot tone-teal" x="28" y="540" width="412" height="24" rx="4"/><text class="t-item" x="234" y="556">src/counter.cjs: { count: 0, increment }</text></g>
+
+        <g class="state-item" id="s-bind-copy"><rect class="slot tone-amber" x="252" y="365" width="184" height="30" rx="4"/><text class="t-item" x="344" y="384">counter.count: 0 (copy)</text></g>
+        <g class="state-item" id="s-bind-inner"><rect class="slot tone-amber" x="252" y="307" width="184" height="30" rx="4"/><text class="t-item" x="344" y="326">counter.cjs count = 1</text></g>
+        <text class="state-item t-item t-console" id="o-bind-cjs" x="256" y="444">&gt; counter.count: 0</text>
+        <g class="state-item" id="s-bind-link0"><rect class="slot tone-blue" x="488" y="311" width="184" height="30" rx="4"/><text class="t-item" x="580" y="330">count: linked, value 0</text></g>
+        <g class="state-item" id="s-bind-link1"><rect class="slot tone-blue" x="488" y="311" width="184" height="30" rx="4"/><text class="t-item" x="580" y="330">count: linked, value 1</text></g>
+        <text class="state-item t-item t-console" id="o-bind-esm" x="492" y="414">&gt; count: 1</text>
+        <text class="state-item t-item t-console" id="o-bind-error1" x="492" y="430">TypeError: Assignment</text>
+        <text class="state-item t-item t-console" id="o-bind-error2" x="492" y="444">to constant variable.</text>
+        <g class="state-item" id="c-bind-esm"><rect class="slot tone-teal" x="480" y="540" width="412" height="24" rx="4"/><text class="t-item" x="686" y="556">src/counter.js: evaluated</text></g>
+
+        <g class="state-item" id="s-graph-found"><rect class="slot tone-blue" x="488" y="139" width="184" height="30" rx="4"/><text class="t-item" x="580" y="158">index.js: 2 imports found</text></g>
+        <g class="state-item" id="c-graph-index-parsed"><rect class="slot tone-teal" x="480" y="540" width="412" height="24" rx="4"/><text class="t-item" x="686" y="556">src/index.js: parsed</text></g>
+        <g class="state-item" id="c-graph-format-parsed"><rect class="slot tone-teal" x="480" y="568" width="412" height="24" rx="4"/><text class="t-item" x="686" y="584">src/format-price.js: parsed</text></g>
+        <g class="state-item" id="c-graph-counter-parsed"><rect class="slot tone-teal" x="480" y="596" width="412" height="24" rx="4"/><text class="t-item" x="686" y="612">src/counter.js: parsed</text></g>
+        <g class="state-item" id="c-graph-index-linked"><rect class="slot tone-teal" x="480" y="540" width="412" height="24" rx="4"/><text class="t-item" x="686" y="556">src/index.js: linked</text></g>
+        <g class="state-item" id="c-graph-format-linked"><rect class="slot tone-teal" x="480" y="568" width="412" height="24" rx="4"/><text class="t-item" x="686" y="584">src/format-price.js: linked</text></g>
+        <g class="state-item" id="c-graph-counter-linked"><rect class="slot tone-teal" x="480" y="596" width="412" height="24" rx="4"/><text class="t-item" x="686" y="612">src/counter.js: linked</text></g>
+        <g class="state-item" id="c-graph-index-done"><rect class="slot tone-teal" x="480" y="540" width="412" height="24" rx="4"/><text class="t-item" x="686" y="556">src/index.js: evaluated (3rd)</text></g>
+        <g class="state-item" id="c-graph-format-done"><rect class="slot tone-teal" x="480" y="568" width="412" height="24" rx="4"/><text class="t-item" x="686" y="584">src/format-price.js: evaluated (1st)</text></g>
+        <g class="state-item" id="c-graph-counter-done"><rect class="slot tone-teal" x="480" y="596" width="412" height="24" rx="4"/><text class="t-item" x="686" y="612">src/counter.js: evaluated (2nd)</text></g>
+
+        <g class="state-item" id="c-circ-first-running"><rect class="slot tone-teal" x="28" y="540" width="412" height="24" rx="4"/><text class="t-item" x="234" y="556">circular/first.cjs: { isLoaded: false }, running</text></g>
+        <g class="state-item" id="c-circ-second-running"><rect class="slot tone-teal" x="28" y="568" width="412" height="24" rx="4"/><text class="t-item" x="234" y="584">circular/second.cjs: { isLoaded: false }, running</text></g>
+        <g class="state-item" id="c-circ-second-done"><rect class="slot tone-teal" x="28" y="568" width="412" height="24" rx="4"/><text class="t-item" x="234" y="584">circular/second.cjs: { isLoaded: true }</text></g>
+        <g class="state-item" id="c-circ-first-done"><rect class="slot tone-teal" x="28" y="540" width="412" height="24" rx="4"/><text class="t-item" x="234" y="556">circular/first.cjs: { isLoaded: true }</text></g>
+        <text class="state-item t-item t-console" id="o-circ-1" x="256" y="428">&gt; first.isLoaded = false</text>
+        <text class="state-item t-item t-console" id="o-circ-2" x="256" y="444">&gt; second.isLoaded = true</text>
+        <g class="state-item" id="c-circ-first-linked"><rect class="slot tone-teal" x="480" y="540" width="412" height="24" rx="4"/><text class="t-item" x="686" y="556">circular/first.js: linked</text></g>
+        <g class="state-item" id="c-circ-second-linked"><rect class="slot tone-teal" x="480" y="568" width="412" height="24" rx="4"/><text class="t-item" x="686" y="584">circular/second.js: linked</text></g>
+        <g class="state-item" id="c-circ-second-error"><rect class="slot tone-teal" x="480" y="568" width="412" height="24" rx="4"/><text class="t-item" x="686" y="584">circular/second.js: evaluating, failed</text></g>
+        <text class="state-item t-item t-console" id="o-circ-error1" x="492" y="402">ReferenceError: Cannot</text>
+        <text class="state-item t-item t-console" id="o-circ-error2" x="492" y="418">access 'firstLabel'</text>
+        <text class="state-item t-item t-console" id="o-circ-error3" x="492" y="434">before initialization</text>
+
+        <g class="state-item" id="s-mix-default"><rect class="slot tone-blue" x="488" y="302" width="184" height="24" rx="4"/><text class="t-item" x="580" y="318">default: module.exports</text></g>
+        <g class="state-item" id="s-mix-named"><rect class="slot tone-blue" x="488" y="330" width="184" height="24" rx="4"/><text class="t-item" x="580" y="346">increment: found in text</text></g>
+        <g class="state-item" id="s-mix-namespace"><rect class="slot tone-amber" x="252" y="133" width="184" height="30" rx="4"/><text class="t-item" x="344" y="152">{ formatPrice }</text></g>
+        <g class="state-item" id="c-mix-format"><rect class="slot tone-teal" x="480" y="540" width="412" height="24" rx="4"/><text class="t-item" x="686" y="556">src/format-price.js: evaluated</text></g>
+        <g class="state-item" id="c-mix-settings-async"><rect class="slot tone-teal" x="480" y="568" width="412" height="24" rx="4"/><text class="t-item" x="686" y="584">examples/load-settings.js: linked, has top-level await</text></g>
+        <g class="state-item" id="c-mix-settings-done"><rect class="slot tone-teal" x="480" y="568" width="412" height="24" rx="4"/><text class="t-item" x="686" y="584">examples/load-settings.js: evaluated</text></g>
+        <text class="state-item t-item t-console" id="o-mix-error" x="256" y="428">ERR_REQUIRE_ASYNC_MODULE</text>
+        <text class="state-item t-item t-console" id="o-mix-loaded" x="256" y="444">&gt; settings loaded</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="require" aria-pressed="true">require of a CommonJS file</button>
+        <button type="button" data-flow="binding" aria-pressed="false">Copied value and live binding</button>
+        <button type="button" data-flow="graph" aria-pressed="false">An ES module import graph</button>
+        <button type="button" data-flow="circular" aria-pressed="false">A circular dependency</button>
+        <button type="button" data-flow="mixing" aria-pressed="false">Mixing the two systems</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="require" hidden>
+        <li data-highlight="n-decide a-decide-cjs">You run <code>node examples/copied-value.cjs</code>. The file name ends in <code>.cjs</code>, so Node.js uses the CommonJS loader. The <code>"type"</code> field does not matter for <code>.cjs</code> files.</li>
+        <li data-highlight="n-cjs-require">The file calls <code>require("../src/counter.cjs")</code>. <code>require</code> is a normal function, so <code>copied-value.cjs</code> stops at this line until the call returns.</li>
+        <li data-highlight="n-cjs-require a-require-resolve n-cjs-resolve" data-show="s-req-path">Node.js turns the relative path into a full path, starting from the folder of the calling file. It looks for that path in <code>require.cache</code>. There is no entry yet.</li>
+        <li data-highlight="n-cjs-resolve a-resolve-read n-cjs-read" data-show="s-req-path">Node.js reads the file's text from disk. The read is synchronous: nothing else runs on the thread meanwhile.</li>
+        <li data-highlight="n-cjs-read a-read-wrap n-cjs-wrap" data-show="s-req-path s-req-wrapper">Node.js puts the text inside a function with five parameters. Variables in the file become local variables of that function, so the file has its own scope.</li>
+        <li data-highlight="n-cjs-wrap a-wrap-run n-cjs-run n-cache" data-show="s-req-path s-req-wrapper c-req-running">Node.js stores a new module object in <code>require.cache</code> under the full path, then calls the function. The whole file runs now.</li>
+        <li data-highlight="n-cjs-run a-run-return n-cjs-return a-return-cache n-cache" data-show="s-req-path s-req-exports c-req-done"><code>counter.cjs</code> sets <code>module.exports = { count, increment }</code>. <code>count</code> is 0 at this moment, so the object holds the number 0. <code>require</code> returns this object.</li>
+        <li data-highlight="n-cjs-require a-require-resolve n-cjs-resolve a-resolve-cache n-cache" data-show="c-req-done">A second <code>require</code> of the same path finds the cache entry and returns the same object. The file does not run again. Every file that requires <code>counter.cjs</code> shares this one object.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="binding" hidden>
+        <li data-highlight="n-cjs-run a-run-return n-cjs-return" data-show="s-bind-copy c-req-done">CommonJS side: <code>copied-value.cjs</code> receives the object that <code>counter.cjs</code> put in <code>module.exports</code>. Its <code>count</code> property was copied from the variable when the file ran: 0.</li>
+        <li data-highlight="n-cjs-run" data-show="s-bind-copy s-bind-inner c-req-done o-bind-cjs">It calls <code>counter.increment()</code>. The variable <code>count</code> inside <code>counter.cjs</code> becomes 1. The property on the exported object is a separate copy, so it still prints 0.</li>
+        <li data-highlight="n-esm-link" data-show="s-bind-copy s-bind-inner c-req-done o-bind-cjs s-bind-link0 c-bind-esm">ES module side: <code>live-binding.js</code> imports <code>count</code> from <code>counter.js</code>. Linking connects the name <code>count</code> to the variable inside <code>counter.js</code>. Nothing is copied.</li>
+        <li data-highlight="n-esm-link a-link-eval n-esm-eval" data-show="s-bind-copy s-bind-inner c-req-done o-bind-cjs s-bind-link1 c-bind-esm o-bind-esm">It calls <code>increment()</code>. The variable in <code>counter.js</code> becomes 1. The importer reads that same variable, so it prints 1. This is a live binding.</li>
+        <li data-highlight="n-esm-link" data-show="s-bind-copy s-bind-inner c-req-done o-bind-cjs s-bind-link1 c-bind-esm o-bind-esm o-bind-error1 o-bind-error2">Imported bindings are read-only. <code>count = 5</code> in the importer throws a <code>TypeError</code>. Only <code>counter.js</code> can change its own variable, through <code>increment()</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="graph" hidden>
+        <li data-highlight="n-decide a-decide-esm">You run <code>node src/index.js</code>. The nearest <code>package.json</code> has <code>"type": "module"</code>, so Node.js uses the ES module loader for this <code>.js</code> file.</li>
+        <li data-highlight="n-esm-parse n-cache" data-show="s-graph-found c-graph-index-parsed">Node.js parses <code>index.js</code> without running it and lists its imports: <code>./format-price.js</code> and <code>./counter.js</code>. An import written at the bottom of a file is found here too, so it works as if written at the top.</li>
+        <li data-highlight="n-esm-parse a-parse-fetch n-esm-fetch n-cache" data-show="s-graph-found c-graph-index-parsed c-graph-format-parsed c-graph-counter-parsed">Node.js loads and parses both files, then their imports, until it knows the whole graph. A missing file fails here with <code>ERR_MODULE_NOT_FOUND</code>, before any of your code has run.</li>
+        <li data-highlight="n-esm-fetch a-fetch-link n-esm-link n-cache" data-show="c-graph-index-linked c-graph-format-linked c-graph-counter-linked">Node.js connects every imported name to the exported variable. A misspelled name, such as <code>formatPrise</code>, fails here with <code>SyntaxError: The requested module './format-price.js' does not provide an export named 'formatPrise'</code>.</li>
+        <li data-highlight="n-esm-link a-link-eval n-esm-eval a-eval-cache n-cache" data-show="c-graph-index-done c-graph-format-done c-graph-counter-done">Node.js runs each module's top-level code once, dependencies first: <code>format-price.js</code>, <code>counter.js</code>, then <code>index.js</code>.</li>
+        <li data-highlight="n-esm-eval" data-show="c-graph-index-done c-graph-format-done c-graph-counter-done">If a module uses top-level await, the modules that import it wait until its promise settles. Other work on the <a href="../../runtime/event-loop/">event loop</a> continues meanwhile.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="circular" hidden>
+        <li data-highlight="n-decide a-decide-cjs n-cjs-run n-cache" data-show="c-circ-first-running">CommonJS: you run <code>node examples/circular/first.cjs</code>. Its module is in <code>require.cache</code> and it runs. It sets <code>exports.isLoaded = false</code>, then calls <code>require("./second.cjs")</code>.</li>
+        <li data-highlight="n-cjs-require a-require-resolve n-cjs-resolve a-resolve-read n-cjs-read a-read-wrap n-cjs-wrap a-wrap-run n-cjs-run n-cache" data-show="c-circ-first-running c-circ-second-running"><code>second.cjs</code> is not in the cache, so it is loaded and starts to run. It calls <code>require("./first.cjs")</code>.</li>
+        <li data-highlight="n-cjs-resolve a-resolve-cache n-cache" data-show="c-circ-first-running c-circ-second-running o-circ-1"><code>first.cjs</code> is in the cache, still running. Node.js returns its exports as they are now, without an error. <code>second.cjs</code> sees <code>isLoaded</code> as <code>false</code>.</li>
+        <li data-highlight="n-cjs-return a-return-cache n-cache" data-show="c-circ-first-done c-circ-second-done o-circ-1 o-circ-2"><code>second.cjs</code> finishes, and <code>first.cjs</code> continues. Anything <code>first.cjs</code> exports after its <code>require</code> line was missing when <code>second.cjs</code> read it. With <code>const { name } = require(...)</code>, it stays <code>undefined</code>.</li>
+        <li data-highlight="n-decide a-decide-esm n-esm-parse a-parse-fetch n-esm-fetch a-fetch-link n-esm-link n-cache" data-show="c-circ-first-linked c-circ-second-linked">ES modules: <code>first.js</code> imports from <code>second.js</code>, and <code>second.js</code> imports from <code>first.js</code>. Loading and linking work, because linking connects names before any code runs.</li>
+        <li data-highlight="n-esm-link a-link-eval n-esm-eval n-cache" data-show="c-circ-first-linked c-circ-second-error o-circ-error1 o-circ-error2 o-circ-error3"><code>second.js</code> runs first, because <code>first.js</code> depends on it. It reads <code>firstLabel</code>, a <code>const</code> that has not been set yet, and throws. Fix: move shared values to a third module, or read them inside a function that runs later.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="mixing" hidden>
+        <li data-highlight="n-decide a-decide-esm n-esm-parse">ES module loading CommonJS: <code>import-commonjs.js</code> is an ES module. Parsing finds <code>import counter, { increment } from "../src/counter.cjs"</code>.</li>
+        <li data-highlight="n-esm-parse a-parse-fetch n-esm-fetch a-esm-to-cjs n-cjs-wrap a-wrap-run n-cjs-run n-cache" data-show="c-req-done">The file ends in <code>.cjs</code>, so the CommonJS loader wraps and runs it, as it would for <code>require</code>. Its <code>module.exports</code> goes into <code>require.cache</code>.</li>
+        <li data-highlight="n-esm-fetch a-fetch-link n-esm-link" data-show="c-req-done s-mix-default s-mix-named">The default import is <code>module.exports</code>. Named imports work only if Node.js found the names by reading the file's source text. Here it finds <code>module.exports = { count, increment }</code>.</li>
+        <li data-highlight="n-cjs-require a-require-resolve n-cjs-resolve a-cjs-to-esm n-esm-parse n-esm-link n-esm-eval a-eval-cache n-cache" data-show="c-req-done s-mix-namespace c-mix-format">CommonJS loading an ES module: <code>require-esm.cjs</code> calls <code>require("../src/format-price.js")</code>. On Node.js 22.12 or 20.19 and later, the ES module loader runs the graph synchronously and <code>require</code> returns its namespace object.</li>
+        <li data-highlight="n-cjs-require a-require-resolve n-cjs-resolve a-cjs-to-esm n-esm-parse n-esm-link" data-show="c-req-done s-mix-namespace c-mix-format c-mix-settings-async o-mix-error">Next it calls <code>require("./load-settings.js")</code>. That module uses top-level await, and <code>require</code> cannot wait for a promise. It throws <code>ERR_REQUIRE_ASYNC_MODULE</code> before the module runs.</li>
+        <li data-highlight="n-cjs-require a-cjs-to-esm n-esm-parse n-esm-link n-esm-eval" data-show="c-req-done s-mix-namespace c-mix-format c-mix-settings-done o-mix-error o-mix-loaded"><code>await import("./load-settings.js")</code> inside an <code>async</code> function works. It returns a promise, so top-level await is allowed. It also works on Node.js versions that throw <code>ERR_REQUIRE_ESM</code> for <code>require</code>.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Your configuration</span>
+      <span class="chip tone-amber">CommonJS loader</span>
+      <span class="chip tone-blue">ES module loader</span>
+      <span class="chip tone-teal">Module cache</span>
+      <span>Arrows show the order of the steps. The two arrows between the loaders appear when one system loads a file of the other. Click a box to see the files that show it.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">order-pricing/</div>
+      <button type="button" class="tree-row" data-file="package.json"><span class="path">├─ package.json</span><span class="chip tone-neutral">Project</span></button>
+      <button type="button" class="tree-row" data-file="tsconfig.json"><span class="path">├─ tsconfig.json</span><span class="chip tone-neutral">TypeScript</span></button>
+      <button type="button" class="tree-row" data-file="src/index.js"><span class="path">├─ src/index.js</span><span class="chip tone-blue">ES module</span></button>
+      <button type="button" class="tree-row" data-file="src/format-price.js"><span class="path">├─ src/format-price.js</span><span class="chip tone-blue">ES module</span></button>
+      <button type="button" class="tree-row" data-file="src/counter.js"><span class="path">├─ src/counter.js</span><span class="chip tone-blue">ES module</span></button>
+      <button type="button" class="tree-row" data-file="src/counter.cjs"><span class="path">├─ src/counter.cjs</span><span class="chip tone-amber">CommonJS</span></button>
+      <button type="button" class="tree-row" data-file="src/defaults.json"><span class="path">├─ src/defaults.json</span><span class="chip tone-neutral">Data</span></button>
+      <button type="button" class="tree-row" data-file="examples/copied-value.cjs"><span class="path">├─ examples/copied-value.cjs</span><span class="chip tone-amber">CommonJS</span></button>
+      <button type="button" class="tree-row" data-file="examples/live-binding.js"><span class="path">├─ examples/live-binding.js</span><span class="chip tone-blue">ES module</span></button>
+      <button type="button" class="tree-row" data-file="examples/resolve-paths.cjs"><span class="path">├─ examples/resolve-paths.cjs</span><span class="chip tone-amber">CommonJS</span></button>
+      <button type="button" class="tree-row" data-file="examples/module-wrapper.cjs"><span class="path">├─ examples/module-wrapper.cjs</span><span class="chip tone-amber">CommonJS</span></button>
+      <button type="button" class="tree-row" data-file="examples/require-cache.cjs"><span class="path">├─ examples/require-cache.cjs</span><span class="chip tone-amber">CommonJS</span></button>
+      <button type="button" class="tree-row" data-file="examples/require-esm.cjs"><span class="path">├─ examples/require-esm.cjs</span><span class="chip tone-amber">CommonJS</span></button>
+      <button type="button" class="tree-row" data-file="examples/import-commonjs.js"><span class="path">├─ examples/import-commonjs.js</span><span class="chip tone-blue">ES module</span></button>
+      <button type="button" class="tree-row" data-file="examples/load-settings.js"><span class="path">├─ examples/load-settings.js</span><span class="chip tone-blue">ES module</span></button>
+      <button type="button" class="tree-row" data-file="examples/load-plugins.js"><span class="path">├─ examples/load-plugins.js</span><span class="chip tone-blue">ES module</span></button>
+      <button type="button" class="tree-row" data-file="examples/circular/first.cjs"><span class="path">├─ examples/circular/first.cjs</span><span class="chip tone-teal">Circular</span></button>
+      <button type="button" class="tree-row" data-file="examples/circular/second.cjs"><span class="path">├─ examples/circular/second.cjs</span><span class="chip tone-teal">Circular</span></button>
+      <button type="button" class="tree-row" data-file="examples/circular/first.js"><span class="path">├─ examples/circular/first.js</span><span class="chip tone-teal">Circular</span></button>
+      <button type="button" class="tree-row" data-file="examples/circular/second.js"><span class="path">├─ examples/circular/second.js</span><span class="chip tone-teal">Circular</span></button>
+      <button type="button" class="tree-row" data-file="public/index.html"><span class="path">└─ public/index.html</span><span class="chip tone-blue">Browser</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems ES modules solve</h2>
+      <ul>
+        <li><strong>Errors found late</strong><span>Missing files and misspelled import names fail before any code runs, not halfway through a request.</span></li>
+        <li><strong>Two module formats for browser and server</strong><span>The same <code>import</code> syntax runs in browsers, Node.js, Deno and Bun.</span></li>
+        <li><strong>Large bundles</strong><span>Static imports let bundlers remove code that nothing imports.</span></li>
+        <li><strong>Async setup at startup</strong><span>Top-level await loads settings or connects to a database before other modules use them.</span></li>
+        <li><strong>Stale exported values</strong><span>Live bindings show the exporting module's current value.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems ES modules introduce</h2>
+      <ul>
+        <li><strong>Stricter paths</strong><span>Relative imports need the file extension, and folders need an explicit <code>index.js</code>.</span></li>
+        <li><strong>Missing CommonJS names</strong><span><code>require</code>, <code>__dirname</code> and <code>__filename</code> do not exist. Use <code>import.meta</code> and <code>createRequire</code>.</span></li>
+        <li><strong>Limits when mixing</strong><span>Named imports from CommonJS work only when Node.js can find them, and <code>require</code> fails on top-level await.</span></li>
+        <li><strong>Dual package hazard</strong><span>Shipping both formats can load two copies of one package.</span></li>
+        <li><strong>Older tools</strong><span>Some tools, such as <code>jest.mock</code>, were built around <code>require</code>.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="decide">
+      <div class="file-head"><span class="chip tone-neutral">Project</span><span class="name">package.json</span><span class="why"><code>"type": "module"</code> makes every <code>.js</code> file in this package an ES module. <code>"exports"</code> gives <code>import</code> users <code>src/index.js</code> and <code>require</code> users a CommonJS build. Every supported Node.js version can require an ES module, so a package for Node.js 22 and later can use <code>"exports": "./src/index.js"</code> alone and ship one copy.</span></div>
+<pre><code>{
+  "name": "order-pricing",
+  "version": "3.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": { "node": "&gt;=22" },
+  "scripts": {
+    "build:cjs": "esbuild src/index.js --bundle --platform=node --format=cjs --outfile=dist/index.cjs",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "pino": "^9.7.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="decide">
+      <div class="file-head"><span class="chip tone-neutral">TypeScript</span><span class="name">tsconfig.json</span><span class="why">Type-checks the JavaScript files with the module rules Node.js uses. <code>"module": "nodenext"</code> reports a missing <code>.js</code> extension before Node.js does. In a TypeScript project, remove <code>allowJs</code>, <code>checkJs</code> and <code>noEmit</code> and set <code>outDir</code>: the same setting then decides per file whether the output uses <code>import</code> or <code>require</code>.</span></div>
+<pre><code>{
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "es2023",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": ["src", "examples"]
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="esm-eval">
+      <div class="file-head"><span class="chip tone-neutral">Data</span><span class="name">src/defaults.json</span><span class="why">Imported by <code>load-settings.js</code> as a JSON module.</span></div>
+<pre><code>{
+  "currency": "EUR",
+  "pricesIncludeTax": true
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="esm-parse">
+      <div class="file-head"><span class="chip tone-blue">ES module</span><span class="name">src/index.js</span><span class="why">The package entry. Node.js parses it and finds both imports before running any file. Relative imports include <code>.js</code>.</span></div>
+<pre><code>export { formatPrice } from "./format-price.js";
+export { count, increment } from "./counter.js";</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="esm-parse">
+      <div class="file-head"><span class="chip tone-blue">ES module</span><span class="name">src/format-price.js</span><span class="why"><code>formattersByCurrency</code> is created once, when the module is evaluated. Every file that imports <code>formatPrice</code> shares it, because a module runs only once per process.</span></div>
+<pre><code>const formattersByCurrency = new Map();
+
+export function formatPrice(amountInCents, currency) {
+  if (!formattersByCurrency.has(currency)) {
+    formattersByCurrency.set(currency, new Intl.NumberFormat("en-US", { style: "currency", currency }));
+  }
+  return formattersByCurrency.get(currency).format(amountInCents / 100);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="esm-link">
+      <div class="file-head"><span class="chip tone-blue">ES module</span><span class="name">src/counter.js</span><span class="why">Exports the variable <code>count</code> itself. Importers read this variable, so they see each change.</span></div>
+<pre><code>export let count = 0;
+
+export function increment() {
+  count += 1;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="esm-link">
+      <div class="file-head"><span class="chip tone-blue">ES module</span><span class="name">examples/live-binding.js</span><span class="why">Prints <code>count: 1</code>. Adding <code>count = 5</code> here would throw <code>TypeError: Assignment to constant variable.</code>, because imports are read-only.</span></div>
+<pre><code>import { count, increment } from "../src/counter.js";
+
+increment();
+console.log("count:", count);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cjs-run">
+      <div class="file-head"><span class="chip tone-amber">CommonJS</span><span class="name">src/counter.cjs</span><span class="why">The same counter in CommonJS. When the last line runs, <code>count</code> is 0, so <code>module.exports.count</code> is the number 0. <code>increment</code> changes the local variable, not that property.</span></div>
+<pre><code>let count = 0;
+
+function increment() {
+  count += 1;
+}
+
+module.exports = { count, increment };</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cjs-require">
+      <div class="file-head"><span class="chip tone-amber">CommonJS</span><span class="name">examples/copied-value.cjs</span><span class="why">Prints <code>counter.count: 0</code>. To read the current value from CommonJS, export a function such as <code>getCount()</code>.</span></div>
+<pre><code>const counter = require("../src/counter.cjs");
+
+counter.increment();
+console.log("counter.count:", counter.count);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cjs-require">
+      <div class="file-head"><span class="chip tone-amber">CommonJS</span><span class="name">examples/require-esm.cjs</span><span class="why">On Node.js 22.12 or later, the first <code>require</code> returns the namespace object of an ES module. The second throws <code>ERR_REQUIRE_ASYNC_MODULE</code>, because <code>load-settings.js</code> uses top-level await. <code>import()</code> works for both.</span></div>
+<pre><code>const { formatPrice } = require("../src/format-price.js");
+
+console.log(formatPrice(1999, "EUR"));
+
+try {
+  require("./load-settings.js");
+} catch (error) {
+  console.error(error.code);
+}
+
+async function printSettings() {
+  const { settings } = await import("./load-settings.js");
+  console.log("settings loaded:", settings);
+}
+
+printSettings();</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cjs-resolve">
+      <div class="file-head"><span class="chip tone-amber">CommonJS</span><span class="name">examples/resolve-paths.cjs</span><span class="why"><code>require.resolve</code> runs only the resolve step and returns the full path. A package can load itself by name: <code>"order-pricing"</code> resolves through <code>"exports"</code> and the <code>"require"</code> condition to <code>dist/index.cjs</code> (after <code>npm run build:cjs</code>). The last line prints the <code>node_modules</code> folders searched for a package name.</span></div>
+<pre><code>console.log(require.resolve("../src/counter.cjs"));
+console.log(require.resolve("order-pricing"));
+console.log(require.resolve("pino"));
+console.log(require.resolve.paths("pino"));</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="wrap">
+      <div class="file-head"><span class="chip tone-amber">CommonJS</span><span class="name">examples/module-wrapper.cjs</span><span class="why">Shows that the file runs inside a function. It prints 5 for the wrapper's parameters, the file's path and folder, and <code>true</code> twice: <code>exports</code> and <code>this</code> both start as <code>module.exports</code>.</span></div>
+<pre><code>console.log("arguments passed in:", arguments.length);
+console.log("__filename:", __filename);
+console.log("__dirname:", __dirname);
+console.log("exports is module.exports:", exports === module.exports);
+console.log("this is module.exports:", this === module.exports);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cjs-return">
+      <div class="file-head"><span class="chip tone-amber">CommonJS</span><span class="name">examples/require-cache.cjs</span><span class="why">Prints <code>true</code>, <code>true</code>, <code>false</code>. Two requires return one object. Deleting the cache entry makes the next <code>require</code> run the file again and create a new object. Files that required it earlier keep the old one.</span></div>
+<pre><code>const firstCounter = require("../src/counter.cjs");
+const secondCounter = require("../src/counter.cjs");
+console.log("same object:", firstCounter === secondCounter);
+
+const counterPath = require.resolve("../src/counter.cjs");
+console.log("in cache:", counterPath in require.cache);
+
+delete require.cache[counterPath];
+const reloadedCounter = require("../src/counter.cjs");
+console.log("same object after delete:", reloadedCounter === firstCounter);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="esm-fetch">
+      <div class="file-head"><span class="chip tone-blue">ES module</span><span class="name">examples/import-commonjs.js</span><span class="why">The default import is <code>module.exports</code>. <code>increment</code> works as a named import because Node.js finds it in <code>module.exports = { count, increment }</code>. <code>createRequire</code> gives an ES module a <code>require</code> function, which returns the same cached object. Prints <code>true</code>, <code>0</code>, <code>true</code>.</span></div>
+<pre><code>import { createRequire } from "node:module";
+import counter, { increment } from "../src/counter.cjs";
+
+increment();
+console.log("default export is module.exports:", counter.increment === increment);
+console.log("count:", counter.count);
+
+const require = createRequire(import.meta.url);
+const requiredCounter = require("../src/counter.cjs");
+console.log("same module.exports object:", requiredCounter === counter);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="esm-eval">
+      <div class="file-head"><span class="chip tone-blue">ES module</span><span class="name">examples/load-settings.js</span><span class="why">Top-level await, a JSON import and <code>import.meta</code>. Modules that import <code>settings</code> wait until the file read finishes. Because of the top-level await, CommonJS cannot <code>require</code> this file and must use <code>import()</code>.</span></div>
+<pre><code>import { readFile } from "node:fs/promises";
+import path from "node:path";
+import defaults from "../src/defaults.json" with { type: "json" };
+
+const localSettingsPath = path.join(import.meta.dirname, "settings.local.json");
+
+async function readLocalOverrides() {
+  try {
+    return JSON.parse(await readFile(localSettingsPath, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw error;
+  }
+}
+
+export const settings = { ...defaults, ...(await readLocalOverrides()) };
+
+console.log("loaded", import.meta.filename, "from", import.meta.url);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="esm-eval">
+      <div class="file-head"><span class="chip tone-blue">ES module</span><span class="name">examples/load-plugins.js</span><span class="why">Loads plugins named in an environment variable with <code>import()</code>. The path is relative to this file, not to the folder you started Node.js in. A failed load is logged with the plugin name, specifier and <code>error.code</code>, then the process exits.</span></div>
+<pre><code>import pino from "pino";
+
+const logger = pino();
+const pluginNames = (process.env.PLUGINS ?? "").split(",").filter(Boolean);
+
+for (const pluginName of pluginNames) {
+  const specifier = `../plugins/${pluginName}.js`;
+  let plugin;
+  try {
+    plugin = await import(specifier);
+  } catch (error) {
+    logger.fatal({ err: error, pluginName, specifier, code: error.code }, "plugin failed to load");
+    process.exit(1);
+  }
+  plugin.register();
+  logger.info({ pluginName }, "plugin loaded");
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cache">
+      <div class="file-head"><span class="chip tone-teal">Circular</span><span class="name">examples/circular/first.cjs</span><span class="why">Run <code>node examples/circular/first.cjs</code>. It prints <code>first.isLoaded = false</code> (from <code>second.cjs</code>), then <code>second.isLoaded = true</code>.</span></div>
+<pre><code>exports.isLoaded = false;
+const second = require("./second.cjs");
+console.log("second.isLoaded =", second.isLoaded);
+exports.isLoaded = true;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cache">
+      <div class="file-head"><span class="chip tone-teal">Circular</span><span class="name">examples/circular/second.cjs</span><span class="why">Requires <code>first.cjs</code> while it is still running, and receives its partly filled exports from the cache.</span></div>
+<pre><code>exports.isLoaded = false;
+const first = require("./first.cjs");
+console.log("first.isLoaded =", first.isLoaded);
+exports.isLoaded = true;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cache">
+      <div class="file-head"><span class="chip tone-teal">Circular</span><span class="name">examples/circular/first.js</span><span class="why">Run <code>node examples/circular/first.js</code>. <code>second.js</code> is evaluated first and throws <code>ReferenceError: Cannot access 'firstLabel' before initialization</code>.</span></div>
+<pre><code>import { secondLabel } from "./second.js";
+
+export const firstLabel = "first";
+console.log("in first.js:", secondLabel);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cache">
+      <div class="file-head"><span class="chip tone-teal">Circular</span><span class="name">examples/circular/second.js</span><span class="why">Reads <code>firstLabel</code> at the top level, before <code>first.js</code> has run. Reading it inside a function that is called later would work, because by then the binding has a value.</span></div>
+<pre><code>import { firstLabel } from "./first.js";
+
+export const secondLabel = "second";
+console.log("in second.js:", firstLabel);</code></pre>
+    </div>
+  </div>
+
+  <div class="language-markup">
+    <div class="file" data-lang="any" data-node="esm-fetch">
+      <div class="file-head"><span class="chip tone-blue">Browser</span><span class="name">public/index.html</span><span class="why">The browser loads each imported file over HTTP during the load phase. The import map tells it where the package name <code>"order-pricing"</code> points, because a browser has no <code>node_modules</code> lookup.</span></div>
+<pre><code>&lt;!doctype html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+  &lt;meta charset="utf-8"&gt;
+  &lt;title&gt;Order total&lt;/title&gt;
+  &lt;script type="importmap"&gt;
+    { "imports": { "order-pricing": "/vendor/order-pricing/src/index.js" } }
+  &lt;/script&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;p id="order-total"&gt;&lt;/p&gt;
+  &lt;script type="module"&gt;
+    import { formatPrice } from "order-pricing";
+
+    document.getElementById("order-total").textContent = formatPrice(1999, "EUR");
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
