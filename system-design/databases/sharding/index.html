@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sharding and Consistent Hashing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">System design</a> / Databases</div>
+    <h1>Sharding and Consistent Hashing</h1>
+    <p class="aka">Splitting one table's rows over several database servers, and choosing which server holds which row. Examples use PostgreSQL 18.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p><a href="../replication/">Replication</a> adds servers for reads, but every write still goes to one primary. When writes or data size outgrow one server, the rows are split: each <strong>shard</strong> is a separate database server that holds part of the rows.</p>
+    <p>A column, the <strong>shard key</strong>, decides where a row goes. In a system that serves many companies, the key is usually the tenant ID: all rows of one company are on the same shard, so most queries need only one server.</p>
+    <p><strong>Consistent hashing</strong> is a way to map keys to shards so that adding a shard moves only a small share of the keys. With <code>hash % 4</code>, changing to <code>hash % 5</code> moves 80% of all keys. With a hash ring it moves 20%.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-blue">Shard</span></td><td>One database server, usually with its own replicas, that holds part of the rows.</td><td>Shard 1 to shard 4</td></tr>
+          <tr><td><span class="chip tone-amber">Shard key</span></td><td>The column whose value decides the shard for each row.</td><td><code>tenant_id</code></td></tr>
+          <tr><td><span class="chip tone-teal">Shard router</span></td><td>The code or proxy that finds the shard for a key and sends the query there.</td><td><code>HashRing.shardFor</code></td></tr>
+          <tr><td><span class="chip tone-teal">Hash ring</span></td><td>All hash values from 0 to 2<sup>32</sup> - 1, arranged in a circle. Shards and keys are placed on it by their hash.</td><td>Key <code>t-17</code> belongs to the next shard clockwise</td></tr>
+          <tr><td><span class="chip tone-teal">Virtual node</span></td><td>One of many positions a shard takes on the ring. More positions spread the keys more evenly.</td><td>100 per shard</td></tr>
+          <tr><td><span class="chip tone-neutral">Partitioning</span></td><td>Splitting a table into parts inside one server. Sharding puts the parts on different servers.</td><td><code>PARTITION BY RANGE (created_at)</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Hot shard</span></td><td>A shard that gets much more traffic than the others, because of the shard key or one large tenant.</td><td>All new orders on one shard</td></tr>
+          <tr><td><span class="chip tone-neutral">Rebalancing</span></td><td>Moving rows between shards after adding or removing one, while the app keeps running.</td><td>Copying 20% of tenants to shard 5</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> shard last, after indexes, replicas, caching and a larger server. Choose a shard key that almost every query filters on and that spreads load evenly.</div>
+  </section>
+
+  <section>
+    <h2>Options to try before sharding</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Problem</th><th>Try first</th></tr></thead>
+        <tbody>
+          <tr><td>Slow queries</td><td><a href="../indexes/">Indexes</a> that match the queries</td></tr>
+          <tr><td>Too many reads</td><td><a href="../replication/">Read replicas</a> and a cache</td></tr>
+          <tr><td>Too many writes or too little memory</td><td>A larger server. Cloud servers with hundreds of GB of memory are common.</td></tr>
+          <tr><td>Tables too large to maintain</td><td>Partitioning inside one server, and moving old rows to an archive</td></tr>
+          <tr><td>One part of the system writes far more than the rest</td><td>Give that part its own database, as in <a href="../../../architecture/system-topology/microservices/">microservices</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ways to map a key to a shard</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Method</th><th>How</th><th>Adding a shard</th><th>Weak point</th></tr></thead>
+        <tbody>
+          <tr><td>Hash and modulo</td><td><code>hash(key) % shardCount</code></td><td>Moves about 80% of keys when going from 4 to 5 shards</td><td>Almost every row moves</td></tr>
+          <tr><td>Range</td><td>Key ranges per shard: tenants <code>a-f</code>, <code>g-m</code>, ...</td><td>Split one range</td><td>Ranges of time or growing IDs send all new rows to one shard</td></tr>
+          <tr><td>Directory</td><td>A table that lists the shard for each key</td><td>Change rows in the directory</td><td>One more lookup per query, and the directory must stay available</td></tr>
+          <tr><td>Consistent hashing</td><td>The next shard clockwise on a hash ring</td><td>Moves about <code>1 / new shard count</code> of keys: 20% from 4 to 5</td><td>Needs virtual nodes to spread keys evenly</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Many systems combine two: consistent hashing for most tenants, and a directory that pins very large tenants to their own shard.</p>
+  </section>
+
+  <section>
+    <h2>How consistent hashing finds a shard</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>1. Place the shards</td><td>Hash <code>shard-1#0</code> to <code>shard-1#99</code>, and the same for each shard. Each hash is a position on the ring.</td></tr>
+          <tr><td>2. Hash the key</td><td><code>hash("t-17")</code> gives a position on the same ring.</td></tr>
+          <tr><td>3. Walk clockwise</td><td>The first shard position at or after the key's position owns the key. Past the top, wrap around to the start.</td></tr>
+          <tr><td>4. Add a shard</td><td>Its 100 new positions each take over the keys just before them. Keys elsewhere keep their shard.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Measured with 100,000 tenant IDs: with 100 virtual nodes each of 5 shards held 19-22% of keys. With 1 position per shard, 4 shards held 22-28% each.</p>
+  </section>
+
+  <section>
+    <h2>Choosing a shard key</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Key</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><code>tenant_id</code> in a business app</td><td>Good. Almost every query is for one tenant, and its rows are together. Very large tenants need their own shard.</td></tr>
+          <tr><td><code>user_id</code> in a consumer app</td><td>Good for a user's own data. Feeds and searches that cross users need another design.</td></tr>
+          <tr><td><code>created_at</code></td><td>Bad. All new writes go to the newest shard while the others are idle.</td></tr>
+          <tr><td><code>country</code></td><td>Bad. A few countries hold most users, so shards are very uneven.</td></tr>
+          <tr><td>A key that changes</td><td>Bad. A change moves the row to another shard.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What becomes harder</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Task</th><th>On one server</th><th>With shards</th></tr></thead>
+        <tbody>
+          <tr><td>A query across all tenants</td><td>One query</td><td>One query per shard, then merge the results in the app. Better: copy the data to an analytics database.</td></tr>
+          <tr><td>A join between rows on two shards</td><td>A <code>JOIN</code></td><td>Two queries joined in code. Keep rows that are joined on the same shard.</td></tr>
+          <tr><td>A transaction across shards</td><td>One transaction</td><td>Not possible as one transaction. Use a <a href="../../../architecture/messaging-and-events/saga/">saga</a>.</td></tr>
+          <tr><td>Unique values</td><td>A unique index</td><td>Unique only per shard. Use UUIDs for IDs, and include the shard key in unique constraints.</td></tr>
+          <tr><td>Schema migrations</td><td>Run once</td><td>Run on every shard, and handle a shard where it failed.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tools that shard for you</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>Citus</td><td>A PostgreSQL extension. <code>create_distributed_table('orders', 'tenant_id')</code> spreads the table, and it routes and merges queries.</td></tr>
+          <tr><td>Vitess</td><td>A proxy layer that shards MySQL. It was built at YouTube.</td></tr>
+          <tr><td>Cassandra, DynamoDB, MongoDB</td><td>Databases with sharding built in. Cassandra and DynamoDB place keys with consistent hashing.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>App, every query log line</td><td>The shard name, next to the query name, tenant ID and request ID</td><td>As for any query</td></tr>
+          <tr><td>App, queries sent to every shard</td><td>Operation name, number of shards and total duration</td><td>info, and count them</td></tr>
+          <tr><td>Metric: load per shard</td><td>Queries per second, p95 duration and CPU, with the shard as a label</td><td>Alert when one shard is twice the average</td></tr>
+          <tr><td>Metric: size per shard</td><td>Database size, and the largest tenants per shard</td><td>Alert at 70% of disk</td></tr>
+          <tr><td>Rebalancing job</td><td>Tenant ID, source and target shard, rows copied, and the switch time</td><td>info per tenant, error on failure</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 460" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The app asks the shard router for the shard of a tenant. The router checks a directory of large tenants, then hashes the tenant ID onto a ring with shards S1 to S4. The first shard clockwise from the key's position holds the tenant's rows. Adding S5 moves only the keys between S1 and S5.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-app" tabindex="0" role="button" aria-label="Show the orders repository" data-title="App: orders repository" data-node="app">
+          <rect class="shape tone-neutral" x="20" y="30" width="200" height="60" rx="6"/>
+          <text class="t-name" x="120" y="55">App</text>
+          <text class="t-kind" x="120" y="73">orders of tenant t-17</text>
+        </g>
+        <g class="node" id="n-router" tabindex="0" role="button" aria-label="Show the hash ring code" data-title="Shard router: hash ring" data-node="router">
+          <rect class="shape tone-teal" x="20" y="150" width="200" height="70" rx="6"/>
+          <text class="t-name" x="120" y="177">Shard router</text>
+          <text class="t-kind" x="120" y="195">directory first,</text>
+          <text class="t-kind" x="120" y="211">then the hash ring</text>
+        </g>
+        <g class="node" id="n-directory" tabindex="0" role="button" aria-label="Show the directory of large tenants" data-title="Directory of large tenants" data-node="directory">
+          <rect class="shape tone-amber" x="20" y="290" width="200" height="60" rx="6"/>
+          <text class="t-name" x="120" y="315">Directory</text>
+          <text class="t-kind" x="120" y="333">t-1 has its own shard</text>
+        </g>
+        <g class="node" id="n-log" tabindex="0" role="button" aria-label="Show per-shard monitoring" data-title="Monitoring: load and size per shard" data-node="log">
+          <rect class="shape tone-neutral" x="20" y="385" width="200" height="55" rx="6"/>
+          <text class="t-name" x="120" y="408">Monitoring</text>
+          <text class="t-kind" x="120" y="426">load and size per shard</text>
+        </g>
+
+        <g class="node" id="n-ring" tabindex="0" role="button" aria-label="Show how many keys move when a shard is added" data-title="Hash ring: keys moved by a new shard" data-node="ring">
+          <circle class="shape tone-neutral" cx="440" cy="230" r="140"/>
+          <text class="t-name" x="440" y="222">Hash ring</text>
+          <text class="t-kind" x="440" y="240">0 to 2^32 - 1, clockwise</text>
+          <text class="t-kind" x="440" y="256">one of 100 points per shard shown</text>
+          <circle class="slot tone-teal" cx="440" cy="90" r="6"/>
+          <text class="t-item" x="440" y="76">S1</text>
+          <circle class="slot tone-teal" cx="580" cy="230" r="6"/>
+          <text class="t-item" x="600" y="234">S2</text>
+          <circle class="slot tone-teal" cx="440" cy="370" r="6"/>
+          <text class="t-item" x="440" y="390">S3</text>
+          <circle class="slot tone-teal" cx="300" cy="230" r="6"/>
+          <text class="t-item" x="281" y="250">S4</text>
+        </g>
+
+        <g class="state-item" id="k-17"><circle class="slot tone-amber" cx="547" cy="140" r="6"/><text class="t-item" x="563" y="128">t-17</text></g>
+        <g class="state-item" id="k-9"><circle class="slot tone-amber" cx="370" cy="351" r="6"/><text class="t-item" x="352" y="374">t-9</text></g>
+        <g class="state-item" id="k-5"><circle class="slot tone-teal" cx="572" cy="182" r="6"/><text class="t-item" x="596" y="182">S5</text></g>
+        <path class="state-item" id="k-moved-arc" d="M440,90 A140,140 0 0,1 571.6,182.1" style="fill:none;stroke:var(--amber);stroke-width:7"/>
+
+        <g id="p-shard-1">
+          <rect class="shape tone-blue" x="660" y="20" width="240" height="56" rx="6"/>
+          <text class="t-name" x="780" y="43">Shard 1</text>
+          <text class="t-kind" x="780" y="61">tenants on S1's ranges</text>
+        </g>
+        <g class="node" id="n-shard" tabindex="0" role="button" aria-label="Show the schema on each shard" data-title="Shard 2: schema on every shard" data-node="shard">
+          <rect class="shape tone-blue" x="660" y="92" width="240" height="56" rx="6"/>
+          <text class="t-name" x="780" y="115">Shard 2</text>
+          <text class="t-kind" x="780" y="133">tenants on S2's ranges</text>
+        </g>
+        <g id="p-shard-3">
+          <rect class="shape tone-blue" x="660" y="164" width="240" height="56" rx="6"/>
+          <text class="t-name" x="780" y="187">Shard 3</text>
+          <text class="t-kind" x="780" y="205">tenants on S3's ranges</text>
+        </g>
+        <g id="p-shard-4">
+          <rect class="shape tone-blue" x="660" y="236" width="240" height="56" rx="6"/>
+          <text class="t-name" x="780" y="259">Shard 4</text>
+          <text class="t-kind" x="780" y="277">tenants on S4's ranges</text>
+        </g>
+        <g class="state-item" id="p-shard-5">
+          <rect class="shape tone-teal" x="660" y="308" width="240" height="56" rx="6"/>
+          <text class="t-name" x="780" y="331">Shard 5 (new)</text>
+          <text class="t-kind" x="780" y="349">takes about 20% of tenants</text>
+        </g>
+
+        <path class="flow" id="a-app-router" d="M120,90 L120,148" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-router-directory" d="M120,220 L120,288" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-router-ring" d="M220,195 L298,205" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-directory-shard-1" d="M220,310 L245,310 L245,10 L780,10 L780,18" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-ring-shard-1" d="M590,224 L658,52" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-ring-shard-2" d="M590,228 L658,124" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-ring-shard-3" d="M590,232 L658,194" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-ring-shard-4" d="M300,240 L300,410 L640,410 L640,266 L658,266" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-ring-shard-5" d="M580,190 L658,330" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-fan-shard-4" d="M592,236 L658,262" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-moved" x="610" y="98">ONLY KEYS FROM S1 TO S5 MOVE</text>
+        <text class="ghost-label" id="t-fanout" x="460" y="450">ONE QUERY PER SHARD, THEN MERGE</text>
+        <text class="ghost-label" id="t-hot" x="780" y="310">ALL NEW ORDERS GO TO SHARD 4</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="route" aria-pressed="true">Find the shard of one tenant</button>
+        <button type="button" data-flow="add" aria-pressed="false">Add a fifth shard</button>
+        <button type="button" data-flow="fanout" aria-pressed="false">Query every shard</button>
+        <button type="button" data-flow="directory" aria-pressed="false">Large tenant on its own shard</button>
+        <button type="button" data-flow="hot" aria-pressed="false">Bad key: creation date</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="route" hidden>
+        <li data-highlight="n-app a-app-router n-router">The app needs the orders of tenant <code>t-17</code> and asks the shard router where they are.</li>
+        <li data-highlight="n-router a-router-directory n-directory">The router checks the directory of large tenants first. <code>t-17</code> is not in it.</li>
+        <li data-highlight="n-router a-router-ring n-ring" data-show="k-17">The router hashes <code>"t-17"</code>. The result is a position on the ring, between S1 and S2.</li>
+        <li data-highlight="n-ring" data-show="k-17">From that position it walks clockwise. The first shard position it meets is S2.</li>
+        <li data-highlight="n-ring a-ring-shard-2 n-shard" data-show="k-17">The query goes to shard 2, which holds every row of <code>t-17</code>. Every log line for the query includes <code>shard-2</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="add" hidden>
+        <li data-highlight="n-ring" data-show="k-17 k-9">The four shards are full. Tenant <code>t-17</code> is on shard 2, tenant <code>t-9</code> on shard 4.</li>
+        <li data-highlight="n-ring p-shard-5" data-show="k-17 k-9 k-5 p-shard-5">A new server, shard 5, gets 100 positions on the ring. One of them, S5, lands between <code>t-17</code> and S2.</li>
+        <li data-highlight="t-moved" data-show="k-17 k-9 k-5 p-shard-5 k-moved-arc">Only keys between S1 and S5 now meet a different shard first. <code>t-17</code> moves to shard 5. <code>t-9</code> stays on shard 4.</li>
+        <li data-highlight="a-ring-shard-5 p-shard-5" data-show="k-17 k-9 k-5 p-shard-5 k-moved-arc">A rebalancing job copies the rows of moved tenants to shard 5, then switches each tenant's reads and writes. Across all 100 positions, about 20% of tenants move.</li>
+        <li data-highlight="n-log" data-show="k-17 k-9 k-5 p-shard-5">With <code>hash % 4</code> changed to <code>hash % 5</code>, about 80% of tenants would have moved. Click Hash ring to see the program that measures both.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="fanout" hidden>
+        <li data-highlight="n-app a-app-router n-router">An admin page asks for the total revenue of all tenants last month.</li>
+        <li data-highlight="n-router a-router-ring n-ring">No single shard has the answer, because every shard holds some tenants.</li>
+        <li data-highlight="n-ring a-ring-shard-1 p-shard-1 a-ring-shard-2 n-shard a-ring-shard-3 p-shard-3 a-fan-shard-4 p-shard-4 t-fanout">The app sends the same query to all four shards at once and adds up the results.</li>
+        <li data-highlight="n-app n-log">The page is as slow as the slowest shard, and fails if one shard is down. For reports, copy the data to one analytics database instead.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="directory" hidden>
+        <li data-highlight="n-app a-app-router n-router">Tenant <code>t-1</code> has 40% of all orders. On a shared shard it would make that shard hot.</li>
+        <li data-highlight="n-router a-router-directory n-directory">The router finds <code>t-1</code> in the directory.</li>
+        <li data-highlight="n-directory a-directory-shard-1 p-shard-1">The directory sends <code>t-1</code> to shard 1, which holds no other tenant. The hash ring is not used for it.</li>
+        <li data-highlight="n-router n-ring">Every other tenant still uses the ring. The directory stays small, so it is cached in memory and reloaded every minute.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="hot" hidden>
+        <li data-highlight="n-app a-app-router n-router">Imagine the shard key were the month of <code>created_at</code>, one month per shard.</li>
+        <li data-highlight="n-router p-shard-4 t-hot">Every new order belongs to the current month, so every insert goes to shard 4.</li>
+        <li data-highlight="p-shard-1 n-shard p-shard-3">Shards 1 to 3 hold old months. They get almost no writes.</li>
+        <li data-highlight="n-log p-shard-4">Monitoring shows shard 4 with almost all the load. More shards do not help, because writes always go to the newest one. Use a key such as <code>tenant_id</code>.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Routing</span>
+      <span class="chip tone-amber">Directory and keys</span>
+      <span class="chip tone-blue">Shards</span>
+      <span>On the ring, a key belongs to the first shard position clockwise from it. Each shard has 100 positions; one per shard is drawn. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">orders-api/</div>
+      <button type="button" class="tree-row" data-file="src/hash-ring.ts"><span class="path">├─ src/hash-ring.ts</span><span class="chip tone-teal">Routing</span></button>
+      <button type="button" class="tree-row" data-file="src/shard-placement.ts"><span class="path">├─ src/shard-placement.ts</span><span class="chip tone-amber">Directory</span></button>
+      <button type="button" class="tree-row" data-file="src/orders-repository.ts"><span class="path">├─ src/orders-repository.ts</span><span class="chip tone-neutral">App</span></button>
+      <button type="button" class="tree-row" data-file="scripts/count-moved-keys.ts"><span class="path">├─ scripts/count-moved-keys.ts</span><span class="chip tone-teal">Routing</span></button>
+      <button type="button" class="tree-row" data-file="db/directory.sql"><span class="path">├─ db/directory.sql</span><span class="chip tone-amber">Directory</span></button>
+      <button type="button" class="tree-row" data-file="db/shard-schema.sql"><span class="path">├─ db/shard-schema.sql</span><span class="chip tone-blue">Shard</span></button>
+      <button type="button" class="tree-row" data-file="db/shard-load.sql"><span class="path">└─ db/shard-load.sql</span><span class="chip tone-neutral">Monitoring</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">OrdersApi/</div>
+      <button type="button" class="tree-row" data-file="HashRing.cs"><span class="path">├─ HashRing.cs</span><span class="chip tone-teal">Routing</span></button>
+      <button type="button" class="tree-row" data-file="ShardPlacement.cs"><span class="path">├─ ShardPlacement.cs</span><span class="chip tone-amber">Directory</span></button>
+      <button type="button" class="tree-row" data-file="OrdersRepository.cs"><span class="path">├─ OrdersRepository.cs</span><span class="chip tone-neutral">App</span></button>
+      <button type="button" class="tree-row" data-file="CountMovedKeys.cs"><span class="path">├─ CountMovedKeys.cs</span><span class="chip tone-teal">Routing</span></button>
+      <button type="button" class="tree-row" data-file="db/directory.sql"><span class="path">├─ db/directory.sql</span><span class="chip tone-amber">Directory</span></button>
+      <button type="button" class="tree-row" data-file="db/shard-schema.sql"><span class="path">├─ db/shard-schema.sql</span><span class="chip tone-blue">Shard</span></button>
+      <button type="button" class="tree-row" data-file="db/shard-load.sql"><span class="path">└─ db/shard-load.sql</span><span class="chip tone-neutral">Monitoring</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Writes that one server cannot handle</strong><span>Each shard takes the writes of its own tenants.</span></li>
+        <li><strong>Data larger than one server</strong><span>Each shard holds a part, so disk and memory needs are split.</span></li>
+        <li><strong>One tenant's load slowing everyone</strong><span>Large tenants can get their own shard.</span></li>
+        <li><strong>Large outages</strong><span>A failed shard affects only its own tenants.</span></li>
+        <li><strong>Data residency</strong><span>Shards in different regions can keep each tenant's data in its own country.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Queries across shards</strong><span>Reports, searches and joins across tenants need one query per shard or a separate analytics copy.</span></li>
+        <li><strong>No transactions across shards</strong><span>Changes to two shards need a saga or careful ordering.</span></li>
+        <li><strong>Moving data</strong><span>Adding a shard means copying rows while the app runs, then switching without losing writes.</span></li>
+        <li><strong>A key that is hard to change</strong><span>Changing the shard key later means moving every row.</span></li>
+        <li><strong>More to run</strong><span>Every migration, backup and alert happens once per shard.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="router">
+      <div class="file-head"><span class="chip tone-teal">Routing</span><span class="name">src/hash-ring.ts</span><span class="why">Each shard gets 100 positions from hashing <code>shard-name#0</code> to <code>shard-name#99</code>. MD5 is used because it is fast and spreads values evenly; it is not used for security here. The C# version uses the same hash, so both apps send a tenant to the same shard. A linear search over 500 positions takes microseconds; use a binary search for thousands.</span></div>
+<pre><code>import { createHash } from "node:crypto";
+
+export function hashToRingPosition(value: string): number {
+  return createHash("md5").update(value).digest().readUInt32BE(0);
+}
+
+type RingPosition = { position: number; shardName: string };
+
+export class HashRing {
+  private readonly positions: RingPosition[] = [];
+
+  constructor(shardNames: string[], private readonly virtualNodesPerShard = 100) {
+    for (const shardName of shardNames) this.addShard(shardName);
+  }
+
+  addShard(shardName: string): void {
+    for (let index = 0; index &lt; this.virtualNodesPerShard; index++) {
+      this.positions.push({ position: hashToRingPosition(`${shardName}#${index}`), shardName });
+    }
+    this.positions.sort((first, second) =&gt; first.position - second.position);
+  }
+
+  shardFor(shardKey: string): string {
+    const keyPosition = hashToRingPosition(shardKey);
+    const firstClockwise = this.positions.find((entry) =&gt; entry.position &gt;= keyPosition);
+    return (firstClockwise ?? this.positions[0]).shardName;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="ring">
+      <div class="file-head"><span class="chip tone-teal">Routing</span><span class="name">scripts/count-moved-keys.ts</span><span class="why">Counts how many of 100,000 tenant IDs change shard when a fifth shard is added. Output from a real run: <code>{ movedWithRing: 0.2007, movedWithModulo: 0.7993 }</code>.</span></div>
+<pre><code>import { HashRing, hashToRingPosition } from "../src/hash-ring.js";
+
+const tenantIds = Array.from({ length: 100_000 }, (_, index) =&gt; `t-${index}`);
+const fourShards = new HashRing(["shard-1", "shard-2", "shard-3", "shard-4"]);
+const fiveShards = new HashRing(["shard-1", "shard-2", "shard-3", "shard-4", "shard-5"]);
+
+const movedWithRing = tenantIds.filter((tenantId) =&gt; fourShards.shardFor(tenantId) !== fiveShards.shardFor(tenantId));
+const movedWithModulo = tenantIds.filter(
+  (tenantId) =&gt; hashToRingPosition(tenantId) % 4 !== hashToRingPosition(tenantId) % 5,
+);
+
+console.log({
+  movedWithRing: movedWithRing.length / tenantIds.length,
+  movedWithModulo: movedWithModulo.length / tenantIds.length,
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="directory">
+      <div class="file-head"><span class="chip tone-amber">Directory</span><span class="name">src/shard-placement.ts</span><span class="why">The directory is checked first, then the ring. The directory is a small table, so it is loaded into memory and reloaded every minute instead of being queried on every request.</span></div>
+<pre><code>import type { Pool } from "pg";
+import { HashRing } from "./hash-ring.js";
+
+export class ShardPlacement {
+  private pinnedTenants = new Map&lt;string, string&gt;();
+
+  constructor(private readonly ring: HashRing, private readonly directoryDatabase: Pool) {}
+
+  async reloadDirectory(): Promise&lt;void&gt; {
+    const { rows } = await this.directoryDatabase.query&lt;{ tenant_id: string; shard_name: string }&gt;(
+      "SELECT tenant_id, shard_name FROM tenant_shard_directory",
+    );
+    this.pinnedTenants = new Map(rows.map((row) =&gt; [row.tenant_id, row.shard_name]));
+  }
+
+  shardFor(tenantId: string): string {
+    return this.pinnedTenants.get(tenantId) ?? this.ring.shardFor(tenantId);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="app">
+      <div class="file-head"><span class="chip tone-neutral">App</span><span class="name">src/orders-repository.ts</span><span class="why">One connection pool per shard. Every query includes <code>tenant_id</code>, so it touches one shard. The report sends the same query to every shard in parallel and adds the results. Log lines carry the shard name, so a slow shard can be found.</span></div>
+<pre><code>import type { Pool } from "pg";
+import type { Logger } from "pino";
+import type { ShardPlacement } from "./shard-placement.js";
+
+export class OrdersRepository {
+  constructor(private readonly placement: ShardPlacement, private readonly shardPools: Map&lt;string, Pool&gt;) {}
+
+  async findOrders(requestLogger: Logger, tenantId: string) {
+    const shardName = this.placement.shardFor(tenantId);
+    const startedAt = performance.now();
+    const { rows } = await this.shardPools.get(shardName)!.query(
+      "SELECT id, total, created_at FROM orders WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 50",
+      [tenantId],
+    );
+    requestLogger.debug({ shardName, tenantId, durationMs: Math.round(performance.now() - startedAt) }, "orders read");
+    return rows;
+  }
+
+  async revenueOfAllTenants(requestLogger: Logger, from: Date, to: Date): Promise&lt;number&gt; {
+    const startedAt = performance.now();
+    const perShard = await Promise.all(
+      [...this.shardPools.values()].map((pool) =&gt;
+        pool.query&lt;{ revenue: string }&gt;(
+          "SELECT coalesce(sum(total), 0) AS revenue FROM orders WHERE created_at &gt;= $1 AND created_at &lt; $2",
+          [from, to],
+        ),
+      ),
+    );
+    requestLogger.info({ shardCount: perShard.length, durationMs: Math.round(performance.now() - startedAt) }, "query sent to every shard");
+    return perShard.reduce((total, result) =&gt; total + Number(result.rows[0].revenue), 0);
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="router">
+      <div class="file-head"><span class="chip tone-teal">Routing</span><span class="name">HashRing.cs</span><span class="why">Each shard gets 100 positions from hashing <code>shard-name#0</code> to <code>shard-name#99</code>. It uses the same MD5 hash and byte order as the TypeScript version, so both apps send a tenant to the same shard. MD5 is used because it spreads values evenly; it is not used for security here.</span></div>
+<pre><code>using System.Buffers.Binary;
+using System.Security.Cryptography;
+using System.Text;
+
+public sealed class HashRing
+{
+    private readonly SortedList&lt;uint, string&gt; positions = new();
+    private readonly int virtualNodesPerShard;
+
+    public HashRing(IEnumerable&lt;string&gt; shardNames, int virtualNodesPerShard = 100)
+    {
+        this.virtualNodesPerShard = virtualNodesPerShard;
+        foreach (var shardName in shardNames) AddShard(shardName);
+    }
+
+    public void AddShard(string shardName)
+    {
+        for (var index = 0; index &lt; virtualNodesPerShard; index++)
+        {
+            positions[HashToRingPosition($"{shardName}#{index}")] = shardName;
+        }
+    }
+
+    public string ShardFor(string shardKey)
+    {
+        var keyPosition = HashToRingPosition(shardKey);
+        foreach (var (position, shardName) in positions)
+        {
+            if (position &gt;= keyPosition) return shardName;
+        }
+        return positions.Values[0];
+    }
+
+    public static uint HashToRingPosition(string value) =&gt;
+        BinaryPrimitives.ReadUInt32BigEndian(MD5.HashData(Encoding.UTF8.GetBytes(value)));
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="ring">
+      <div class="file-head"><span class="chip tone-teal">Routing</span><span class="name">CountMovedKeys.cs</span><span class="why">Counts how many of 100,000 tenant IDs change shard when a fifth shard is added. Expect about 0.20 for the ring and 0.80 for modulo.</span></div>
+<pre><code>var tenantIds = Enumerable.Range(0, 100_000).Select(index =&gt; $"t-{index}").ToList();
+var fourShards = new HashRing(["shard-1", "shard-2", "shard-3", "shard-4"]);
+var fiveShards = new HashRing(["shard-1", "shard-2", "shard-3", "shard-4", "shard-5"]);
+
+var movedWithRing = tenantIds.Count(tenantId =&gt; fourShards.ShardFor(tenantId) != fiveShards.ShardFor(tenantId));
+var movedWithModulo = tenantIds.Count(tenantId =&gt;
+    HashRing.HashToRingPosition(tenantId) % 4 != HashRing.HashToRingPosition(tenantId) % 5);
+
+Console.WriteLine($"moved with ring: {movedWithRing / (double)tenantIds.Count:F4}");
+Console.WriteLine($"moved with modulo: {movedWithModulo / (double)tenantIds.Count:F4}");</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="directory">
+      <div class="file-head"><span class="chip tone-amber">Directory</span><span class="name">ShardPlacement.cs</span><span class="why">The directory is checked first, then the ring. The directory is a small table, so it is loaded into memory and reloaded every minute by a background service instead of being queried on every request.</span></div>
+<pre><code>using System.Collections.Frozen;
+using Npgsql;
+
+public sealed class ShardPlacement(HashRing ring, NpgsqlDataSource directoryDatabase)
+{
+    private FrozenDictionary&lt;string, string&gt; pinnedTenants = FrozenDictionary&lt;string, string&gt;.Empty;
+
+    public async Task ReloadDirectoryAsync()
+    {
+        var loaded = new Dictionary&lt;string, string&gt;();
+        await using var command = directoryDatabase.CreateCommand("SELECT tenant_id, shard_name FROM tenant_shard_directory");
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            loaded[reader.GetString(0)] = reader.GetString(1);
+        }
+        pinnedTenants = loaded.ToFrozenDictionary();
+    }
+
+    public string ShardFor(string tenantId) =&gt;
+        pinnedTenants.TryGetValue(tenantId, out var shardName) ? shardName : ring.ShardFor(tenantId);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="app">
+      <div class="file-head"><span class="chip tone-neutral">App</span><span class="name">OrdersRepository.cs</span><span class="why">One data source per shard. Every query includes <code>tenant_id</code>, so it touches one shard. The report sends the same query to every shard in parallel and adds the results. Log lines carry the shard name, so a slow shard can be found.</span></div>
+<pre><code>using System.Diagnostics;
+using Npgsql;
+
+public sealed class OrdersRepository(
+    ShardPlacement placement,
+    IReadOnlyDictionary&lt;string, NpgsqlDataSource&gt; shardDataSources,
+    ILogger&lt;OrdersRepository&gt; logger)
+{
+    public async Task&lt;int&gt; CountOrdersAsync(string tenantId)
+    {
+        var shardName = placement.ShardFor(tenantId);
+        await using var command = shardDataSources[shardName].CreateCommand("SELECT count(*) FROM orders WHERE tenant_id = $1");
+        command.Parameters.Add(new NpgsqlParameter { Value = tenantId });
+        var orderCount = Convert.ToInt32(await command.ExecuteScalarAsync());
+        logger.LogDebug("Orders counted on {ShardName} for {TenantId}", shardName, tenantId);
+        return orderCount;
+    }
+
+    public async Task&lt;decimal&gt; RevenueOfAllTenantsAsync(DateTimeOffset from, DateTimeOffset to)
+    {
+        var startedAt = Stopwatch.GetTimestamp();
+        var perShard = await Task.WhenAll(shardDataSources.Values.Select(async dataSource =&gt;
+        {
+            await using var command = dataSource.CreateCommand(
+                "SELECT coalesce(sum(total), 0) FROM orders WHERE created_at &gt;= $1 AND created_at &lt; $2");
+            command.Parameters.Add(new NpgsqlParameter { Value = from });
+            command.Parameters.Add(new NpgsqlParameter { Value = to });
+            return (decimal)(await command.ExecuteScalarAsync())!;
+        }));
+        logger.LogInformation("Query sent to {ShardCount} shards in {DurationMs} ms",
+            perShard.Length, (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+        return perShard.Sum();
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="directory">
+      <div class="file-head"><span class="chip tone-amber">Directory</span><span class="name">db/directory.sql</span><span class="why">A small table in a separate, replicated database. It lists only the tenants that do not follow the ring.</span></div>
+<pre><code>CREATE TABLE tenant_shard_directory (
+  tenant_id  text PRIMARY KEY,
+  shard_name text NOT NULL,
+  reason     text NOT NULL
+);
+
+INSERT INTO tenant_shard_directory VALUES ('t-1', 'shard-1', 'about 40% of all orders');</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="shard">
+      <div class="file-head"><span class="chip tone-blue">Shard</span><span class="name">db/shard-schema.sql</span><span class="why">Every shard has the same tables. <code>tenant_id</code> is in the primary key and leads every index, because every query filters on it. IDs are UUIDs, so two shards never create the same ID.</span></div>
+<pre><code>CREATE TABLE orders (
+  tenant_id  text NOT NULL,
+  id         uuid NOT NULL DEFAULT uuidv7(),
+  total      numeric(10, 2) NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, id)
+);
+
+CREATE INDEX orders_tenant_created_idx ON orders (tenant_id, created_at);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Monitoring</span><span class="name">db/shard-load.sql</span><span class="why">Run on each shard and compare. The first query shows size, the second the largest tenants: candidates for their own shard. Query load per shard comes from <code>pg_stat_statements</code> and from app metrics labelled with the shard name.</span></div>
+<pre><code>SELECT pg_size_pretty(pg_database_size(current_database())) AS shard_size;
+
+SELECT tenant_id, count(*) AS order_count
+  FROM orders
+ GROUP BY tenant_id
+ ORDER BY order_count DESC
+ LIMIT 10;
+
+SELECT sum(calls) AS queries, round(sum(total_exec_time)) AS total_ms
+  FROM pg_stat_statements;</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
