@@ -74,7 +74,8 @@ header { display: grid; gap: 12px; }
 .terms { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
 .terms th, .terms td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .terms th { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.terms td:first-child { white-space: nowrap; }
+.terms td:first-child { min-width: 9rem; }
+.terms code { white-space: nowrap; }
 .table-wrap { overflow-x: auto; }
 
 .rule { border: 1px solid var(--teal); background: var(--teal-bg); border-radius: 8px; padding: 14px 16px; max-width: 65ch; }
