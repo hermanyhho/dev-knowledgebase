@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAP and Consistency</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">System design</a> / Databases</div>
+    <h1>CAP and Consistency</h1>
+    <p class="aka">What a database with copies on several servers can guarantee when the network between them fails. Examples use Apache Cassandra 5, which lets each query choose.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>When data is copied to several servers, the network between them can fail. Some servers can no longer reach the others, but clients can still reach them. This is a <strong>network partition</strong>.</p>
+    <p>A server that cannot reach the others has two options for a request. It can answer with what it has, and its data may be old. Or it can refuse, and the data stays correct. It cannot do both. The CAP theorem states this: during a partition, a system chooses between <strong>consistency</strong> and <strong>availability</strong>.</p>
+    <p>Partitions cannot be prevented, so the real question is what each operation does when one happens. A bank balance should refuse. A product description can show the old version.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-amber">Network partition</span></td><td>Servers that are running cannot reach each other over the network.</td><td>Zone 2 is cut off from zone 1</td></tr>
+          <tr><td><span class="chip tone-teal">Consistency (C)</span></td><td>Every read returns the newest write, as if there were one copy. Also called linearizability or strong consistency.</td><td>Reads at <code>QUORUM</code></td></tr>
+          <tr><td><span class="chip tone-blue">Availability (A)</span></td><td>Every request to a running server gets an answer that is not an error.</td><td>Reads at <code>ONE</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Partition tolerance (P)</span></td><td>The system keeps running during a partition. Every system with more than one server needs it.</td><td></td></tr>
+          <tr><td><span class="chip tone-blue">Eventual consistency</span></td><td>If writes stop, all copies become equal after some time. Until then, reads can return old values.</td><td>Zone 2 shows the old name</td></tr>
+          <tr><td><span class="chip tone-teal">Quorum</span></td><td>A majority of the copies. With 3 copies, a quorum is 2.</td><td>2 of 3 nodes</td></tr>
+          <tr><td><span class="chip tone-neutral">Replication factor (N)</span></td><td>How many copies of each row exist.</td><td>3</td></tr>
+          <tr><td><span class="chip tone-neutral">Consistency level</span></td><td>In Cassandra, how many copies must answer before a read or write succeeds. Set per query.</td><td><code>ONE</code>, <code>QUORUM</code>, <code>ALL</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> choose per operation, not per system. Money, stock and unique names need consistency. Feeds, counters, profiles and catalogs can usually accept old data for a few seconds.</div>
+  </section>
+
+  <section>
+    <h2>Consistent or available during a partition</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Choose consistency (CP)</th><th>Choose availability (AP)</th></tr></thead>
+        <tbody>
+          <tr><td>The cut-off side</td><td>Refuses reads and writes it cannot confirm with a majority</td><td>Answers from its own copy and accepts writes</td></tr>
+          <tr><td>The user sees</td><td>An error or a wait</td><td>Possibly old data. Writes on both sides can conflict.</td></tr>
+          <tr><td>After the partition heals</td><td>Nothing to fix</td><td>Copies must be compared and conflicts resolved</td></tr>
+          <tr><td>Examples</td><td>etcd, ZooKeeper, a PostgreSQL primary, Cassandra at <code>QUORUM</code></td><td>DNS, CDN caches, Cassandra at <code>ONE</code>, DynamoDB default reads</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quorums: how many copies must answer</h2>
+    <p>With N copies, a write waits for W copies and a read asks R copies. If <code>W + R &gt; N</code>, every read asks at least one copy that has the newest write.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>N = 3</th><th>Read sees the newest write?</th><th>Works with one node down?</th><th>Speed</th></tr></thead>
+        <tbody>
+          <tr><td>W = 1, R = 1 (<code>ONE</code>)</td><td>No</td><td>Yes</td><td>Fastest</td></tr>
+          <tr><td>W = 2, R = 2 (<code>QUORUM</code>)</td><td>Yes</td><td>Yes</td><td>Waits for the second-fastest node</td></tr>
+          <tr><td>W = 3, R = 1</td><td>Yes</td><td>Reads yes, writes no</td><td>Writes wait for the slowest node</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Consistency models</h2>
+    <p>Between "always the newest" and "eventually equal" there are useful steps. Each one is a guarantee to the user.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Model</th><th>Guarantee</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Linearizable</td><td>Every read sees the latest completed write, from any client.</td><td>Stock, balances, locks</td></tr>
+          <tr><td>Read your writes</td><td>A user always sees their own changes. Others may see them later.</td><td>Editing your profile</td></tr>
+          <tr><td>Monotonic reads</td><td>A user never sees data go back to an older state.</td><td>A comment that appears does not disappear</td></tr>
+          <tr><td>Causal</td><td>If one change led to another, everyone sees them in that order.</td><td>A reply never appears before its question</td></tr>
+          <tr><td>Eventual</td><td>All copies match once writes stop.</td><td>Like counts, view counts</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Latency without a partition: PACELC</h2>
+    <p>CAP describes partitions only. PACELC adds the normal case: if there is a Partition, choose Availability or Consistency; Else, choose Latency or Consistency. Waiting for other copies makes every request slower, even when the network is fine.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Setup</th><th>During a partition</th><th>Normal operation</th></tr></thead>
+        <tbody>
+          <tr><td>Cassandra at <code>ONE</code></td><td>Available</td><td>Low latency, may read old data</td></tr>
+          <tr><td>Cassandra at <code>QUORUM</code></td><td>Consistent</td><td>Waits for a second node</td></tr>
+          <tr><td>PostgreSQL with a synchronous replica</td><td>Consistent</td><td>Each commit waits for the replica</td></tr>
+          <tr><td>etcd</td><td>Consistent</td><td>Each write waits for a majority</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Resolving conflicting writes</h2>
+    <p>If both sides of a partition accepted writes to the same row, the copies disagree when the network returns.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Method</th><th>How</th><th>Risk</th></tr></thead>
+        <tbody>
+          <tr><td>Last write wins</td><td>Keep the value with the newest timestamp. Cassandra does this per column.</td><td>The other write is lost. Clocks that differ between servers pick the wrong one.</td></tr>
+          <tr><td>Keep both, merge in the app</td><td>Store both versions and let code or the user merge them.</td><td>More code. Used for shopping carts: merge both carts.</td></tr>
+          <tr><td>CRDTs</td><td>Data types whose copies always merge to the same result, such as counters and sets.</td><td>Only for data that fits those types</td></tr>
+          <tr><td>Avoid the conflict</td><td>Make operations that must not conflict consistent, for example with a lightweight transaction.</td><td>Unavailable on the cut-off side</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>App, not enough replicas</td><td>Operation name, consistency level, replicas required and alive, request ID</td><td>warn if the app falls back, error if it fails</td></tr>
+          <tr><td>App, fallback to a weaker level</td><td>Count per operation, so you know how often users saw possibly old data</td><td>Metric</td></tr>
+          <tr><td>Metric: nodes up per zone</td><td>From <code>nodetool status</code> or the driver's host events</td><td>Alert when a node is down for over 1 minute</td></tr>
+          <tr><td>Metric: hints stored</td><td>Writes a node keeps for a replica that was unreachable</td><td>Alert when it grows: a node or link is down</td></tr>
+          <tr><td>Repair</td><td>Last successful <code>nodetool repair</code> per table</td><td>Alert if older than <code>gc_grace_seconds</code> (10 days)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 430" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A Cassandra cluster with three copies of each row. Node 1 and node 2 are in zone 1 with client A. Node 3 is in zone 2 with client B. The network link between the zones can fail.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="20" y="20" width="520" height="310" rx="10"/>
+        <text class="t-label" x="280" y="40">ZONE 1</text>
+        <rect class="frame" x="620" y="20" width="280" height="310" rx="10"/>
+        <text class="t-label" x="760" y="40">ZONE 2</text>
+
+        <g class="node" id="n-client-a" tabindex="0" role="button" aria-label="Show the write code" data-title="Client A: writes" data-node="client-a">
+          <rect class="shape tone-neutral" x="160" y="55" width="220" height="60" rx="6"/>
+          <text class="t-name" x="270" y="80">Client A</text>
+          <text class="t-kind" x="270" y="98">profile API in zone 1</text>
+        </g>
+        <g class="node" id="n-client-b" tabindex="0" role="button" aria-label="Show the read code with a fallback" data-title="Client B: reads with a fallback" data-node="client-b">
+          <rect class="shape tone-neutral" x="650" y="55" width="220" height="60" rx="6"/>
+          <text class="t-name" x="760" y="80">Client B</text>
+          <text class="t-kind" x="760" y="98">profile API in zone 2</text>
+        </g>
+        <g class="node" id="n-node1" tabindex="0" role="button" aria-label="Show the keyspace and table" data-title="Node 1: keyspace and table" data-node="node1">
+          <rect class="shape tone-blue" x="40" y="180" width="200" height="100" rx="6"/>
+          <text class="t-name" x="140" y="205">Node 1</text>
+          <text class="t-kind" x="140" y="222">copy 1 of 3</text>
+        </g>
+        <g class="node" id="n-node2" tabindex="0" role="button" aria-label="Show a lightweight transaction" data-title="Node 2: lightweight transaction" data-node="node2">
+          <rect class="shape tone-blue" x="300" y="180" width="200" height="100" rx="6"/>
+          <text class="t-name" x="400" y="205">Node 2</text>
+          <text class="t-kind" x="400" y="222">copy 2 of 3</text>
+        </g>
+        <g class="node" id="n-node3" tabindex="0" role="button" aria-label="Show nodetool commands" data-title="Node 3: status and repair" data-node="node3">
+          <rect class="shape tone-blue" x="660" y="180" width="200" height="100" rx="6"/>
+          <text class="t-name" x="760" y="205">Node 3</text>
+          <text class="t-kind" x="760" y="222">copy 3 of 3</text>
+        </g>
+        <g class="node" id="n-log" tabindex="0" role="button" aria-label="Show hint and repair settings" data-title="Monitoring: hints and repair" data-node="log">
+          <rect class="shape tone-neutral" x="330" y="360" width="260" height="55" rx="6"/>
+          <text class="t-name" x="460" y="383">Monitoring</text>
+          <text class="t-kind" x="460" y="401">fallbacks, nodes down, hints</text>
+        </g>
+
+        <g class="state-item" id="v1-old"><rect class="slot tone-neutral" x="65" y="238" width="150" height="28" rx="4"/><text class="t-item" x="140" y="256">name: Ann</text></g>
+        <g class="state-item" id="v1-new"><rect class="slot tone-teal" x="65" y="238" width="150" height="28" rx="4"/><text class="t-item" x="140" y="256">name: Anna</text></g>
+        <g class="state-item" id="v2-old"><rect class="slot tone-neutral" x="325" y="238" width="150" height="28" rx="4"/><text class="t-item" x="400" y="256">name: Ann</text></g>
+        <g class="state-item" id="v2-new"><rect class="slot tone-teal" x="325" y="238" width="150" height="28" rx="4"/><text class="t-item" x="400" y="256">name: Anna</text></g>
+        <g class="state-item" id="v3-old"><rect class="slot tone-neutral" x="685" y="238" width="150" height="28" rx="4"/><text class="t-item" x="760" y="256">name: Ann</text></g>
+        <g class="state-item" id="v3-new"><rect class="slot tone-teal" x="685" y="238" width="150" height="28" rx="4"/><text class="t-item" x="760" y="256">name: Anna</text></g>
+        <g class="state-item" id="v3-other"><rect class="slot tone-amber" x="685" y="238" width="150" height="28" rx="4"/><text class="t-item" x="760" y="256">name: Annie</text></g>
+        <g class="state-item" id="v1-other"><rect class="slot tone-amber" x="65" y="238" width="150" height="28" rx="4"/><text class="t-item" x="140" y="256">name: Annie</text></g>
+        <g class="state-item" id="v2-other"><rect class="slot tone-amber" x="325" y="238" width="150" height="28" rx="4"/><text class="t-item" x="400" y="256">name: Annie</text></g>
+        <g class="state-item" id="s-hint"><rect class="slot tone-amber" x="55" y="290" width="170" height="26" rx="4"/><text class="t-item" x="140" y="307">hint for node 3</text></g>
+
+        <path class="flow" id="a-client-a-node1" d="M200,115 L160,178" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-node1-node2" d="M240,215 L298,215" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-node2-node3" d="M500,215 L658,215" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-node1-node3" d="M140,280 C140,345 760,345 760,282" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-client-b-node3" d="M760,115 L760,178" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-node3-node2" d="M658,250 L502,250" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-node3-client-b" d="M790,178 L790,117" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-node3-log" d="M700,282 L700,388 L592,388" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-split" x="580" y="200">NETWORK SPLIT</text>
+        <text class="ghost-label" id="t-unavailable" x="760" y="140">ERROR: 1 OF 2 REPLICAS ALIVE</text>
+        <text class="ghost-label" id="t-stale" x="760" y="140">ANSWERS "Ann": OLD DATA</text>
+        <text class="ghost-label" id="t-lww" x="480" y="160">NEWEST TIMESTAMP WINS</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="quorum" aria-pressed="true">Quorum write and read</button>
+        <button type="button" data-flow="cp" aria-pressed="false">Split: refuse (consistent)</button>
+        <button type="button" data-flow="ap" aria-pressed="false">Split: answer (available)</button>
+        <button type="button" data-flow="heal" aria-pressed="false">The split heals</button>
+        <button type="button" data-flow="unique" aria-pressed="false">Reserve a unique username</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="quorum" hidden>
+        <li data-highlight="n-client-a a-client-a-node1 n-node1" data-show="v1-old v2-old v3-old">Client A changes the user's name from Ann to Anna, at consistency level <code>QUORUM</code>. Node 1 receives the write and coordinates it.</li>
+        <li data-highlight="n-node1 a-node1-node2 n-node2 a-node1-node3 n-node3" data-show="v1-new v2-old v3-old">Node 1 writes its own copy and sends the write to node 2 and node 3.</li>
+        <li data-highlight="n-node1 n-node2 n-client-a" data-show="v1-new v2-new v3-old">Node 2 confirms. That is 2 of 3 copies, a quorum, so Client A gets success. Node 3 confirms a moment later.</li>
+        <li data-highlight="n-client-b a-client-b-node3 n-node3 a-node3-node2 n-node2" data-show="v1-new v2-new v3-new">Client B reads at <code>QUORUM</code>. Node 3 asks itself and node 2. Two copies out of three always include one with the newest write.</li>
+        <li data-highlight="n-node3 a-node3-client-b n-client-b" data-show="v1-new v2-new v3-new">Client B gets "Anna". If the two copies had disagreed, the one with the newer timestamp would win.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="cp" hidden>
+        <li data-highlight="t-split" data-show="v1-old v2-old v3-old">The link between the zones fails. Node 3 and client B can still talk to each other, but not to zone 1.</li>
+        <li data-highlight="n-client-b a-client-b-node3 n-node3" data-show="v1-old v2-old v3-old">Client B changes a name at <code>QUORUM</code>. Node 3 needs 2 of 3 copies, but it can reach only itself.</li>
+        <li data-highlight="n-node3 a-node3-client-b n-client-b t-unavailable" data-show="v1-old v2-old v3-old">Node 3 refuses at once with <code>UnavailableException</code>: 2 replicas required, 1 alive. The data stays correct, and the user in zone 2 gets an error.</li>
+        <li data-highlight="n-client-a a-client-a-node1 n-node1 a-node1-node2 n-node2" data-show="v1-new v2-new v3-old">In zone 1, nodes 1 and 2 are a majority. Client A's writes at <code>QUORUM</code> still succeed.</li>
+        <li data-highlight="n-client-b a-node3-log n-log" data-show="v1-new v2-new v3-old">Client B logs a warning with the consistency level, required and alive replicas, and the request ID. Monitoring shows the zone is cut off.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="ap" hidden>
+        <li data-highlight="t-split" data-show="v1-new v2-new v3-old">The link fails right after Client A changed the name to Anna. Node 3 did not get that write.</li>
+        <li data-highlight="n-client-b a-client-b-node3 n-node3" data-show="v1-new v2-new v3-old">Client B reads the profile. <code>QUORUM</code> fails, so its code falls back to <code>ONE</code>, which only needs node 3.</li>
+        <li data-highlight="n-node3 a-node3-client-b n-client-b t-stale" data-show="v1-new v2-new v3-old">Node 3 answers with its copy: "Ann". The page works, but shows old data.</li>
+        <li data-highlight="n-client-b a-client-b-node3 n-node3" data-show="v1-new v2-new v3-other">If client B also writes at <code>ONE</code>, for example "Annie", node 3 accepts it. Now the zones hold different values.</li>
+        <li data-highlight="n-client-b a-node3-log n-log" data-show="v1-new v2-new v3-other">Each fallback is logged and counted, so you know how many users saw old data during the split.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="heal" hidden>
+        <li data-highlight="n-node1 t-split" data-show="v1-new v2-new v3-other s-hint">During the split, node 1 could not deliver Anna to node 3. It stored the write as a hint, for up to 3 hours.</li>
+        <li data-highlight="n-node1 a-node1-node3 n-node3" data-show="v1-new v2-new v3-other s-hint">The link comes back. Node 1 sends its hints to node 3.</li>
+        <li data-highlight="n-node3 t-lww" data-show="v1-new v2-new v3-other">Node 3 compares timestamps. Annie was written during the split, after Anna, so node 3 keeps Annie.</li>
+        <li data-highlight="n-node3 a-node3-node2 n-node2 a-node1-node3 n-node1" data-show="v1-other v2-other v3-other">Node 3 sends its own hint for Annie to zone 1, and a scheduled <code>nodetool repair</code> fixes any copies still different. All copies now hold Annie.</li>
+        <li data-highlight="n-client-a n-log" data-show="v1-other v2-other v3-other">Client A was told that Anna was saved, and it is gone without an error. With last write wins this is the expected result. If that is not acceptable, the operation must choose consistency.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="unique" hidden>
+        <li data-highlight="n-client-a a-client-a-node1 n-node1">Two users try to take the username "anna" at the same moment. Last write wins would let both succeed.</li>
+        <li data-highlight="n-node1 a-node1-node2 n-node2 a-node1-node3 n-node3">Client A sends <code>INSERT ... IF NOT EXISTS</code>, a lightweight transaction. The nodes agree on it with Paxos rounds that need a majority.</li>
+        <li data-highlight="n-node1 n-client-a">The first insert gets <code>[applied] = true</code>. The second sees the existing row and gets <code>false</code>.</li>
+        <li data-highlight="t-split n-client-b a-client-b-node3 n-node3 t-unavailable">During a split, the same insert from zone 2 fails, because node 3 has no majority. The username stays unique. This operation chose consistency.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Clients</span>
+      <span class="chip tone-blue">Cassandra nodes</span>
+      <span class="chip tone-teal">Newest value</span>
+      <span class="chip tone-amber">Conflicting value or hint</span>
+      <span>Each row has 3 copies, one per node. A quorum is 2. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">profile-api/</div>
+      <button type="button" class="tree-row" data-file="src/profile-writes.ts"><span class="path">├─ src/profile-writes.ts</span><span class="chip tone-neutral">Client</span></button>
+      <button type="button" class="tree-row" data-file="src/profile-reads.ts"><span class="path">├─ src/profile-reads.ts</span><span class="chip tone-neutral">Client</span></button>
+      <button type="button" class="tree-row" data-file="db/schema.cql"><span class="path">├─ db/schema.cql</span><span class="chip tone-blue">Cassandra</span></button>
+      <button type="button" class="tree-row" data-file="db/usernames.cql"><span class="path">├─ db/usernames.cql</span><span class="chip tone-blue">Cassandra</span></button>
+      <button type="button" class="tree-row" data-file="scripts/cluster-health.sh"><span class="path">├─ scripts/cluster-health.sh</span><span class="chip tone-blue">Cassandra</span></button>
+      <button type="button" class="tree-row" data-file="config/cassandra.yaml"><span class="path">└─ config/cassandra.yaml</span><span class="chip tone-neutral">Monitoring</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">ProfileApi/</div>
+      <button type="button" class="tree-row" data-file="ProfileWrites.cs"><span class="path">├─ ProfileWrites.cs</span><span class="chip tone-neutral">Client</span></button>
+      <button type="button" class="tree-row" data-file="ProfileReads.cs"><span class="path">├─ ProfileReads.cs</span><span class="chip tone-neutral">Client</span></button>
+      <button type="button" class="tree-row" data-file="db/schema.cql"><span class="path">├─ db/schema.cql</span><span class="chip tone-blue">Cassandra</span></button>
+      <button type="button" class="tree-row" data-file="db/usernames.cql"><span class="path">├─ db/usernames.cql</span><span class="chip tone-blue">Cassandra</span></button>
+      <button type="button" class="tree-row" data-file="scripts/cluster-health.sh"><span class="path">├─ scripts/cluster-health.sh</span><span class="chip tone-blue">Cassandra</span></button>
+      <button type="button" class="tree-row" data-file="config/cassandra.yaml"><span class="path">└─ config/cassandra.yaml</span><span class="chip tone-neutral">Monitoring</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>What choosing availability gives</h2>
+      <ul>
+        <li><strong>Pages that keep working</strong><span>Users in a cut-off zone still read and write.</span></li>
+        <li><strong>Lower latency</strong><span>A request waits for the nearest copy only.</span></li>
+        <li><strong>Writes in every region</strong><span>Each region accepts writes without a round trip to another one.</span></li>
+      </ul>
+      <h2><span class="mark"></span>What choosing consistency gives</h2>
+      <ul>
+        <li><strong>No old data</strong><span>Every read sees the newest write.</span></li>
+        <li><strong>No conflicts to merge</strong><span>Unique names, stock and balances stay correct.</span></li>
+        <li><strong>Simpler code</strong><span>The app can treat the data as one copy.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>What choosing availability costs</h2>
+      <ul>
+        <li><strong>Old reads</strong><span>Users can see data that already changed, or that goes back in time.</span></li>
+        <li><strong>Lost or conflicting writes</strong><span>Last write wins silently drops one of two writes.</span></li>
+        <li><strong>Repair work</strong><span>Hints, read repair and scheduled repairs must run, or copies drift apart.</span></li>
+      </ul>
+      <h2><span class="mark"></span>What choosing consistency costs</h2>
+      <ul>
+        <li><strong>Errors during a partition</strong><span>The cut-off side refuses requests.</span></li>
+        <li><strong>Higher latency</strong><span>Every request waits for a majority, which may be in another zone.</span></li>
+        <li><strong>Fewer copies allowed to fail</strong><span>With 3 copies, losing 2 stops writes.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="client-a">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">src/profile-writes.ts</span><span class="why">The name change uses <code>QUORUM</code>: it succeeds only when 2 of 3 copies have it. The username uses <code>IF NOT EXISTS</code>, a lightweight transaction, so two users cannot take the same name even if both requests arrive at once. The <code>[applied]</code> column says whether the insert happened.</span></div>
+<pre><code>import cassandra from "cassandra-driver";
+
+const { types } = cassandra;
+
+export async function updateDisplayName(client: cassandra.Client, userId: string, displayName: string): Promise&lt;void&gt; {
+  await client.execute(
+    "UPDATE users SET display_name = ? WHERE user_id = ?",
+    [displayName, userId],
+    { prepare: true, consistency: types.consistencies.quorum },
+  );
+}
+
+export async function reserveUsername(client: cassandra.Client, username: string, userId: string): Promise&lt;boolean&gt; {
+  const result = await client.execute(
+    "INSERT INTO usernames (username, user_id) VALUES (?, ?) IF NOT EXISTS",
+    [username, userId],
+    { prepare: true, consistency: types.consistencies.quorum, serialConsistency: types.consistencies.serial },
+  );
+  return result.first().get("[applied]") === true;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="client-b">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">src/profile-reads.ts</span><span class="why">This operation chooses availability. It reads at <code>QUORUM</code>, and only if not enough replicas are alive does it read at <code>ONE</code>, which may return old data. Every fallback is logged at warn with the request ID from the request logger, and counted. Other errors are not caught here.</span></div>
+<pre><code>import cassandra from "cassandra-driver";
+import type { Logger } from "pino";
+
+const { types, errors } = cassandra;
+
+function readDisplayName(client: cassandra.Client, userId: string, consistency: number) {
+  return client.execute("SELECT display_name FROM users WHERE user_id = ?", [userId], { prepare: true, consistency });
+}
+
+function isNotEnoughReplicas(error: unknown): error is cassandra.errors.ResponseError {
+  return error instanceof errors.ResponseError &amp;&amp; error.code === types.responseErrorCodes.unavailableException;
+}
+
+export async function getDisplayName(client: cassandra.Client, requestLogger: Logger, userId: string): Promise&lt;string | undefined&gt; {
+  try {
+    const result = await readDisplayName(client, userId, types.consistencies.quorum);
+    return result.first()?.get("display_name");
+  } catch (error) {
+    if (!isNotEnoughReplicas(error)) throw error;
+
+    const { required, alive } = error as unknown as { required: number; alive: number };
+    requestLogger.warn({ operation: "getDisplayName", consistency: "QUORUM", required, alive }, "not enough replicas, reading at ONE");
+    const result = await readDisplayName(client, userId, types.consistencies.one);
+    return result.first()?.get("display_name");
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="client-a">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">ProfileWrites.cs</span><span class="why">The name change uses <code>Quorum</code>: it succeeds only when 2 of 3 copies have it. The username uses <code>IF NOT EXISTS</code>, a lightweight transaction, so two users cannot take the same name even if both requests arrive at once. The <code>[applied]</code> column says whether the insert happened.</span></div>
+<pre><code>using Cassandra;
+
+public sealed class ProfileWrites(ISession session)
+{
+    public async Task UpdateDisplayNameAsync(string userId, string displayName)
+    {
+        var statement = new SimpleStatement("UPDATE users SET display_name = ? WHERE user_id = ?", displayName, userId)
+            .SetConsistencyLevel(ConsistencyLevel.Quorum);
+        await session.ExecuteAsync(statement);
+    }
+
+    public async Task&lt;bool&gt; ReserveUsernameAsync(string username, string userId)
+    {
+        var statement = new SimpleStatement("INSERT INTO usernames (username, user_id) VALUES (?, ?) IF NOT EXISTS", username, userId)
+            .SetConsistencyLevel(ConsistencyLevel.Quorum)
+            .SetSerialConsistencyLevel(ConsistencyLevel.Serial);
+        var result = await session.ExecuteAsync(statement);
+        return result.First().GetValue&lt;bool&gt;("[applied]");
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="client-b">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">ProfileReads.cs</span><span class="why">This operation chooses availability. It reads at <code>Quorum</code>, and only if not enough replicas are alive does it read at <code>One</code>, which may return old data. The <code>when</code> filter lets every other error through. ASP.NET Core adds the trace ID to the warning through the request's logging scope.</span></div>
+<pre><code>using Cassandra;
+
+public sealed class ProfileReads(ISession session, ILogger&lt;ProfileReads&gt; logger)
+{
+    public async Task&lt;string?&gt; GetDisplayNameAsync(string userId)
+    {
+        try
+        {
+            return await ReadDisplayNameAsync(userId, ConsistencyLevel.Quorum);
+        }
+        catch (UnavailableException exception)
+        {
+            logger.LogWarning("Not enough replicas for {Operation} at {Consistency}: {Required} required, {Alive} alive. Reading at One",
+                "GetDisplayName", exception.Consistency, exception.RequiredReplicas, exception.AliveReplicas);
+            return await ReadDisplayNameAsync(userId, ConsistencyLevel.One);
+        }
+    }
+
+    private async Task&lt;string?&gt; ReadDisplayNameAsync(string userId, ConsistencyLevel consistency)
+    {
+        var statement = new SimpleStatement("SELECT display_name FROM users WHERE user_id = ?", userId)
+            .SetConsistencyLevel(consistency);
+        var rows = await session.ExecuteAsync(statement);
+        return rows.FirstOrDefault()?.GetValue&lt;string&gt;("display_name");
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="node1">
+      <div class="file-head"><span class="chip tone-blue">Cassandra</span><span class="name">db/schema.cql</span><span class="why">Every row is stored on 3 nodes. Cassandra places the copies on different racks; here each rack is a zone. The partition key <code>user_id</code> is hashed to pick the nodes, with consistent hashing, as on the <a href="../sharding/">sharding</a> page.</span></div>
+<pre><code>CREATE KEYSPACE profiles
+  WITH replication = {'class': 'NetworkTopologyStrategy', 'datacenter1': 3};
+
+CREATE TABLE profiles.users (
+  user_id      text PRIMARY KEY,
+  display_name text
+);
+
+CONSISTENCY QUORUM;
+SELECT display_name, writetime(display_name) FROM profiles.users WHERE user_id = 'u-42';</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="node2">
+      <div class="file-head"><span class="chip tone-blue">Cassandra</span><span class="name">db/usernames.cql</span><span class="why"><code>IF NOT EXISTS</code> makes the insert a lightweight transaction: the nodes agree on it with Paxos, which needs a majority. It needs four round trips between nodes instead of one, so use it only where a conflict is not acceptable.</span></div>
+<pre><code>CREATE TABLE profiles.usernames (
+  username text PRIMARY KEY,
+  user_id  text NOT NULL
+);
+
+SERIAL CONSISTENCY SERIAL;
+INSERT INTO profiles.usernames (username, user_id) VALUES ('anna', 'u-42') IF NOT EXISTS;
+INSERT INTO profiles.usernames (username, user_id) VALUES ('anna', 'u-77') IF NOT EXISTS;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-bash">
+    <div class="file" data-lang="any" data-node="node3">
+      <div class="file-head"><span class="chip tone-blue">Cassandra</span><span class="name">scripts/cluster-health.sh</span><span class="why"><code>nodetool status</code> lists every node as <code>UN</code> (up, normal) or <code>DN</code> (down). During a split, each side sees the other side as down. <code>nodetool repair</code> compares the copies of each table and fixes differences. Run it on each node, with <code>-pr</code>, at least once within <code>gc_grace_seconds</code>, or deleted rows can come back.</span></div>
+<pre><code>nodetool status profiles
+
+nodetool getendpoints profiles users u-42
+
+nodetool repair -pr profiles</code></pre>
+    </div>
+  </div>
+
+  <div class="language-yaml">
+    <div class="file" data-lang="any" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Monitoring</span><span class="name">config/cassandra.yaml</span><span class="why">A node keeps writes for an unreachable replica as hints for up to <code>max_hint_window</code>. If a node is down longer, its hints are dropped and only a repair brings it up to date, so alert on nodes down for longer than this window.</span></div>
+<pre><code>hinted_handoff_enabled: true
+max_hint_window: 3h
+
+endpoint_snitch: GossipingPropertyFileSnitch</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

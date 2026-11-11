@@ -72,3 +72,4 @@ What each category covers: [system-design/README.md](system-design/README.md)
 | Transactions and Isolation Levels | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/transactions-and-isolation-levels/) | [index.html](system-design/databases/transactions-and-isolation-levels/index.html) |
 | Database Replication | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/replication/) | [index.html](system-design/databases/replication/index.html) |
 | Sharding and Consistent Hashing | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/sharding/) | [index.html](system-design/databases/sharding/index.html) |
+| CAP and Consistency | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/cap-and-consistency/) | [index.html](system-design/databases/cap-and-consistency/index.html) |

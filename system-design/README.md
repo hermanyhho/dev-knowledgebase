@@ -21,3 +21,4 @@ system-design/<category>/<topic>/
 - [Transactions and Isolation Levels](databases/transactions-and-isolation-levels/index.html) - databases
 - [Database Replication](databases/replication/index.html) - databases
 - [Sharding and Consistent Hashing](databases/sharding/index.html) - databases
+- [CAP and Consistency](databases/cap-and-consistency/index.html) - databases
