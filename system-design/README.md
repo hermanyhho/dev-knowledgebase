@@ -17,6 +17,7 @@ system-design/<category>/<topic>/
 
 ## Topics
 
+- [Databases Overview](databases/index.html) - databases: start here
 - [Database Indexes](databases/indexes/index.html) - databases
 - [Transactions and Isolation Levels](databases/transactions-and-isolation-levels/index.html) - databases
 - [Database Replication](databases/replication/index.html) - databases

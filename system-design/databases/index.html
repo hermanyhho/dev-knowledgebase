@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Databases Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../">System design</a> / Databases</div>
+    <h1>Databases Overview</h1>
+    <p class="aka">The five ideas that decide how a database stays fast and correct as data and traffic grow. Each has its own detail page.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A single database server is enough for most apps for a long time. Problems appear in a fixed order as the app grows: queries get slow, users change the same rows at once, one server gets too many reads, then too many writes, and finally copies on several servers can disagree.</p>
+    <p>Each problem has a standard answer with its own cost. This page gives the key idea of each. The detail pages show how it works step by step, with code.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>Problem it answers</th><th>Key idea</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td><a href="indexes/">Indexes</a></td><td>A query reads the whole table</td><td>A sorted copy of chosen columns finds rows in a few page reads</td><td>Every write also updates every index</td></tr>
+          <tr><td><a href="transactions-and-isolation-levels/">Transactions and isolation levels</a></td><td>Two requests change the same data at once</td><td>A transaction applies all its changes or none. The isolation level decides what it sees of others.</td><td>Locks, waits and errors to retry</td></tr>
+          <tr><td><a href="replication/">Replication</a></td><td>Too many reads, or one server failing</td><td>Copies of the database receive every change and answer reads</td><td>Replicas can be a few seconds behind</td></tr>
+          <tr><td><a href="sharding/">Sharding</a></td><td>Too many writes or too much data for one server</td><td>Rows are split over several servers by a key, such as the tenant ID</td><td>Queries across shards and transactions across shards become hard</td></tr>
+          <tr><td><a href="cap-and-consistency/">CAP and consistency</a></td><td>Copies cannot reach each other</td><td>During a network split, a request must choose: answer with possibly old data, or refuse</td><td>Old data, or errors</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> solve the problem you have, in this order: indexes, a larger server and a cache, read replicas, then sharding. Each step adds cost that the earlier steps do not have.</div>
+  </section>
+
+  <section>
+    <h2>Key terms</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Index</td><td>A separate sorted structure, usually a B-tree, that points to rows.</td></tr>
+          <tr><td>Transaction</td><td>Statements between <code>BEGIN</code> and <code>COMMIT</code> that succeed or fail together.</td></tr>
+          <tr><td>Isolation level</td><td>How much one transaction sees of others running at the same time: read committed, repeatable read, serializable.</td></tr>
+          <tr><td>Primary and replica</td><td>The primary takes all writes; replicas receive its changes and answer reads.</td></tr>
+          <tr><td>Replication lag</td><td>How far a replica is behind the primary.</td></tr>
+          <tr><td>Shard and shard key</td><td>A server holding part of the rows, and the column that decides which part.</td></tr>
+          <tr><td>Network partition</td><td>Running servers that cannot reach each other.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>What to watch</th></tr></thead>
+        <tbody>
+          <tr><td>Indexes</td><td>Slow query log and <code>pg_stat_statements</code>: queries with the most total time</td></tr>
+          <tr><td>Transactions</td><td>Retries, deadlocks and transactions open longer than a minute</td></tr>
+          <tr><td>Replication</td><td>Lag per replica. Alert over 10 seconds.</td></tr>
+          <tr><td>Sharding</td><td>Load and size per shard, to find a hot shard</td></tr>
+          <tr><td>CAP</td><td>Requests that fell back to a weaker consistency level, and nodes down</td></tr>
+          <tr><td>Every query log line</td><td>Query name, duration and request ID. Never parameter values: they can hold personal data.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 330" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The app writes to a primary database, which uses indexes and transactions. The primary copies its changes to replicas that answer reads. When one primary is not enough, the data is split into shards. Between copies on different servers, a network split forces a choice between consistency and availability.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g id="p-app">
+          <rect class="shape tone-neutral" x="20" y="120" width="140" height="70" rx="6"/>
+          <text class="t-name" x="90" y="150">App</text>
+          <text class="t-kind" x="90" y="168">reads and writes</text>
+        </g>
+        <g class="node" id="n-indexes" tabindex="0" role="button" aria-label="Show an index" data-title="Indexes" data-node="indexes">
+          <rect class="shape tone-teal" x="210" y="40" width="200" height="70" rx="6"/>
+          <text class="t-name" x="310" y="68">Indexes</text>
+          <text class="t-kind" x="310" y="86">find rows without a full scan</text>
+        </g>
+        <g class="node" id="n-transactions" tabindex="0" role="button" aria-label="Show a transaction" data-title="Transactions" data-node="transactions">
+          <rect class="shape tone-teal" x="210" y="200" width="200" height="70" rx="6"/>
+          <text class="t-name" x="310" y="228">Transactions</text>
+          <text class="t-kind" x="310" y="246">all or nothing, isolated</text>
+        </g>
+        <g class="node" id="n-replication" tabindex="0" role="button" aria-label="Show replication" data-title="Replication" data-node="replication">
+          <rect class="shape tone-blue" x="470" y="40" width="200" height="70" rx="6"/>
+          <text class="t-name" x="570" y="68">Replication</text>
+          <text class="t-kind" x="570" y="86">copies answer reads</text>
+        </g>
+        <g class="node" id="n-sharding" tabindex="0" role="button" aria-label="Show sharding" data-title="Sharding" data-node="sharding">
+          <rect class="shape tone-blue" x="470" y="200" width="200" height="70" rx="6"/>
+          <text class="t-name" x="570" y="228">Sharding</text>
+          <text class="t-kind" x="570" y="246">rows split by a key</text>
+        </g>
+        <g class="node" id="n-cap" tabindex="0" role="button" aria-label="Show a consistency choice" data-title="CAP and consistency" data-node="cap">
+          <rect class="shape tone-amber" x="720" y="120" width="180" height="70" rx="6"/>
+          <text class="t-name" x="810" y="148">CAP</text>
+          <text class="t-kind" x="810" y="166">split network: old data or error</text>
+        </g>
+
+        <path class="flow" id="a-app-indexes" d="M160,140 L208,85" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-transactions" d="M160,170 L208,225" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-indexes-replication" d="M410,75 L468,75" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-transactions-sharding" d="M410,235 L468,235" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-replication-cap" d="M670,85 L718,140" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-sharding-cap" d="M670,225 L718,170" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-step" x="460" y="310">TRY EACH STEP BEFORE THE NEXT</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="growth" aria-pressed="true">An app grows</button>
+        <button type="button" data-flow="last-item" aria-pressed="false">Two buyers, one item</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="growth" hidden>
+        <li data-highlight="p-app a-app-indexes n-indexes">The orders page gets slow at 2 million rows. An index on the columns the query filters by makes it read about 24 pages instead of 40,000.</li>
+        <li data-highlight="n-indexes a-indexes-replication n-replication">Reads grow faster than one server can answer. Read replicas take the reads; writes still go to the primary.</li>
+        <li data-highlight="p-app a-app-transactions n-transactions a-transactions-sharding n-sharding">Writes outgrow the primary. The rows are split over shards by tenant ID, so each server takes part of the writes.</li>
+        <li data-highlight="n-replication a-replication-cap n-cap a-sharding-cap n-sharding t-step">With copies on many servers, a network split can happen. Each operation decides: refuse, or answer with data that may be old.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="last-item" hidden>
+        <li data-highlight="p-app a-app-transactions n-transactions">Two buyers read stock 1 at the same moment and both write stock 0. Without care, two orders are saved for one item.</li>
+        <li data-highlight="n-transactions">One statement, <code>UPDATE ... SET stock = stock - 1 WHERE stock &gt;= 1</code>, makes the second buyer change 0 rows. Click Transactions to see it.</li>
+        <li data-highlight="n-transactions">Other ways: lock the row with <code>FOR UPDATE</code>, or use a higher isolation level and retry on error. The detail page shows all of them.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">On one server</span>
+      <span class="chip tone-blue">Across servers</span>
+      <span class="chip tone-amber">When copies disagree</span>
+      <span>Click a box to see a short example. Each topic's name in the first table links to its detail page.</span>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems these ideas solve</h2>
+      <ul>
+        <li><strong>Slow queries</strong><span>Indexes turn full table scans into a few page reads.</span></li>
+        <li><strong>Wrong data from concurrent requests</strong><span>Transactions and isolation levels keep changes complete and separate.</span></li>
+        <li><strong>One server is not enough</strong><span>Replicas spread reads; shards spread writes and data.</span></li>
+        <li><strong>A server fails</strong><span>A replica is promoted instead of restoring a backup.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems they introduce</h2>
+      <ul>
+        <li><strong>Slower writes</strong><span>Indexes and synchronous replicas add work to every write.</span></li>
+        <li><strong>Old data</strong><span>Replicas and available-first systems can return data that already changed.</span></li>
+        <li><strong>Errors to handle</strong><span>Isolation conflicts, deadlocks and consistency failures need retries.</span></li>
+        <li><strong>More to run</strong><span>Every replica and shard is another server to monitor, back up and migrate.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="indexes">
+      <div class="file-head"><span class="chip tone-teal">Indexes</span><span class="name">indexes.sql</span><span class="why">The index matches the query: equality on <code>customer_id</code>, then sorting by <code>created_at</code>. <code>CONCURRENTLY</code> lets writes continue while it builds. <code>EXPLAIN</code> shows whether the planner uses it.</span></div>
+<pre><code>CREATE INDEX CONCURRENTLY orders_customer_created_idx
+    ON orders (customer_id, created_at);
+
+EXPLAIN (ANALYZE)
+SELECT id, total FROM orders
+ WHERE customer_id = 'c-042'
+ ORDER BY created_at DESC
+ LIMIT 20;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="transactions">
+      <div class="file-head"><span class="chip tone-teal">Transactions</span><span class="name">place-order.sql</span><span class="why">Both statements commit together or not at all. The <code>WHERE stock &gt;= 1</code> check and the change happen in one statement, so two buyers cannot both take the last item.</span></div>
+<pre><code>BEGIN;
+
+UPDATE products SET stock = stock - 1
+ WHERE id = 7 AND stock &gt;= 1;
+
+INSERT INTO orders (customer_id, product_id) VALUES ('c-042', 7);
+
+COMMIT;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="replication">
+      <div class="file-head"><span class="chip tone-blue">Replication</span><span class="name">replication-lag.sql</span><span class="why">Run on the primary. Each row is a connected replica, with how far behind it is. Reads that must see a user's own latest write go to the primary instead.</span></div>
+<pre><code>SELECT application_name, sync_state, replay_lag
+  FROM pg_stat_replication;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="sharding">
+      <div class="file-head"><span class="chip tone-blue">Sharding</span><span class="name">shard-schema.sql</span><span class="why">The same table exists on every shard. <code>tenant_id</code> is the shard key: it leads the primary key and every query filters on it, so most queries touch one shard.</span></div>
+<pre><code>CREATE TABLE orders (
+  tenant_id  text NOT NULL,
+  id         uuid NOT NULL DEFAULT uuidv7(),
+  total      numeric(10, 2) NOT NULL,
+  PRIMARY KEY (tenant_id, id)
+);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cap">
+      <div class="file-head"><span class="chip tone-amber">CAP</span><span class="name">consistency-levels.cql</span><span class="why">Cassandra lets each query choose. <code>QUORUM</code> needs 2 of 3 copies and fails when it cannot reach them: consistent. <code>ONE</code> answers from any copy, which may be old: available.</span></div>
+<pre><code>CONSISTENCY QUORUM;
+SELECT display_name FROM profiles.users WHERE user_id = 'u-42';
+
+CONSISTENCY ONE;
+SELECT display_name FROM profiles.users WHERE user_id = 'u-42';</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="../../assets/topic.js"></script>
+</body>
+</html>
