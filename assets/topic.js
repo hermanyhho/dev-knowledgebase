@@ -151,3 +151,117 @@ document.querySelectorAll(".flow-player").forEach(setUpFlowPlayer);
 let savedLanguage = null;
 try { savedLanguage = localStorage.getItem(languageStorageKey); } catch {}
 setLanguage(savedLanguage === "cs" ? "cs" : "ts");
+
+const glossaryScriptUrl = new URL("glossary.js", document.currentScript.src);
+const glossaryExcludedAreas = "pre, svg, a, h1, h2, h3, button, .code-store, .flow-steps, .tree, .legend, .term, table.terms td:first-child";
+
+function escapeForPattern(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function patternForTerm(glossaryTerm) {
+  const isCaseSensitive = glossaryTerm.forms.some((form) => /[A-Z]/.test(form));
+  const alternatives = [...glossaryTerm.forms].sort((first, second) => second.length - first.length).map(escapeForPattern).join("|");
+  return new RegExp(`(?<![\\w-])(?:${alternatives})(?![\\w-])`, isCaseSensitive ? "" : "i");
+}
+
+function isDefinedInTermsTable(pattern) {
+  return [...document.querySelectorAll("table.terms td:first-child")].some((cell) => pattern.test(cell.textContent));
+}
+
+function createTermMark(glossaryTerm) {
+  const termMark = document.createElement("span");
+  termMark.className = "term";
+  termMark.tabIndex = 0;
+  termMark.dataset.term = glossaryTerm.forms[0];
+  termMark.dataset.definition = glossaryTerm.definition;
+  return termMark;
+}
+
+function markFirstMention(glossaryTerm) {
+  const pattern = patternForTerm(glossaryTerm);
+  if (isDefinedInTermsTable(pattern)) return;
+
+  const textWalker = document.createTreeWalker(document.querySelector("main"), NodeFilter.SHOW_TEXT);
+  for (let textNode = textWalker.nextNode(); textNode; textNode = textWalker.nextNode()) {
+    if (textNode.parentElement.closest(glossaryExcludedAreas)) continue;
+    const match = pattern.exec(textNode.textContent);
+    if (!match) continue;
+
+    const codeElement = textNode.parentElement.closest("code");
+    if (codeElement) {
+      if (codeElement.textContent.trim() !== match[0]) continue;
+      const termMark = createTermMark(glossaryTerm);
+      codeElement.replaceWith(termMark);
+      termMark.append(codeElement);
+      return;
+    }
+
+    const matchedText = textNode.splitText(match.index);
+    matchedText.splitText(match[0].length);
+    const termMark = createTermMark(glossaryTerm);
+    matchedText.replaceWith(termMark);
+    termMark.append(matchedText);
+    return;
+  }
+}
+
+const termTip = document.createElement("div");
+termTip.className = "term-tip";
+termTip.id = "term-tip";
+termTip.setAttribute("role", "tooltip");
+termTip.hidden = true;
+document.body.append(termTip);
+
+let termMarkWithTip = null;
+
+function placeTermTip() {
+  const gap = 8;
+  const markBox = termMarkWithTip.getBoundingClientRect();
+  const tipBox = termTip.getBoundingClientRect();
+  const left = Math.min(Math.max(gap, markBox.left + markBox.width / 2 - tipBox.width / 2), window.innerWidth - tipBox.width - gap);
+  const fitsBelow = markBox.bottom + gap + tipBox.height < window.innerHeight;
+  termTip.style.left = `${left}px`;
+  termTip.style.top = `${fitsBelow ? markBox.bottom + gap : markBox.top - gap - tipBox.height}px`;
+}
+
+function showTermTip(termMark) {
+  termMarkWithTip = termMark;
+  const termName = document.createElement("strong");
+  termName.textContent = termMark.dataset.term;
+  termTip.replaceChildren(termName, termMark.dataset.definition);
+  termTip.hidden = false;
+  termMark.setAttribute("aria-describedby", termTip.id);
+  placeTermTip();
+}
+
+function hideTermTip() {
+  termMarkWithTip = null;
+  termTip.hidden = true;
+  document.querySelectorAll(".term[aria-describedby]").forEach((termMark) => termMark.removeAttribute("aria-describedby"));
+}
+
+document.addEventListener("mouseover", (event) => {
+  const termMark = event.target.closest(".term");
+  if (termMark) showTermTip(termMark);
+});
+document.addEventListener("mouseout", (event) => {
+  if (event.target.closest(".term") && !event.relatedTarget?.closest?.(".term")) hideTermTip();
+});
+document.addEventListener("focusin", (event) => {
+  if (event.target.matches(".term")) showTermTip(event.target);
+});
+document.addEventListener("focusout", (event) => {
+  if (event.target.matches(".term")) hideTermTip();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") hideTermTip();
+});
+window.addEventListener("scroll", () => {
+  if (termMarkWithTip) placeTermTip();
+}, { passive: true });
+
+const glossaryScript = document.createElement("script");
+glossaryScript.src = glossaryScriptUrl;
+glossaryScript.onload = () => window.glossaryTerms.forEach(markFirstMention);
+document.body.append(glossaryScript);
