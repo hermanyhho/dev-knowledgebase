@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NestJS Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Web</div>
+    <h1>NestJS Overview</h1>
+    <p class="aka">A framework for Node.js servers that adds modules, dependency injection and a fixed request pipeline on top of Express or Fastify. Examples use NestJS 12.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>With <a href="../express/">Express</a> you decide how to organise the code. NestJS decides for you: each feature is a <strong>module</strong> with <strong>controllers</strong> for HTTP routes and <strong>providers</strong> (services) for the work. Nest creates every class at startup and passes each one the services it needs.</p>
+    <p>Each request then passes through steps in a fixed order: middleware, guards, interceptors, pipes, the handler, and on errors an exception filter. Each step has one job.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>Key idea</th><th>Common mistake</th></tr></thead>
+        <tbody>
+          <tr><td><a href="../nestjs-modules-and-providers/">Modules and providers</a></td><td>List a class in a module; write what it needs as constructor parameters. Nest reads their types from compiler metadata and injects them. A provider is private unless its module exports it.</td><td>Forgetting <code>exports</code>, or running the code with a tool that drops decorator metadata</td></tr>
+          <tr><td><a href="../nestjs-request-lifecycle/">Request lifecycle</a></td><td>Middleware, then guards (may it pass?), interceptors (before and after), pipes (validate input), the handler, and exception filters for errors.</td><td>Putting authorization or validation in the handler</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> one module per feature, services in the default scope, and each concern in its own step: authorization in a guard, validation in a pipe, error format in one global filter.</div>
+  </section>
+
+  <section>
+    <h2>The request steps</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Order</th><th>Step</th><th>Use it for</th><th>On failure</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Middleware</td><td>Request ID, CORS</td><td></td></tr>
+          <tr><td>2</td><td>Guard</td><td>Authentication and roles</td><td>403 <code>Forbidden resource</code></td></tr>
+          <tr><td>3</td><td>Interceptor, before</td><td>Start a timer, return a cached response</td><td></td></tr>
+          <tr><td>4</td><td>Pipe</td><td>Validate and convert input</td><td>400 with the failed rules</td></tr>
+          <tr><td>5</td><td>Handler</td><td>The route's work</td><td>Any exception goes to the filter</td></tr>
+          <tr><td>6</td><td>Interceptor, after</td><td>Log duration, shape the response</td><td>Skipped when the handler throws</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>This order was measured in a NestJS 12 app. The detail page shows the test.</p>
+  </section>
+
+  <section>
+    <h2>How it compares with ASP.NET Core</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>NestJS</th><th><a href="../../../dotnet/web/aspnet-core/">ASP.NET Core</a></th></tr></thead>
+        <tbody>
+          <tr><td>Modules with <code>providers</code> and <code>exports</code></td><td>Services registered in <code>Program.cs</code>, visible everywhere</td></tr>
+          <tr><td>Scopes: default, request, transient</td><td>Lifetimes: singleton, scoped, transient</td></tr>
+          <tr><td>Guard, interceptor, pipe, exception filter</td><td>Authorization, action filter, model binding and validation, exception filter</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log</th></tr></thead>
+        <tbody>
+          <tr><td>Middleware</td><td>Create the request ID, store it in <code>AsyncLocalStorage</code>, return it in <code>x-request-id</code></td></tr>
+          <tr><td>Interceptor</td><td>One line per successful request: method, route, status, duration, request ID</td></tr>
+          <tr><td>Exception filter</td><td>4xx at warn without stack; 5xx at error with stack, logged only here</td></tr>
+          <tr><td>Startup</td><td>Dependency errors stop the app with the class and module named</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 300" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">At startup, Nest builds modules and injects providers into controllers. For each request, middleware, a guard, a pipe and the controller run in order, and an exception filter turns errors into responses.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-modules" tabindex="0" role="button" aria-label="Show a module and its provider" data-title="Modules and providers" data-node="modules">
+          <rect class="shape tone-teal" x="20" y="30" width="880" height="60" rx="6"/>
+          <text class="t-name" x="460" y="55">Startup: modules and providers</text>
+          <text class="t-kind" x="460" y="73">Nest creates OrdersService and injects it into OrdersController</text>
+        </g>
+        <g id="p-request">
+          <rect class="shape tone-neutral" x="20" y="140" width="110" height="60" rx="6"/>
+          <text class="t-name" x="75" y="166">Request</text>
+          <text class="t-kind" x="75" y="184">POST /orders</text>
+        </g>
+        <g class="node" id="n-middleware" tabindex="0" role="button" aria-label="Show the request ID middleware" data-title="Middleware" data-node="middleware">
+          <rect class="shape tone-neutral" x="160" y="140" width="150" height="60" rx="6"/>
+          <text class="t-name" x="235" y="166">Middleware</text>
+          <text class="t-kind" x="235" y="184">request ID</text>
+        </g>
+        <g class="node" id="n-guard" tabindex="0" role="button" aria-label="Show the guard" data-title="Guard" data-node="guard">
+          <rect class="shape tone-amber" x="340" y="140" width="150" height="60" rx="6"/>
+          <text class="t-name" x="415" y="166">Guard</text>
+          <text class="t-kind" x="415" y="184">may it pass?</text>
+        </g>
+        <g class="node" id="n-pipe" tabindex="0" role="button" aria-label="Show the validation pipe" data-title="Pipe" data-node="pipe">
+          <rect class="shape tone-blue" x="520" y="140" width="150" height="60" rx="6"/>
+          <text class="t-name" x="595" y="166">Pipe</text>
+          <text class="t-kind" x="595" y="184">validate the body</text>
+        </g>
+        <g class="node" id="n-handler" tabindex="0" role="button" aria-label="Show the controller" data-title="Controller handler" data-node="handler">
+          <rect class="shape tone-teal" x="700" y="140" width="200" height="60" rx="6"/>
+          <text class="t-name" x="800" y="166">Controller</text>
+          <text class="t-kind" x="800" y="184">calls the injected service</text>
+        </g>
+        <g class="node" id="n-filter" tabindex="0" role="button" aria-label="Show the exception filter" data-title="Exception filter" data-node="filter">
+          <rect class="shape tone-amber" x="340" y="235" width="330" height="50" rx="6"/>
+          <text class="t-name" x="505" y="256">Exception filter</text>
+          <text class="t-kind" x="505" y="273">errors become responses, logged once</text>
+        </g>
+
+        <path class="flow" id="a-request-middleware" d="M130,170 L158,170" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-middleware-guard" d="M310,170 L338,170" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-guard-pipe" d="M490,170 L518,170" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-pipe-handler" d="M670,170 L698,170" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-modules-handler" d="M800,90 L800,138" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-guard-filter" d="M415,200 L415,233" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-pipe-filter" d="M595,200 L595,233" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="request" aria-pressed="true">Create an order</button>
+        <button type="button" data-flow="invalid" aria-pressed="false">Invalid body</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="request" hidden>
+        <li data-highlight="n-modules a-modules-handler n-handler">At startup Nest created <code>OrdersService</code> once and passed it to <code>OrdersController</code>'s constructor.</li>
+        <li data-highlight="p-request a-request-middleware n-middleware">A request arrives. The middleware gives it a request ID.</li>
+        <li data-highlight="n-middleware a-middleware-guard n-guard">The guard checks that the user has the role the route requires.</li>
+        <li data-highlight="n-guard a-guard-pipe n-pipe">The pipe turns the JSON body into a <code>CreateOrderDto</code> and checks its rules.</li>
+        <li data-highlight="n-pipe a-pipe-handler n-handler">The controller method runs and calls the service. The response is 201.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="invalid" hidden>
+        <li data-highlight="p-request a-request-middleware n-middleware a-middleware-guard n-guard">A request with <code>"quantity": "two"</code> passes the middleware and the guard.</li>
+        <li data-highlight="n-guard a-guard-pipe n-pipe">The pipe's check fails: <code>quantity must be an integer number</code>.</li>
+        <li data-highlight="n-pipe a-pipe-filter n-filter">The handler never runs. The filter answers 400 and logs the failed fields at warn.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Your classes</span>
+      <span class="chip tone-amber">Can reject</span>
+      <span class="chip tone-blue">Checks input</span>
+      <span>Click a box to see a short example. Each topic's name in the first table links to its detail page.</span>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>No structure in large apps</strong><span>Modules give each feature a boundary and a public part.</span></li>
+        <li><strong>Wiring objects by hand</strong><span>Nest creates services and injects them, and tests can swap one for a fake.</span></li>
+        <li><strong>Checks repeated in handlers</strong><span>Guards and pipes run before every route that declares them.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>More concepts and files</strong><span>Modules, providers, decorators and five kinds of request step.</span></li>
+        <li><strong>Depends on compiler metadata</strong><span>Tools that skip decorator metadata break injection without an error at startup.</span></li>
+        <li><strong>Behaviour spread over decorators</strong><span>What a route does depends on app, controller and method level settings.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="modules">
+      <div class="file-head"><span class="chip tone-teal">Modules</span><span class="name">orders.module.ts</span><span class="why">The module lists its controller and its service. Nest sees that the controller's constructor needs an <code>OrdersService</code>, creates one and passes it in.</span></div>
+<pre><code>import { Controller, Injectable, Module, Post, Body } from "@nestjs/common";
+
+@Injectable()
+export class OrdersService {
+  create(order: { customerId: string }) {
+    return { orderId: "o-1", ...order };
+  }
+}
+
+@Controller("orders")
+export class OrdersController {
+  constructor(private readonly ordersService: OrdersService) {}
+
+  @Post()
+  create(@Body() order: { customerId: string }) {
+    return this.ordersService.create(order);
+  }
+}
+
+@Module({ controllers: [OrdersController], providers: [OrdersService] })
+export class OrdersModule {}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="middleware">
+      <div class="file-head"><span class="chip tone-neutral">Middleware</span><span class="name">request-context.ts</span><span class="why">The rest of the request runs inside <code>requestContext.run</code>, so every later step and log line can read the request ID.</span></div>
+<pre><code>import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+import { Injectable, type NestMiddleware } from "@nestjs/common";
+import type { NextFunction, Request, Response } from "express";
+
+export const requestContext = new AsyncLocalStorage&lt;{ requestId: string }&gt;();
+
+@Injectable()
+export class RequestContextMiddleware implements NestMiddleware {
+  use(req: Request, res: Response, next: NextFunction) {
+    const requestId = req.header("x-request-id") ?? randomUUID();
+    res.setHeader("x-request-id", requestId);
+    requestContext.run({ requestId }, next);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="guard">
+      <div class="file-head"><span class="chip tone-amber">Guard</span><span class="name">admin.guard.ts</span><span class="why">Returning <code>false</code> makes Nest answer 403. The handler, pipes and interceptors do not run.</span></div>
+<pre><code>import { type CanActivate, type ExecutionContext, Injectable } from "@nestjs/common";
+
+@Injectable()
+export class AdminGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const user = context.switchToHttp().getRequest().user as { roles: string[] } | undefined;
+    return user?.roles.includes("admin") ?? false;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="pipe">
+      <div class="file-head"><span class="chip tone-blue">Pipe</span><span class="name">create-order.dto.ts</span><span class="why">The global <code>ValidationPipe</code> checks these decorators on every request body of this type and answers 400 if any rule fails.</span></div>
+<pre><code>import { IsInt, IsString, Min } from "class-validator";
+
+export class CreateOrderDto {
+  @IsString()
+  customerId!: string;
+
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="handler">
+      <div class="file-head"><span class="chip tone-teal">Controller</span><span class="name">orders.controller.ts</span><span class="why">By the time this method runs, the guard has checked the role and the pipe has checked the body. The method only does the route's work.</span></div>
+<pre><code>import { Body, Controller, Post, UseGuards } from "@nestjs/common";
+import { AdminGuard } from "./admin.guard.js";
+import { CreateOrderDto } from "./create-order.dto.js";
+import { OrdersService } from "./orders.service.js";
+
+@Controller("orders")
+@UseGuards(AdminGuard)
+export class OrdersController {
+  constructor(private readonly ordersService: OrdersService) {}
+
+  @Post()
+  create(@Body() order: CreateOrderDto) {
+    return this.ordersService.create(order);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="filter">
+      <div class="file-head"><span class="chip tone-amber">Filter</span><span class="name">all-exceptions.filter.ts</span><span class="why">One place decides how errors look and logs each one once. Unknown errors become a 500 without their message; the real error goes to the log with its stack.</span></div>
+<pre><code>import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, Logger } from "@nestjs/common";
+import type { Response } from "express";
+import { requestContext } from "./request-context.js";
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  private readonly logger = new Logger("Errors");
+
+  catch(exception: unknown, host: ArgumentsHost) {
+    const response = host.switchToHttp().getResponse&lt;Response&gt;();
+    const requestId = requestContext.getStore()?.requestId;
+
+    if (exception instanceof HttpException) {
+      this.logger.warn({ message: "request rejected", status: exception.getStatus(), requestId });
+      return response.status(exception.getStatus()).json(exception.getResponse());
+    }
+    this.logger.error({ message: "request failed", requestId }, (exception as Error)?.stack);
+    response.status(500).json({ statusCode: 500, message: "Internal server error", requestId });
+  }
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

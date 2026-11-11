@@ -42,6 +42,7 @@ What each category covers: [javascript/README.md](javascript/README.md)
 | Node Streams | Node | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/node/streams/) | [index.html](javascript/node/streams/index.html) |
 | Express | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/express/) | [index.html](javascript/web/express/index.html) |
 | Fastify | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/fastify/) | [index.html](javascript/web/fastify/index.html) |
+| NestJS Overview | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/nestjs/) | [index.html](javascript/web/nestjs/index.html) |
 | NestJS Modules and Providers | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/nestjs-modules-and-providers/) | [index.html](javascript/web/nestjs-modules-and-providers/index.html) |
 | NestJS Request Lifecycle | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/nestjs-request-lifecycle/) | [index.html](javascript/web/nestjs-request-lifecycle/index.html) |
 | CommonJS and ES Modules | Modules | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/modules/commonjs-and-es-modules/) | [index.html](javascript/modules/commonjs-and-es-modules/index.html) |
