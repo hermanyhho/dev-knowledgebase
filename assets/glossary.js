@@ -405,4 +405,9 @@ window.glossaryTerms = [
   { forms: ["pino-http"], definition: "Express and Node.js middleware that creates a pino child logger per request, with a request ID, as req.log." },
   { forms: ["InvalidCastException"], definition: "The .NET exception thrown when a cast to a type fails because the object is not of that type." },
   { forms: ["JsonException"], definition: "The exception System.Text.Json throws when JSON is invalid or does not fit the target type." },
+  { forms: ["primitive", "primitives"], definition: "A basic value that is not an object: string, number, boolean, bigint, symbol, null or undefined." },
+  { forms: ["object literal", "literal"], definition: "A value written directly in code, such as \"paid\", 42 or { id: \"o-1\" }. A literal type allows exactly that one value.", onlyOn: ["structural-typing-and-narrowing", "compile-time-and-runtime", "generics-and-utility-types"] },
+  { forms: ["inherits", "inheritance"], definition: "A class taking the members of another class, its base class, so it can be used wherever the base class is expected." },
+  { forms: ["pattern matching"], definition: "In C#, checking a value's type or shape in an is expression or switch, and assigning it to a typed variable in the same step." },
+  { forms: ["switch expression"], definition: "C# syntax that returns a value from the first matching pattern: result switch { Paid p => ..., _ => ... }." },
 ];

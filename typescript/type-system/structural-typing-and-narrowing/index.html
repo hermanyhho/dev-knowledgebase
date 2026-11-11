@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Structural Typing and Narrowing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">TypeScript</a> / Type system</div>
+    <h1>Structural Typing and Narrowing</h1>
+    <p class="aka">TypeScript compares types by their shape, and makes a type more specific after each check in your code.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p><strong>Structural typing:</strong> a value fits a type if it has the properties the type needs, with the right types. The name of the type does not matter. Any object with <code>id</code> and <code>total</code> fits <code>Order</code>, even one created for something else. C# works the other way: a class fits only if it is declared as that class or inherits from it.</p>
+    <p><strong>Narrowing:</strong> a variable can have a type with several options, such as <code>string | undefined</code>. After a check such as <code>if (name !== undefined)</code>, the compiler knows which option is left, and allows only the properties of that option inside the <code>if</code>.</p>
+    <p>Together they give the most useful pattern in TypeScript: describe each state as its own object type with a <code>status</code> property, combine them in a union, and let a <code>switch</code> on <code>status</code> narrow to the right one.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Structural typing</span></td><td>Types match when their shapes match.</td><td>Any <code>{ id, total }</code> is an <code>Order</code></td></tr>
+          <tr><td><span class="chip tone-teal">Nominal typing</span></td><td>Types match only by declared name or inheritance. C# and Java work this way.</td><td>A C# <code>Invoice</code> is never an <code>Order</code></td></tr>
+          <tr><td><span class="chip tone-blue">Union type</span></td><td>A type that is one of several types, written with <code>|</code>.</td><td><code>PaymentResult</code></td></tr>
+          <tr><td><span class="chip tone-blue">Discriminated union</span></td><td>A union whose members share one property with a different fixed value in each. Checking that property narrows the union.</td><td><code>status: "succeeded" | "declined" | ...</code></td></tr>
+          <tr><td><span class="chip tone-blue">Narrowing</span></td><td>The compiler reducing a type to fewer options after a check.</td><td>Inside <code>case "declined"</code>, <code>result.reason</code> exists</td></tr>
+          <tr><td><span class="chip tone-amber">Type guard</span></td><td>A function that returns <code>value is Type</code>. When it returns true, the compiler narrows the value to that type.</td><td><code>isOrderId(value)</code></td></tr>
+          <tr><td><span class="chip tone-amber"><code>never</code></span></td><td>The type with no values. After every option has been handled, what is left is <code>never</code>.</td><td><code>assertNever(result)</code></td></tr>
+          <tr><td><span class="chip tone-amber">Branded type</span></td><td>A primitive type with an extra marker property that exists only in the type, so two kinds of IDs stop matching each other.</td><td><code>OrderId</code>, <code>CustomerId</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> model each state as one member of a discriminated union, narrow it with a <code>switch</code> on the shared property, and end the <code>switch</code> with a <code>never</code> check so a new state fails the build.</div>
+  </section>
+
+  <section>
+    <h2>Ways to narrow a type</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Check</th><th>Narrows</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>typeof</code></td><td>Primitives</td><td><code>typeof value === "string"</code></td></tr>
+          <tr><td>Truthiness</td><td>Removes <code>undefined</code> and <code>null</code>, but also <code>0</code> and <code>""</code></td><td><code>if (customer)</code></td></tr>
+          <tr><td><code>===</code> and <code>!==</code></td><td>Literal values and <code>undefined</code></td><td><code>if (discount !== undefined)</code></td></tr>
+          <tr><td>The shared property</td><td>Members of a discriminated union</td><td><code>switch (result.status)</code></td></tr>
+          <tr><td><code>in</code></td><td>Objects that have a given property</td><td><code>if ("receiptUrl" in result)</code></td></tr>
+          <tr><td><code>instanceof</code></td><td>Class instances</td><td><code>if (error instanceof HttpError)</code></td></tr>
+          <tr><td><code>Array.isArray</code></td><td>Arrays</td><td><code>if (Array.isArray(tags))</code></td></tr>
+          <tr><td>Type guard function</td><td>Whatever it declares</td><td><code>function isOrderId(value: string): value is OrderId</code></td></tr>
+          <tr><td>Assertion function</td><td>The value, for the rest of the scope, or it throws</td><td><code>function assertIsDefined&lt;T&gt;(value: T): asserts value is NonNullable&lt;T&gt;</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Surprises of structural typing</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Behaviour</th><th>Why</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>An object with extra properties fits a smaller type</td><td>It has every property the type needs</td><td>Copy only the fields you need before saving or sending, so extra fields do not leak</td></tr>
+          <tr><td>Except an object literal written directly in the call</td><td>The compiler assumes extra properties in a new literal are a typo: <code>TS2353</code></td><td>Nothing: this check helps</td></tr>
+          <tr><td>Two kinds of IDs that are both <code>string</code> can be swapped</td><td><code>orderId</code> and <code>customerId</code> have the same shape</td><td>Branded types</td></tr>
+          <tr><td>A class and a plain object with the same fields are interchangeable</td><td>Only the shape is compared</td><td>Use <code>instanceof</code> when you need the class, for example for its methods</td></tr>
+          <tr><td>A type guard can be wrong</td><td>The compiler trusts its <code>value is Type</code> claim and does not check the body</td><td>Generate guards from a schema, or test them</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>One union instead of optional fields</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Optional fields</th><th>Discriminated union</th></tr></thead>
+        <tbody>
+          <tr><td>Type</td><td><code>{ status: string; receiptUrl?: string; reason?: string }</code></td><td><code>{ status: "succeeded"; receiptUrl: string } | { status: "declined"; reason: string }</code></td></tr>
+          <tr><td>Impossible states</td><td>Allowed: <code>succeeded</code> with a <code>reason</code> and no receipt</td><td>Cannot be written</td></tr>
+          <tr><td>Reading <code>receiptUrl</code></td><td>Always <code>string | undefined</code>, so you add checks everywhere</td><td>A plain <code>string</code> inside <code>case "succeeded"</code></td></tr>
+          <tr><td>A new status</td><td>Nothing tells you where to handle it</td><td>Every <code>switch</code> with <code>assertNever</code> fails to compile</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How C# differs</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>TypeScript</th><th>C#</th></tr></thead>
+        <tbody>
+          <tr><td>When types match</td><td>Same shape</td><td>Same declared type, base class or interface</td></tr>
+          <tr><td>Two IDs of the same primitive type</td><td>Interchangeable unless branded</td><td>Interchangeable too, unless wrapped in a record such as <code>record struct OrderId(Guid Value)</code></td></tr>
+          <tr><td>Union types</td><td>Built in</td><td>Not in C# 14. Records with a shared base type and a <code>switch</code> expression are the usual replacement.</td></tr>
+          <tr><td>Narrowing</td><td>After <code>if</code>, <code>switch</code>, <code>typeof</code>, <code>in</code></td><td>Pattern matching: <code>if (result is Declined declined)</code></td></tr>
+          <tr><td>Missing case</td><td><code>never</code> check fails the build</td><td>Compiler warning CS8509 when a <code>switch</code> expression does not cover every value</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Each handled state</td><td>The discriminant, such as <code>status: "declined"</code>, the payment ID and request ID. Not the whole object.</td><td>info</td></tr>
+          <tr><td>An unknown status from another system</td><td>The status value, the provider and request ID. The schema rejects it before the <code>switch</code>.</td><td>error: the provider added a state</td></tr>
+          <tr><td>The <code>assertNever</code> branch at runtime</td><td>Should never run. If it does, data skipped validation.</td><td>error with stack</td></tr>
+          <tr><td>Metric: results per status</td><td>Count by <code>status</code></td><td>Alert when <code>declined</code> rises sharply</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 420" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A payment provider's response is checked by a schema and becomes a PaymentResult union. A switch on status narrows it to succeeded, declined or requires_action, and the default branch has the type never. Below, three boxes show structural typing, branded IDs and type guards.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="10" y="265" width="900" height="145" rx="10"/>
+        <text class="t-label" x="460" y="284">HOW SHAPES ARE COMPARED</text>
+
+        <g class="node" id="n-api" tabindex="0" role="button" aria-label="Show the response schema" data-title="Provider response: schema" data-node="api">
+          <rect class="shape tone-neutral" x="20" y="40" width="200" height="80" rx="6"/>
+          <text class="t-name" x="120" y="66">Provider response</text>
+          <text class="t-kind" x="120" y="84">unknown JSON,</text>
+          <text class="t-kind" x="120" y="100">checked by a schema</text>
+        </g>
+        <g class="node" id="n-union" tabindex="0" role="button" aria-label="Show optional fields compared with a union" data-title="PaymentResult: a discriminated union" data-node="union">
+          <rect class="shape tone-blue" x="255" y="25" width="250" height="110" rx="6"/>
+          <text class="t-name" x="380" y="50">PaymentResult</text>
+          <text class="t-item" x="380" y="74">| succeeded, receiptUrl</text>
+          <text class="t-item" x="380" y="94">| declined, reason</text>
+          <text class="t-item" x="380" y="114">| requires_action, redirectUrl</text>
+        </g>
+        <g class="node" id="n-switch" tabindex="0" role="button" aria-label="Show the switch and the never check" data-title="switch on status: narrowing" data-node="switch">
+          <rect class="shape tone-teal" x="540" y="45" width="150" height="70" rx="6"/>
+          <text class="t-name" x="615" y="72">switch</text>
+          <text class="t-item" x="615" y="92">result.status</text>
+        </g>
+
+        <g id="p-succeeded">
+          <rect class="shape tone-teal" x="730" y="15" width="170" height="52" rx="6"/>
+          <text class="t-item" x="815" y="37">"succeeded"</text>
+          <text class="t-item" x="815" y="55">receiptUrl: string</text>
+        </g>
+        <g id="p-declined">
+          <rect class="shape tone-teal" x="730" y="75" width="170" height="52" rx="6"/>
+          <text class="t-item" x="815" y="97">"declined"</text>
+          <text class="t-item" x="815" y="115">reason: string</text>
+        </g>
+        <g id="p-action">
+          <rect class="shape tone-teal" x="730" y="135" width="170" height="52" rx="6"/>
+          <text class="t-item" x="815" y="157">"requires_action"</text>
+          <text class="t-item" x="815" y="175">redirectUrl: string</text>
+        </g>
+        <g id="p-never">
+          <rect class="shape tone-amber" x="730" y="195" width="170" height="52" rx="6"/>
+          <text class="t-item" x="815" y="217">default</text>
+          <text class="t-item" x="815" y="235">result: never</text>
+        </g>
+
+        <g class="node" id="n-shape" tabindex="0" role="button" aria-label="Show structural typing examples" data-title="Structural typing: extra properties" data-node="shape">
+          <rect class="shape tone-neutral" x="25" y="300" width="265" height="95" rx="6"/>
+          <text class="t-name" x="157" y="326">Shape check</text>
+          <text class="t-item" x="157" y="348">{ id, total, couponCode }</text>
+          <text class="t-kind" x="157" y="368">fits Order = { id, total }</text>
+        </g>
+        <g class="node" id="n-brand" tabindex="0" role="button" aria-label="Show branded IDs" data-title="Branded IDs" data-node="brand">
+          <rect class="shape tone-amber" x="327" y="300" width="265" height="95" rx="6"/>
+          <text class="t-name" x="460" y="326">Branded IDs</text>
+          <text class="t-item" x="460" y="348">OrderId, CustomerId</text>
+          <text class="t-kind" x="460" y="368">both strings, no longer swappable</text>
+        </g>
+        <g class="node" id="n-guard" tabindex="0" role="button" aria-label="Show type guards" data-title="Type guards" data-node="guard">
+          <rect class="shape tone-amber" x="630" y="300" width="265" height="95" rx="6"/>
+          <text class="t-name" x="762" y="326">Type guard</text>
+          <text class="t-item" x="762" y="348">value is PaymentResult</text>
+          <text class="t-kind" x="762" y="368">the compiler trusts it</text>
+        </g>
+
+        <path class="flow" id="a-api-union" d="M220,80 L253,80" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-union-switch" d="M505,80 L538,80" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-switch-succeeded" d="M690,66 L728,42" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-switch-declined" d="M690,76 L728,100" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-switch-action" d="M690,86 L728,160" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-switch-never" d="M690,98 L728,220" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-guard-union" d="M700,300 L700,252 L380,252 L380,137" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-ts2339" x="590" y="152">NO receiptUrl HERE: TS2339</text>
+        <text class="ghost-label" id="t-ts2345" x="590" y="172">refunded NOT HANDLED: TS2345</text>
+        <text class="ghost-label" id="t-excess" x="157" y="388">FRESH LITERAL: TS2353</text>
+        <text class="ghost-label" id="t-swapped" x="460" y="388">SWAPPED: TS2345</text>
+        <text class="ghost-label" id="t-lie" x="762" y="388">{ status: "weird" } PASSES</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="narrow" aria-pressed="true">Narrow a union with switch</button>
+        <button type="button" data-flow="new-status" aria-pressed="false">A new status is added</button>
+        <button type="button" data-flow="extra" aria-pressed="false">Extra properties</button>
+        <button type="button" data-flow="brand" aria-pressed="false">Two IDs of the same type</button>
+        <button type="button" data-flow="guard" aria-pressed="false">A type guard that is wrong</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="narrow" hidden>
+        <li data-highlight="n-api">The payment provider answers with JSON. Its type is <code>unknown</code> until it is checked.</li>
+        <li data-highlight="n-api a-api-union n-union">The schema checks it and returns a <code>PaymentResult</code>: one of three object types, each with a different <code>status</code>.</li>
+        <li data-highlight="n-union a-union-switch n-switch">Before the <code>switch</code>, only <code>status</code> can be read. <code>result.reason</code> does not compile, because two of the three members have no <code>reason</code>.</li>
+        <li data-highlight="n-switch a-switch-declined p-declined">Inside <code>case "declined"</code>, the compiler has narrowed <code>result</code> to the declined member. <code>result.reason</code> is a plain <code>string</code>.</li>
+        <li data-highlight="p-declined t-ts2339">Writing <code>result.receiptUrl</code> there fails with <code>TS2339: Property 'receiptUrl' does not exist on type '{ status: "declined"; reason: string; }'</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="new-status" hidden>
+        <li data-highlight="n-api a-api-union n-union">The provider adds a fourth status, <code>refunded</code>. You add it to the schema, so <code>PaymentResult</code> now has four members.</li>
+        <li data-highlight="n-union a-union-switch n-switch">The <code>switch</code> still handles three. The fourth falls through to <code>default</code>.</li>
+        <li data-highlight="n-switch a-switch-never p-never t-ts2345">In <code>default</code>, <code>result</code> should be <code>never</code>, but it is the refunded member. <code>assertNever(result)</code> fails: <code>TS2345: Argument of type '{ status: "refunded"; ... }' is not assignable to parameter of type 'never'</code>.</li>
+        <li data-highlight="n-switch">The build lists every <code>switch</code> that must handle refunds. After you add the case, <code>default</code> is <code>never</code> again.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="extra" hidden>
+        <li data-highlight="n-shape">A form gives <code>{ id, total, couponCode }</code>. <code>saveOrder</code> expects <code>Order = { id, total }</code>.</li>
+        <li data-highlight="n-shape">Passing the form object in a variable compiles: it has every property <code>Order</code> needs. The extra <code>couponCode</code> goes along at runtime.</li>
+        <li data-highlight="n-shape t-excess">Writing the same object as a literal inside the call fails with <code>TS2353: Object literal may only specify known properties</code>. A new literal with extra properties is most likely a typo.</li>
+        <li data-highlight="n-shape">If <code>saveOrder</code> writes the whole object to a database or response, the extra field goes too. Copy the fields you need.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="brand" hidden>
+        <li data-highlight="n-brand"><code>cancelOrder(orderId: string, customerId: string)</code> is called as <code>cancelOrder(customerId, orderId)</code>. Both are strings, so it compiles.</li>
+        <li data-highlight="n-brand">With branded types, <code>OrderId</code> is <code>string &amp; { __brand: "OrderId" }</code>. The brand exists only in the type: at runtime the value is a plain string.</li>
+        <li data-highlight="n-brand t-swapped">The swapped call now fails with <code>TS2345: Argument of type 'CustomerId' is not assignable to parameter of type 'OrderId'</code>.</li>
+        <li data-highlight="n-brand">A branded value is created in one place, for example a function that checks the format and returns <code>OrderId</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="guard" hidden>
+        <li data-highlight="n-guard">A hand-written guard <code>isPaymentResult(value): value is PaymentResult</code> only checks that <code>value</code> has a <code>status</code> property.</li>
+        <li data-highlight="n-guard a-guard-union n-union">When it returns true, the compiler treats the value as a <code>PaymentResult</code>. It does not read the guard's body.</li>
+        <li data-highlight="n-guard t-lie"><code>{ status: "weird" }</code> passes the guard, and a later <code>switch</code> reaches the <code>never</code> branch at runtime.</li>
+        <li data-highlight="n-api n-guard">Let the schema decide instead: <code>PaymentResultSchema.safeParse(value).success</code> checks every field, and the type comes from the same schema.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Data</span>
+      <span class="chip tone-blue">Union type</span>
+      <span class="chip tone-teal">Narrowed types</span>
+      <span class="chip tone-amber">Where the compiler trusts you</span>
+      <span>Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">payments-api/</div>
+      <button type="button" class="tree-row" data-file="src/payment-result-schema.ts"><span class="path">├─ src/payment-result-schema.ts</span><span class="chip tone-neutral">Schema</span></button>
+      <button type="button" class="tree-row" data-file="src/payment-states.ts"><span class="path">├─ src/payment-states.ts</span><span class="chip tone-blue">Union</span></button>
+      <button type="button" class="tree-row" data-file="src/handle-payment-result.ts"><span class="path">├─ src/handle-payment-result.ts</span><span class="chip tone-teal">Narrowing</span></button>
+      <button type="button" class="tree-row" data-file="tsc-output.txt"><span class="path">├─ tsc-output.txt</span><span class="chip tone-teal">Narrowing</span></button>
+      <button type="button" class="tree-row" data-file="src/structural-typing.ts"><span class="path">├─ src/structural-typing.ts</span><span class="chip tone-neutral">Shapes</span></button>
+      <button type="button" class="tree-row" data-file="src/ids.ts"><span class="path">├─ src/ids.ts</span><span class="chip tone-amber">Brands</span></button>
+      <button type="button" class="tree-row" data-file="src/type-guards.ts"><span class="path">└─ src/type-guards.ts</span><span class="chip tone-amber">Guards</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Impossible states</strong><span>A discriminated union cannot hold a succeeded payment with a decline reason.</span></li>
+        <li><strong>Forgotten cases</strong><span>A <code>never</code> check turns a new state into a build error at every place that must handle it.</span></li>
+        <li><strong>Checks repeated everywhere</strong><span>After one check, the compiler knows the narrower type for the rest of the block.</span></li>
+        <li><strong>Plain JavaScript objects</strong><span>Structural typing fits JSON and object literals, which have no class.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Accidental matches</strong><span>Any value with the right shape fits, including the wrong kind of ID.</span></li>
+        <li><strong>Extra properties travel along</strong><span>Objects can carry fields the type does not mention into databases and responses.</span></li>
+        <li><strong>Trusted claims</strong><span>Type guards, <code>as</code> and assertion functions are not checked by the compiler.</span></li>
+        <li><strong>Narrowing is lost in callbacks</strong><span>A <code>let</code> variable narrowed outside a callback is wide again inside it, because it could change.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="api">
+      <div class="file-head"><span class="chip tone-neutral">Schema</span><span class="name">src/payment-result-schema.ts</span><span class="why"><code>z.discriminatedUnion</code> reads <code>status</code> first and checks only the matching member, so error messages name the right fields. The type comes from the schema. A status the schema does not know fails here, and is logged at error with the provider's value.</span></div>
+<pre><code>import { z } from "zod";
+import type { Logger } from "pino";
+
+export const PaymentResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("succeeded"), paymentId: z.string(), receiptUrl: z.url() }),
+  z.object({ status: z.literal("declined"), paymentId: z.string(), reason: z.string() }),
+  z.object({ status: z.literal("requires_action"), paymentId: z.string(), redirectUrl: z.url() }),
+]);
+
+export type PaymentResult = z.infer&lt;typeof PaymentResultSchema&gt;;
+
+export function parsePaymentResult(responseBody: unknown, requestLogger: Logger): PaymentResult {
+  const result = PaymentResultSchema.safeParse(responseBody);
+  if (!result.success) {
+    const status = (responseBody as { status?: unknown } | null)?.status;
+    requestLogger.error({ provider: "card-provider", status, issues: result.error.issues.length }, "unexpected payment result");
+    throw new Error("The payment provider returned an unexpected result.");
+  }
+  return result.data;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="union">
+      <div class="file-head"><span class="chip tone-blue">Union</span><span class="name">src/payment-states.ts</span><span class="why">The first type allows combinations that cannot happen, and every reader must check each optional field. The second has one member per state, and each member has exactly the fields that state has.</span></div>
+<pre><code>type PaymentResultWithOptionalFields = {
+  status: string;
+  receiptUrl?: string;
+  reason?: string;
+  redirectUrl?: string;
+};
+
+type PaymentResult =
+  | { status: "succeeded"; paymentId: string; receiptUrl: string }
+  | { status: "declined"; paymentId: string; reason: string }
+  | { status: "requires_action"; paymentId: string; redirectUrl: string };</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="switch">
+      <div class="file-head"><span class="chip tone-teal">Narrowing</span><span class="name">src/handle-payment-result.ts</span><span class="why">In each <code>case</code>, <code>result</code> has the type of one member, so only that member's fields compile. <code>assertNever</code> accepts only <code>never</code>: if a member is not handled, the call does not compile. If unchecked data reaches it at runtime, it throws. Logs include the status and payment ID, not the whole object.</span></div>
+<pre><code>import type { Logger } from "pino";
+import type { PaymentResult } from "./payment-result-schema.js";
+
+export function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${JSON.stringify(value)}`);
+}
+
+export type NextStep =
+  | { kind: "show-receipt"; url: string }
+  | { kind: "show-error"; message: string }
+  | { kind: "redirect"; url: string };
+
+export function nextStepFor(result: PaymentResult, requestLogger: Logger): NextStep {
+  requestLogger.info({ paymentId: result.paymentId, status: result.status }, "payment result received");
+
+  switch (result.status) {
+    case "succeeded":
+      return { kind: "show-receipt", url: result.receiptUrl };
+    case "declined":
+      return { kind: "show-error", message: result.reason };
+    case "requires_action":
+      return { kind: "redirect", url: result.redirectUrl };
+    default:
+      return assertNever(result);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="shape">
+      <div class="file-head"><span class="chip tone-neutral">Shapes</span><span class="name">src/structural-typing.ts</span><span class="why">The first call compiles: <code>fromForm</code> has every property of <code>Order</code>. The second fails with <code>TS2353</code>, because a new literal with an unknown property is most likely a typo. <code>toOrder</code> copies only the known fields. The class and the plain object are interchangeable, because only their shapes are compared.</span></div>
+<pre><code>type Order = { id: string; total: number };
+
+function saveOrder(order: Order): void {}
+
+const fromForm = { id: "o-1", total: 10, couponCode: "WELCOME" };
+saveOrder(fromForm);
+saveOrder({ id: "o-1", total: 10, couponCode: "WELCOME" });
+
+function toOrder(source: Order): Order {
+  return { id: source.id, total: source.total };
+}
+saveOrder(toOrder(fromForm));
+
+class Invoice {
+  constructor(
+    public id: string,
+    public total: number,
+  ) {}
+}
+saveOrder(new Invoice("i-9", 25));</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="brand">
+      <div class="file-head"><span class="chip tone-amber">Brands</span><span class="name">src/ids.ts</span><span class="why">The <code>__brand</code> property exists only in the type; no value ever has it. Branded IDs are created only by functions that check the format, and the cast is allowed only there. After that, swapping the two kinds of ID fails to compile.</span></div>
+<pre><code>export type OrderId = string &amp; { readonly __brand: "OrderId" };
+export type CustomerId = string &amp; { readonly __brand: "CustomerId" };
+
+export function toOrderId(value: string): OrderId {
+  if (!/^o-\d+$/.test(value)) throw new Error("The order ID has the wrong format.");
+  return value as OrderId;
+}
+
+export function toCustomerId(value: string): CustomerId {
+  if (!/^c-\d+$/.test(value)) throw new Error("The customer ID has the wrong format.");
+  return value as CustomerId;
+}
+
+export function cancelOrder(orderId: OrderId, customerId: CustomerId): void {}
+
+const orderId = toOrderId("o-1");
+const customerId = toCustomerId("c-42");
+cancelOrder(orderId, customerId);
+cancelOrder(customerId, orderId);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="guard">
+      <div class="file-head"><span class="chip tone-amber">Guards</span><span class="name">src/type-guards.ts</span><span class="why">The compiler trusts a guard's <code>value is Type</code> claim. The first guard checks one property and claims the whole type, so <code>{ status: "weird" }</code> passes. The second uses the schema, so the claim and the check cannot differ. The assertion function narrows for the rest of the scope, or throws.</span></div>
+<pre><code>import { PaymentResultSchema, type PaymentResult } from "./payment-result-schema.js";
+
+export function isPaymentResultWrong(value: unknown): value is PaymentResult {
+  return typeof value === "object" &amp;&amp; value !== null &amp;&amp; "status" in value;
+}
+
+export function isPaymentResult(value: unknown): value is PaymentResult {
+  return PaymentResultSchema.safeParse(value).success;
+}
+
+export function assertIsDefined&lt;T&gt;(value: T, name: string): asserts value is NonNullable&lt;T&gt; {
+  if (value === undefined || value === null) throw new Error(`${name} is missing.`);
+}
+
+function readCustomerEmail(customer: { email?: string }): string {
+  assertIsDefined(customer.email, "email");
+  return customer.email.toLowerCase();
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-none">
+    <div class="file" data-lang="any" data-node="switch">
+      <div class="file-head"><span class="chip tone-teal">Narrowing</span><span class="name">tsc-output.txt</span><span class="why">Real output from <code>tsc --noEmit --strict</code> on code like the examples on this page: a wrong property inside a narrowed <code>case</code>, a <code>refunded</code> member that the <code>switch</code> does not handle, an extra property in a fresh literal, and swapped branded IDs.</span></div>
+<pre><code>error TS2339: Property 'receiptUrl' does not exist on type '{ status: "declined"; reason: string; }'.
+error TS2345: Argument of type '{ status: "refunded"; refundedAt: string; }' is not assignable to parameter of type 'never'.
+error TS2353: Object literal may only specify known properties, and 'couponCode' does not exist in type 'Order'.
+error TS2345: Argument of type 'CustomerId' is not assignable to parameter of type 'OrderId'.
+  Type 'CustomerId' is not assignable to type '{ readonly __brand: "OrderId"; }'.
+    Types of property '__brand' are incompatible.
+      Type '"CustomerId"' is not assignable to type '"OrderId"'.</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

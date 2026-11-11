@@ -51,6 +51,7 @@ What each category covers: [typescript/README.md](typescript/README.md)
 | Topic | Category | Page | Source |
 |---|---|---|---|
 | Compile Time and Runtime | Compiling | [open](https://hermanyhho.github.io/dev-knowledgebase/typescript/compiling/compile-time-and-runtime/) | [index.html](typescript/compiling/compile-time-and-runtime/index.html) |
+| Structural Typing and Narrowing | Type system | [open](https://hermanyhho.github.io/dev-knowledgebase/typescript/type-system/structural-typing-and-narrowing/) | [index.html](typescript/type-system/structural-typing-and-narrowing/index.html) |
 
 ## .NET
 
