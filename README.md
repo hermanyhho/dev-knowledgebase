@@ -103,3 +103,4 @@ What each category covers: [system-design/README.md](system-design/README.md)
 | CAP and Consistency | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/cap-and-consistency/) | [index.html](system-design/databases/cap-and-consistency/index.html) |
 | Caching, CDNs and Load Balancing | Speed | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/caching-and-load-balancing/) | [index.html](system-design/caching-and-load-balancing/index.html) |
 | Reliability Patterns | Reliability | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/reliability-patterns/) | [index.html](system-design/reliability-patterns/index.html) |
+| Message Queues and Logs | Messaging | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/message-queues-and-logs/) | [index.html](system-design/message-queues-and-logs/index.html) |

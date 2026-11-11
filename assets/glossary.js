@@ -463,4 +463,7 @@ window.glossaryTerms = [
   { forms: ["429"], definition: "HTTP status 429 Too Many Requests: the client sent more requests than its rate limit allows." },
   { forms: ["opossum"], definition: "A circuit breaker library for Node.js. It wraps an async function and stops calling it after too many failures." },
   { forms: ["Polly"], definition: "The .NET library for resilience: retries, timeouts, circuit breakers and rate limiters. Microsoft.Extensions.Http.Resilience builds on it." },
+  { forms: ["consumer group", "consumer groups"], definition: "In Kafka, a set of consumers that share one topic's partitions. Each group keeps its own offsets, so every group reads every message." },
+  { forms: ["dead-letter queue"], definition: "A separate queue where messages go after failing too many times, so they stop blocking others and a person can look at them." },
+  { forms: ["acknowledgement", "acknowledging", "acknowledged"], definition: "A consumer telling the broker that a message was processed, so the broker does not deliver it again." },
 ];

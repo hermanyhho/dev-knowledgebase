@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Message Queues and Logs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../">System design</a> / Messaging</div>
+    <h1>Message Queues and Logs</h1>
+    <p class="aka">Two kinds of message broker, what they guarantee about delivery, and how order is kept.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A message broker sits between a service that sends messages and services that process them, so the sender does not wait and does not need the receiver to be running. The <a href="../../architecture/messaging-and-events/event-driven/">event-driven</a> page shows why; this page covers how brokers behave.</p>
+    <p>There are two designs. A <strong>queue</strong>, such as RabbitMQ, hands each message to one consumer and deletes it once processed. A <strong>log</strong>, such as Kafka, appends messages to a file that consumers read at their own position; messages stay for a set time, so several consumer groups and replays can read them.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Idea</th><th>Key point</th><th>Common mistake</th></tr></thead>
+        <tbody>
+          <tr><td>Queue or log</td><td>Queues spread jobs over workers. Logs keep a history that many readers use independently.</td><td>Using a queue when a second team later needs the same events</td></tr>
+          <tr><td>Delivery guarantees</td><td>Brokers give at-least-once delivery: a message can arrive twice, for example after a consumer crashes before acknowledging it.</td><td>Assuming each message arrives once, and charging twice</td></tr>
+          <tr><td>Ordering</td><td>A queue with several consumers does not keep order. Kafka keeps order within one partition, and messages with the same key go to the same partition.</td><td>Expecting global order across partitions</td></tr>
+          <tr><td>Failed messages</td><td>After a few failed attempts, move the message to a dead-letter queue instead of retrying forever.</td><td>One bad message blocking the whole queue</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> expect every message at least once and make consumers idempotent. Choose the message key by what must stay in order, such as the order ID.</div>
+  </section>
+
+  <section>
+    <h2>Queue and log compared</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Queue (RabbitMQ)</th><th>Log (Kafka)</th></tr></thead>
+        <tbody>
+          <tr><td>After processing</td><td>Message deleted</td><td>Message kept until the retention time ends</td></tr>
+          <tr><td>Several consumers</td><td>Share the work: each message to one consumer</td><td>Each consumer group reads every message; inside a group, each partition goes to one consumer</td></tr>
+          <tr><td>Progress</td><td>Acknowledgement per message</td><td>An offset per partition: the position read so far</td></tr>
+          <tr><td>Replay old messages</td><td>Not possible</td><td>Move the offset back</td></tr>
+          <tr><td>Good for</td><td>Background jobs, emails, tasks</td><td>Events many services use, high volume, audit history</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Delivery guarantees</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Guarantee</th><th>How it happens</th><th>Risk</th></tr></thead>
+        <tbody>
+          <tr><td>At most once</td><td>Acknowledge before processing</td><td>A crash loses the message</td></tr>
+          <tr><td>At least once</td><td>Acknowledge after processing</td><td>A crash after processing but before the acknowledgement delivers it again</td></tr>
+          <tr><td>Effectively once</td><td>At least once, plus a consumer that records processed message IDs and skips repeats</td><td>Needs a store for IDs, in the same transaction as the work</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Sending is the other half: to avoid losing a message when the database commit succeeds but the publish fails, write it in the same transaction with the <a href="../../architecture/messaging-and-events/outbox/">transactional outbox</a>.</p>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th></tr></thead>
+        <tbody>
+          <tr><td>Message headers</td><td>Copy the correlation ID from the request into every message, and from the message into every log line of the consumer</td></tr>
+          <tr><td>Consumer</td><td>Message ID, type, attempt number and outcome. Not the full body: it can hold personal data.</td></tr>
+          <tr><td>Metric: queue depth or consumer lag</td><td>Messages waiting, or how far a Kafka group is behind. Alert when it keeps growing.</td></tr>
+          <tr><td>Dead-letter queue</td><td>Alert on any new message there, with the error that sent it</td></tr>
+          <tr><td>Duplicates</td><td>Count messages skipped as already processed</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 320" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The orders service publishes events keyed by order ID to a Kafka topic with partitions. Two consumer groups read the topic at their own offsets. Separately, a RabbitMQ queue hands email jobs to competing workers. Consumers record processed message IDs to skip duplicates.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-producer" tabindex="0" role="button" aria-label="Show publishing with a key" data-title="Producer: publish with a key" data-node="producer">
+          <rect class="shape tone-neutral" x="15" y="110" width="170" height="80" rx="6"/>
+          <text class="t-name" x="100" y="138">Orders service</text>
+          <text class="t-kind" x="100" y="156">publishes OrderPlaced,</text>
+          <text class="t-kind" x="100" y="172">key: order ID</text>
+        </g>
+        <g class="node" id="n-log" tabindex="0" role="button" aria-label="Show a Kafka consumer" data-title="Log: Kafka topic and consumer groups" data-node="log">
+          <rect class="shape tone-blue" x="230" y="30" width="330" height="130" rx="6"/>
+          <text class="t-name" x="395" y="55">Kafka topic: orders</text>
+          <text class="t-item" x="395" y="82">partition 0: o-1 placed, o-1 paid, ...</text>
+          <text class="t-item" x="395" y="104">partition 1: o-2 placed, o-4 placed, ...</text>
+          <text class="t-item" x="395" y="126">partition 2: o-3 placed, o-3 paid, ...</text>
+          <text class="t-kind" x="395" y="148">kept 7 days; same key, same partition</text>
+        </g>
+        <g class="node" id="n-queue" tabindex="0" role="button" aria-label="Show a RabbitMQ worker" data-title="Queue: RabbitMQ workers" data-node="queue">
+          <rect class="shape tone-amber" x="230" y="200" width="330" height="90" rx="6"/>
+          <text class="t-name" x="395" y="227">RabbitMQ queue: send-email</text>
+          <text class="t-kind" x="395" y="247">each job to one worker,</text>
+          <text class="t-kind" x="395" y="263">deleted after acknowledgement</text>
+        </g>
+        <g id="p-billing">
+          <rect class="shape tone-neutral" x="610" y="30" width="140" height="55" rx="6"/>
+          <text class="t-name" x="680" y="53">Billing group</text>
+          <text class="t-kind" x="680" y="71">offset 1,204</text>
+        </g>
+        <g id="p-analytics">
+          <rect class="shape tone-neutral" x="610" y="105" width="140" height="55" rx="6"/>
+          <text class="t-name" x="680" y="128">Analytics group</text>
+          <text class="t-kind" x="680" y="146">offset 990, behind</text>
+        </g>
+        <g id="p-workers">
+          <rect class="shape tone-neutral" x="610" y="215" width="140" height="60" rx="6"/>
+          <text class="t-name" x="680" y="240">3 email workers</text>
+          <text class="t-kind" x="680" y="258">share the jobs</text>
+        </g>
+        <g class="node" id="n-dedupe" tabindex="0" role="button" aria-label="Show duplicate handling" data-title="Consumer: skip duplicates" data-node="dedupe">
+          <rect class="shape tone-teal" x="780" y="110" width="125" height="90" rx="6"/>
+          <text class="t-name" x="842" y="138">processed</text>
+          <text class="t-name" x="842" y="156">messages</text>
+          <text class="t-kind" x="842" y="176">skip repeats</text>
+        </g>
+
+        <path class="flow" id="a-producer-log" d="M185,135 L228,105" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-producer-queue" d="M185,170 L228,240" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-log-billing" d="M560,60 L608,58" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-log-analytics" d="M560,130 L608,132" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-queue-workers" d="M560,245 L608,245" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-billing-dedupe" d="M750,60 L800,60 L800,108" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-workers-dedupe" d="M750,245 L842,245 L842,202" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-duplicate" x="842" y="222">ALREADY DONE: SKIP</text>
+        <text class="ghost-label" id="t-order" x="395" y="22">o-1 EVENTS STAY IN ORDER</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="duplicate" aria-pressed="true">A message arrives twice</button>
+        <button type="button" data-flow="ordering" aria-pressed="false">Events of one order stay in order</button>
+        <button type="button" data-flow="jobs" aria-pressed="false">Workers share a queue</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="duplicate" hidden>
+        <li data-highlight="n-log a-log-billing p-billing">The billing consumer reads <code>OrderPlaced</code> for <code>o-1</code> and creates the invoice.</li>
+        <li data-highlight="p-billing">It crashes before committing its offset. On restart it reads from the last committed offset, so it gets the same message again.</li>
+        <li data-highlight="p-billing a-billing-dedupe n-dedupe t-duplicate">It finds the message ID in its processed-messages table, which was written in the same transaction as the invoice, and skips it. One invoice.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="ordering" hidden>
+        <li data-highlight="n-producer a-producer-log n-log">The orders service publishes "o-1 placed", then "o-1 paid", both with key <code>o-1</code>.</li>
+        <li data-highlight="n-log t-order">Kafka hashes the key, so both go to partition 0, in that order.</li>
+        <li data-highlight="n-log a-log-billing p-billing">One billing consumer reads partition 0, so it sees "placed" before "paid". Events of different orders, in other partitions, may be processed in any order.</li>
+        <li data-highlight="n-log a-log-analytics p-analytics">The analytics group reads the same events at its own offset. It is behind, which does not affect billing.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="jobs" hidden>
+        <li data-highlight="n-producer a-producer-queue n-queue">For each order, a "send confirmation email" job goes to the <code>send-email</code> queue.</li>
+        <li data-highlight="n-queue a-queue-workers p-workers">RabbitMQ gives each job to one of three workers. More workers means more jobs at once; order is not kept.</li>
+        <li data-highlight="p-workers a-workers-dedupe n-dedupe">A worker acknowledges a job after sending the email. If it crashes first, the job is redelivered to another worker, which checks the processed IDs.</li>
+        <li data-highlight="n-queue">A job that fails 5 times goes to a dead-letter queue, where an alert asks a person to look at it.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-blue">Log</span>
+      <span class="chip tone-amber">Queue</span>
+      <span class="chip tone-teal">Duplicate check</span>
+      <span class="chip tone-neutral">Services</span>
+      <span>Click a box to see a short example.</span>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems brokers solve</h2>
+      <ul>
+        <li><strong>Waiting for slow work</strong><span>The sender answers the user and the work happens later.</span></li>
+        <li><strong>Receivers that are down</strong><span>Messages wait in the broker until the consumer is back.</span></li>
+        <li><strong>Peaks of traffic</strong><span>The broker holds the extra messages; consumers work through them at their pace.</span></li>
+        <li><strong>Many services needing one event</strong><span>A log lets each read it without the sender knowing them.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems they introduce</h2>
+      <ul>
+        <li><strong>Duplicates</strong><span>At-least-once delivery means every consumer must handle repeats.</span></li>
+        <li><strong>Ordering limits</strong><span>Order holds only per partition or per single consumer.</span></li>
+        <li><strong>Delay and eventual consistency</strong><span>Other services see a change seconds later.</span></li>
+        <li><strong>Harder debugging</strong><span>A request's work is spread over services, which correlation IDs must connect.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="producer">
+      <div class="file-head"><span class="chip tone-neutral">Producer</span><span class="name">src/publish-order-event.ts</span><span class="why">The order ID is the message key, so all events of one order go to the same partition and stay in order. The correlation ID travels in a header. Uses the <code>kafkajs</code> API.</span></div>
+<pre><code>import type { Producer } from "kafkajs";
+
+export async function publishOrderPlaced(producer: Producer, orderId: string, correlationId: string) {
+  await producer.send({
+    topic: "orders",
+    messages: [
+      {
+        key: orderId,
+        value: JSON.stringify({ type: "OrderPlaced", messageId: crypto.randomUUID(), orderId }),
+        headers: { "correlation-id": correlationId },
+      },
+    ],
+  });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="log">
+      <div class="file-head"><span class="chip tone-blue">Log</span><span class="name">src/billing-consumer.ts</span><span class="why">The billing group reads the <code>orders</code> topic. With <code>autoCommit: false</code>, the offset is committed only after the work is done, which gives at-least-once delivery. The correlation ID from the header goes into every log line.</span></div>
+<pre><code>import type { Consumer } from "kafkajs";
+import type { Logger } from "pino";
+import { handleOrderPlaced } from "./handle-order-placed.js";
+
+export async function runBillingConsumer(consumer: Consumer, logger: Logger) {
+  await consumer.subscribe({ topic: "orders" });
+  await consumer.run({
+    autoCommit: false,
+    eachMessage: async ({ topic, partition, message }) =&gt; {
+      const event = JSON.parse(message.value!.toString());
+      const messageLogger = logger.child({ correlationId: message.headers?.["correlation-id"]?.toString(), messageId: event.messageId });
+      await handleOrderPlaced(event, messageLogger);
+      await consumer.commitOffsets([{ topic, partition, offset: (BigInt(message.offset) + 1n).toString() }]);
+    },
+  });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="queue">
+      <div class="file-head"><span class="chip tone-amber">Queue</span><span class="name">src/email-worker.ts</span><span class="why">An <code>amqplib</code> worker. <code>prefetch(10)</code> gives each worker at most 10 unacknowledged jobs. The job is acknowledged after the email is sent. On failure it is rejected without requeue, and the queue's dead-letter settings move it on.</span></div>
+<pre><code>import type { Channel } from "amqplib";
+import type { Logger } from "pino";
+import { sendConfirmationEmail } from "./email.js";
+
+export async function runEmailWorker(channel: Channel, logger: Logger) {
+  await channel.prefetch(10);
+  await channel.consume("send-email", async (message) =&gt; {
+    if (!message) return;
+    const job = JSON.parse(message.content.toString());
+    try {
+      await sendConfirmationEmail(job.orderId);
+      channel.ack(message);
+    } catch (error) {
+      logger.error({ err: error, messageId: job.messageId }, "email job failed");
+      channel.nack(message, false, false);
+    }
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="producer">
+      <div class="file-head"><span class="chip tone-neutral">Producer</span><span class="name">OrderEventPublisher.cs</span><span class="why">The order ID is the message key, so all events of one order go to the same partition and stay in order. The correlation ID travels in a header. Uses <code>Confluent.Kafka</code>.</span></div>
+<pre><code>using System.Text;
+using System.Text.Json;
+using Confluent.Kafka;
+
+public sealed class OrderEventPublisher(IProducer&lt;string, string&gt; producer)
+{
+    public Task PublishOrderPlacedAsync(string orderId, string correlationId) =&gt;
+        producer.ProduceAsync("orders", new Message&lt;string, string&gt;
+        {
+            Key = orderId,
+            Value = JsonSerializer.Serialize(new { type = "OrderPlaced", messageId = Guid.NewGuid(), orderId }),
+            Headers = new Headers { { "correlation-id", Encoding.UTF8.GetBytes(correlationId) } },
+        });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="log">
+      <div class="file-head"><span class="chip tone-blue">Log</span><span class="name">BillingConsumer.cs</span><span class="why">The billing group reads the <code>orders</code> topic. <code>EnableAutoCommit = false</code> and the explicit <code>Commit</code> after the work give at-least-once delivery. A logging scope adds the correlation ID to every line.</span></div>
+<pre><code>using System.Text;
+using Confluent.Kafka;
+
+public sealed class BillingConsumer(IConsumer&lt;string, string&gt; consumer, OrderPlacedHandler handler, ILogger&lt;BillingConsumer&gt; logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        consumer.Subscribe("orders");
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var result = consumer.Consume(stoppingToken);
+            var correlationId = Encoding.UTF8.GetString(result.Message.Headers.GetLastBytes("correlation-id"));
+            using (logger.BeginScope(new Dictionary&lt;string, object&gt; { ["CorrelationId"] = correlationId }))
+            {
+                await handler.HandleAsync(result.Message.Value, stoppingToken);
+            }
+            consumer.Commit(result);
+        }
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="queue">
+      <div class="file-head"><span class="chip tone-amber">Queue</span><span class="name">EmailWorker.cs</span><span class="why">A <code>RabbitMQ.Client</code> 7 worker. <code>prefetchCount: 10</code> limits unacknowledged jobs per worker. The job is acknowledged after the email is sent; on failure it is rejected without requeue, and the queue's dead-letter settings move it on.</span></div>
+<pre><code>using System.Text.Json;
+using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
+
+public sealed class EmailWorker(IChannel channel, EmailSender emailSender, ILogger&lt;EmailWorker&gt; logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 10, global: false, stoppingToken);
+        var consumer = new AsyncEventingBasicConsumer(channel);
+        consumer.ReceivedAsync += async (_, delivery) =&gt;
+        {
+            var job = JsonSerializer.Deserialize&lt;EmailJob&gt;(delivery.Body.Span)!;
+            try
+            {
+                await emailSender.SendConfirmationAsync(job.OrderId, stoppingToken);
+                await channel.BasicAckAsync(delivery.DeliveryTag, multiple: false);
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Email job {MessageId} failed", job.MessageId);
+                await channel.BasicNackAsync(delivery.DeliveryTag, multiple: false, requeue: false);
+            }
+        };
+        await channel.BasicConsumeAsync("send-email", autoAck: false, consumer, stoppingToken);
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="dedupe">
+      <div class="file-head"><span class="chip tone-teal">Duplicates</span><span class="name">processed-messages.sql</span><span class="why">The consumer inserts the message ID in the same transaction as its work, and checks how many rows that insert changed. For a repeated message it changes 0 rows, so the consumer rolls back and skips the invoice. This turns at-least-once delivery into effectively once.</span></div>
+<pre><code>CREATE TABLE processed_messages (
+  message_id   uuid PRIMARY KEY,
+  processed_at timestamptz NOT NULL DEFAULT now()
+);
+
+BEGIN;
+INSERT INTO processed_messages (message_id) VALUES ('6f1c9e2a-0b7d-4c55-9a3e-1f2d3c4b5a69')
+ON CONFLICT (message_id) DO NOTHING;
+INSERT INTO invoices (order_id, total) VALUES ('o-1', 49.90);
+COMMIT;</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="../../assets/topic.js"></script>
+</body>
+</html>
