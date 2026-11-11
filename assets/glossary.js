@@ -359,4 +359,9 @@ window.glossaryTerms = [
   { forms: ["SQL Server"], definition: "Microsoft's relational database." },
   { forms: ["MySQL"], definition: "An open-source relational database, now owned by Oracle." },
   { forms: ["InnoDB"], definition: "The default storage engine in MySQL. It stores each table sorted by its primary key." },
+  { forms: ["write-ahead log", "WAL"], definition: "A file where PostgreSQL writes every change before it changes the table files. After a crash it replays the log to restore committed changes." },
+  { forms: ["SQLSTATE"], definition: "A five-character error code defined by the SQL standard, such as 40001 for a serialization failure. Code should check it, not the message text." },
+  { forms: ["psql"], definition: "The PostgreSQL command-line client. It connects to a database and runs SQL you type." },
+  { forms: ["constraint", "constraints"], definition: "A rule in the table definition that the database checks on every write, such as NOT NULL, UNIQUE, CHECK or a foreign key." },
+  { forms: ["Azure SQL Database"], definition: "Microsoft's SQL Server database run as a managed service in the Azure cloud." },
 ];

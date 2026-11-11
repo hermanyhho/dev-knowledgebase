@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transactions and Isolation Levels</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">System design</a> / Databases</div>
+    <h1>Transactions and Isolation Levels</h1>
+    <p class="aka">How a database keeps a group of changes together, and what two transactions running at the same time can see of each other. Examples use PostgreSQL 18.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A <strong>transaction</strong> is a group of statements that the database applies completely or not at all. An order that lowers the stock and inserts the order row must not stop halfway.</p>
+    <p>Many transactions run at the same moment. The <strong>isolation level</strong> decides what one transaction sees of the others' changes, and which conflicts the database stops. A higher level stops more conflicts, but returns more errors that your code must retry.</p>
+    <p>PostgreSQL keeps old versions of each row next to the new ones. A reader sees the versions that were committed when its snapshot was taken, so readers never wait for writers.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Transaction</span></td><td>Statements between <code>BEGIN</code> and <code>COMMIT</code> that succeed or fail as one.</td><td>Lower stock, insert order</td></tr>
+          <tr><td><span class="chip tone-teal">Commit</span></td><td>Makes the transaction's changes permanent and visible to others.</td><td><code>COMMIT</code></td></tr>
+          <tr><td><span class="chip tone-teal">Rollback</span></td><td>Throws away every change the transaction made.</td><td><code>ROLLBACK</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Snapshot</span></td><td>The set of committed changes a transaction is allowed to see.</td><td>Taken per statement or per transaction</td></tr>
+          <tr><td><span class="chip tone-neutral">MVCC</span></td><td>Multi-version concurrency control: an update writes a new row version instead of changing the old one in place.</td><td>Stock 1 and stock 0 exist at once</td></tr>
+          <tr><td><span class="chip tone-amber">Row lock</span></td><td>A mark that stops other transactions from changing or locking a row until the holder commits or rolls back.</td><td><code>SELECT ... FOR UPDATE</code></td></tr>
+          <tr><td><span class="chip tone-amber">Isolation level</span></td><td>The rule for which changes of other transactions a transaction sees.</td><td>Read committed, the default</td></tr>
+          <tr><td><span class="chip tone-blue">Serialization failure</span></td><td>An error PostgreSQL returns when a transaction cannot finish without breaking its isolation level. Retry the whole transaction.</td><td>SQLSTATE <code>40001</code></td></tr>
+          <tr><td><span class="chip tone-blue">Deadlock</span></td><td>Two transactions each wait for a lock the other holds. PostgreSQL cancels one of them.</td><td>SQLSTATE <code>40P01</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> keep transactions short and never wait for a network call inside one. Read-then-write code needs a lock, a single conditional statement, or a higher isolation level with a retry.</div>
+  </section>
+
+  <section>
+    <h2>ACID</h2>
+    <p>ACID names the four guarantees a transaction gives.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Letter</th><th>Guarantee</th><th>How PostgreSQL keeps it</th></tr></thead>
+        <tbody>
+          <tr><td>Atomic</td><td>All statements apply, or none do.</td><td>A rollback, or a crash before commit, leaves no trace of the transaction.</td></tr>
+          <tr><td>Consistent</td><td>Each commit leaves the data valid under the rules in the schema.</td><td>Constraints such as <code>CHECK (stock &gt;= 0)</code>, foreign keys and unique indexes are checked.</td></tr>
+          <tr><td>Isolated</td><td>Transactions running at the same time do not see each other's unfinished work.</td><td>Snapshots and row locks, at the chosen isolation level.</td></tr>
+          <tr><td>Durable</td><td>A committed change survives a crash or power loss.</td><td>The change is written to the write-ahead log on disk before <code>COMMIT</code> returns.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Problems that concurrent transactions cause</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Problem</th><th>What happens</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Dirty read</td><td>A transaction reads a change that another one has not committed yet.</td><td>A report counts stock 0, then the other transaction rolls back. PostgreSQL never allows this.</td></tr>
+          <tr><td>Non-repeatable read</td><td>The same row, read twice in one transaction, has different values.</td><td>An invoice reads the price, another transaction changes it, the invoice reads it again.</td></tr>
+          <tr><td>Phantom read</td><td>The same <code>WHERE</code>, run twice, returns new rows.</td><td>A count of today's orders changes during the report.</td></tr>
+          <tr><td>Lost update</td><td>Two transactions read a value, both compute a new one, and the second write replaces the first.</td><td>Two buyers both read stock 1 and both write stock 0. Two orders, one item.</td></tr>
+          <tr><td>Write skew</td><td>Two transactions check a rule across several rows, then each changes a different row. Together they break the rule.</td><td>Two doctors each go off call, because each saw the other still on call.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Isolation levels in PostgreSQL</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Level</th><th>Snapshot taken</th><th>Prevents</th><th>When rows conflict</th></tr></thead>
+        <tbody>
+          <tr><td>Read committed (default)</td><td>At each statement</td><td>Dirty reads</td><td>An <code>UPDATE</code> waits for the other transaction, then works on the newest version. Read-then-write code can still lose updates.</td></tr>
+          <tr><td>Repeatable read</td><td>At the first statement of the transaction</td><td>Also non-repeatable reads, phantom reads and lost updates</td><td>Updating a row that changed after the snapshot fails with <code>40001</code>.</td></tr>
+          <tr><td>Serializable</td><td>Like repeatable read, and PostgreSQL also tracks what each transaction read</td><td>Also write skew</td><td>Any pattern that could not happen one transaction at a time fails with <code>40001</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>READ UNCOMMITTED</code> is accepted but behaves as read committed. Set a level per transaction with <code>BEGIN ISOLATION LEVEL REPEATABLE READ</code>.</p>
+  </section>
+
+  <section>
+    <h2>Ways to prevent a lost update</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Method</th><th>How</th><th>Use it when</th></tr></thead>
+        <tbody>
+          <tr><td>One conditional statement</td><td><code>UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock &gt;= 1</code>. Zero rows changed means out of stock.</td><td>The rule fits in one statement. The simplest and fastest option.</td></tr>
+          <tr><td>Row lock</td><td><code>SELECT ... FOR UPDATE</code>, then decide in code, then write.</td><td>The decision needs code between the read and the write.</td></tr>
+          <tr><td>Version column</td><td>Each update sets <code>version = version + 1 WHERE version = $old</code>. Zero rows changed means someone else changed it first.</td><td>The read and the write happen in different requests, such as an edit form.</td></tr>
+          <tr><td>Repeatable read or serializable, with a retry</td><td>Run the transaction at the higher level and retry on <code>40001</code>.</td><td>The rule spans several rows or tables, such as write skew.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How SQL Server and MySQL differ</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>PostgreSQL</th><th>SQL Server</th><th>MySQL (InnoDB)</th></tr></thead>
+        <tbody>
+          <tr><td>Default level</td><td>Read committed</td><td>Read committed</td><td>Repeatable read</td></tr>
+          <tr><td>Do readers wait for writers?</td><td>No, readers use row versions</td><td>Yes, unless <code>READ_COMMITTED_SNAPSHOT</code> is on. It is on by default in Azure SQL Database.</td><td>No for plain <code>SELECT</code></td></tr>
+          <tr><td>Lost update at repeatable read</td><td>Fails with an error</td><td>Blocked by locks, which can cause deadlocks</td><td>Not stopped: an <code>UPDATE</code> reads the newest version, so read-then-write code still needs <code>FOR UPDATE</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Common mistakes</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Mistake</th><th>What goes wrong</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>An HTTP call or a message send inside a transaction</td><td>Locks are held while the other service is slow. If the transaction rolls back, the call already happened.</td><td>Call before or after. To send messages, use the <a href="../../../architecture/messaging-and-events/outbox/">outbox</a>.</td></tr>
+          <tr><td>A transaction left open</td><td>It holds locks and stops <code>VACUUM</code> from removing old row versions, so tables grow.</td><td>Always commit or roll back in a <code>finally</code> block. Set <code>idle_in_transaction_session_timeout</code>.</td></tr>
+          <tr><td>Locking rows in a different order in different code paths</td><td>Deadlocks under load.</td><td>Lock rows in a fixed order, for example <code>ORDER BY id ... FOR UPDATE</code>.</td></tr>
+          <tr><td>Using a higher level without a retry</td><td>Users see random errors under load.</td><td>Retry the whole transaction on <code>40001</code> and <code>40P01</code>, 3 attempts with a short random wait.</td></tr>
+          <tr><td>Retrying only the failed statement</td><td>The transaction is already aborted. Every later statement fails.</td><td>Roll back and run the whole transaction again, including its reads.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>App, each retry</td><td>Operation name, attempt number, SQLSTATE and the request ID.</td><td>warn</td></tr>
+          <tr><td>App, all attempts failed</td><td>The same fields and the error.</td><td>error</td></tr>
+          <tr><td>PostgreSQL, lock waits</td><td><code>log_lock_waits = on</code> logs each wait longer than <code>deadlock_timeout</code> (1 s), with the blocking process.</td><td></td></tr>
+          <tr><td>PostgreSQL, deadlocks</td><td>Always logged, with both queries.</td><td>Alert on any</td></tr>
+          <tr><td>Metric: long transactions</td><td>The oldest open transaction, from <code>pg_stat_activity</code>.</td><td>Alert over 5 minutes</td></tr>
+          <tr><td>Metric: retries per minute</td><td>Counted per operation name.</td><td>Alert when it rises sharply</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 460" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">Two checkout transactions, A on the left and B on the right, buy the last item of product 7 at the same moment. In the middle are the row versions of the products table, the row locks, the retry code and the logs.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="20" y="88" width="230" height="332" rx="10"/>
+        <rect class="frame" x="670" y="88" width="230" height="332" rx="10"/>
+        <rect class="frame" x="300" y="90" width="320" height="76" rx="8"/>
+
+        <g class="node" id="n-app-a" tabindex="0" role="button" aria-label="Show checkout with a row lock" data-title="Checkout A: transaction with a row lock" data-node="app-a">
+          <rect class="shape tone-teal" x="20" y="20" width="230" height="56" rx="6"/>
+          <text class="t-name" x="135" y="44">Transaction A</text>
+          <text class="t-kind" x="135" y="62">buyer 1 checks out</text>
+        </g>
+        <g class="node" id="n-app-b" tabindex="0" role="button" aria-label="Show checkout with one conditional statement" data-title="Checkout B: one conditional statement" data-node="app-b">
+          <rect class="shape tone-amber" x="670" y="20" width="230" height="56" rx="6"/>
+          <text class="t-name" x="785" y="44">Transaction B</text>
+          <text class="t-kind" x="785" y="62">buyer 2 checks out</text>
+        </g>
+        <g class="node" id="n-row" tabindex="0" role="button" aria-label="Show row versions" data-title="Row versions: MVCC" data-node="row">
+          <rect class="shape tone-neutral" x="300" y="20" width="320" height="60" rx="6"/>
+          <text class="t-name" x="460" y="45">Table products</text>
+          <text class="t-kind" x="460" y="63">each update writes a new row version</text>
+        </g>
+        <g class="node" id="n-lock" tabindex="0" role="button" aria-label="Show row lock queries" data-title="Row locks" data-node="lock">
+          <rect class="shape tone-neutral" x="300" y="180" width="320" height="50" rx="6"/>
+          <text class="t-name" x="460" y="201">Row locks</text>
+          <text class="t-kind" x="460" y="218">held until COMMIT or ROLLBACK</text>
+        </g>
+        <g class="node" id="n-retry" tabindex="0" role="button" aria-label="Show the retry code" data-title="Retry on 40001 and 40P01" data-node="retry">
+          <rect class="shape tone-blue" x="300" y="260" width="320" height="50" rx="6"/>
+          <text class="t-name" x="460" y="281">Retry</text>
+          <text class="t-kind" x="460" y="298">the whole transaction, on 40001 or 40P01</text>
+        </g>
+        <g class="node" id="n-log" tabindex="0" role="button" aria-label="Show logging settings" data-title="Logs: retries, lock waits, long transactions" data-node="log">
+          <rect class="shape tone-neutral" x="300" y="340" width="320" height="50" rx="6"/>
+          <text class="t-name" x="460" y="361">Logs</text>
+          <text class="t-kind" x="460" y="378">retries, lock waits, long transactions</text>
+        </g>
+
+        <g class="state-item" id="lost-a1"><rect class="slot tone-teal" x="30" y="100" width="210" height="30" rx="4"/><text class="t-item" x="135" y="119">BEGIN; SELECT stock: 1</text></g>
+        <g class="state-item" id="lost-a2"><rect class="slot tone-teal" x="30" y="140" width="210" height="30" rx="4"/><text class="t-item" x="135" y="159">UPDATE stock = 0</text></g>
+        <g class="state-item" id="lost-a3"><rect class="slot tone-teal" x="30" y="180" width="210" height="30" rx="4"/><text class="t-item" x="135" y="199">COMMIT</text></g>
+        <g class="state-item" id="lost-b1"><rect class="slot tone-amber" x="680" y="100" width="210" height="30" rx="4"/><text class="t-item" x="785" y="119">BEGIN; SELECT stock: 1</text></g>
+        <g class="state-item" id="lost-b2"><rect class="slot tone-amber" x="680" y="140" width="210" height="30" rx="4"/><text class="t-item" x="785" y="159">UPDATE stock = 0</text></g>
+        <g class="state-item" id="lost-b3"><rect class="slot tone-amber" x="680" y="180" width="210" height="30" rx="4"/><text class="t-item" x="785" y="199">COMMIT</text></g>
+        <g class="state-item" id="lock-a1"><rect class="slot tone-teal" x="30" y="100" width="210" height="30" rx="4"/><text class="t-item" x="135" y="119">SELECT ... FOR UPDATE: 1</text></g>
+        <g class="state-item" id="lock-a2"><rect class="slot tone-teal" x="30" y="140" width="210" height="30" rx="4"/><text class="t-item" x="135" y="159">UPDATE stock = 0</text></g>
+        <g class="state-item" id="lock-a3"><rect class="slot tone-teal" x="30" y="180" width="210" height="30" rx="4"/><text class="t-item" x="135" y="199">COMMIT</text></g>
+        <g class="state-item" id="lock-b1"><rect class="slot tone-amber" x="680" y="100" width="210" height="30" rx="4"/><text class="t-item" x="785" y="119">SELECT ... FOR UPDATE</text></g>
+        <g class="state-item" id="lock-b2"><rect class="slot tone-amber" x="680" y="140" width="210" height="30" rx="4"/><text class="t-item" x="785" y="159">waits for the lock ...</text></g>
+        <g class="state-item" id="lock-b3"><rect class="slot tone-amber" x="680" y="180" width="210" height="30" rx="4"/><text class="t-item" x="785" y="199">gets stock: 0</text></g>
+        <g class="state-item" id="lock-b4"><rect class="slot tone-amber" x="680" y="220" width="210" height="30" rx="4"/><text class="t-item" x="785" y="239">ROLLBACK: out of stock</text></g>
+        <g class="state-item" id="retry-a1"><rect class="slot tone-teal" x="30" y="100" width="210" height="30" rx="4"/><text class="t-item" x="135" y="119">BEGIN REPEATABLE READ</text></g>
+        <g class="state-item" id="retry-a2"><rect class="slot tone-teal" x="30" y="140" width="210" height="30" rx="4"/><text class="t-item" x="135" y="159">SELECT stock: 1</text></g>
+        <g class="state-item" id="retry-a3"><rect class="slot tone-teal" x="30" y="180" width="210" height="30" rx="4"/><text class="t-item" x="135" y="199">UPDATE stock = 0</text></g>
+        <g class="state-item" id="retry-a4"><rect class="slot tone-teal" x="30" y="220" width="210" height="30" rx="4"/><text class="t-item" x="135" y="239">COMMIT</text></g>
+        <g class="state-item" id="retry-b1"><rect class="slot tone-amber" x="680" y="100" width="210" height="30" rx="4"/><text class="t-item" x="785" y="119">BEGIN REPEATABLE READ</text></g>
+        <g class="state-item" id="retry-b2"><rect class="slot tone-amber" x="680" y="140" width="210" height="30" rx="4"/><text class="t-item" x="785" y="159">SELECT stock: 1</text></g>
+        <g class="state-item" id="retry-b3"><rect class="slot tone-amber" x="680" y="180" width="210" height="30" rx="4"/><text class="t-item" x="785" y="199">UPDATE: error 40001</text></g>
+        <g class="state-item" id="retry-b4"><rect class="slot tone-amber" x="680" y="220" width="210" height="30" rx="4"/><text class="t-item" x="785" y="239">ROLLBACK, try again</text></g>
+        <g class="state-item" id="retry-b5"><rect class="slot tone-amber" x="680" y="260" width="210" height="30" rx="4"/><text class="t-item" x="785" y="279">SELECT stock: 0</text></g>
+        <g class="state-item" id="retry-b6"><rect class="slot tone-amber" x="680" y="300" width="210" height="30" rx="4"/><text class="t-item" x="785" y="319">ROLLBACK: out of stock</text></g>
+        <g class="state-item" id="snapshot-a1"><rect class="slot tone-teal" x="30" y="100" width="210" height="30" rx="4"/><text class="t-item" x="135" y="119">UPDATE stock = 0</text></g>
+        <g class="state-item" id="snapshot-a2"><rect class="slot tone-teal" x="30" y="140" width="210" height="30" rx="4"/><text class="t-item" x="135" y="159">COMMIT</text></g>
+        <g class="state-item" id="snapshot-b1"><rect class="slot tone-amber" x="680" y="100" width="210" height="30" rx="4"/><text class="t-item" x="785" y="119">SELECT stock: 1</text></g>
+        <g class="state-item" id="snapshot-b2"><rect class="slot tone-amber" x="680" y="140" width="210" height="30" rx="4"/><text class="t-item" x="785" y="159">SELECT stock: 0</text></g>
+        <g class="state-item" id="deadlock-a1"><rect class="slot tone-teal" x="30" y="100" width="210" height="30" rx="4"/><text class="t-item" x="135" y="119">lock product 7</text></g>
+        <g class="state-item" id="deadlock-a2"><rect class="slot tone-teal" x="30" y="140" width="210" height="30" rx="4"/><text class="t-item" x="135" y="159">lock product 9: waits</text></g>
+        <g class="state-item" id="deadlock-a3"><rect class="slot tone-teal" x="30" y="180" width="210" height="30" rx="4"/><text class="t-item" x="135" y="199">gets product 9</text></g>
+        <g class="state-item" id="deadlock-a4"><rect class="slot tone-teal" x="30" y="220" width="210" height="30" rx="4"/><text class="t-item" x="135" y="239">COMMIT</text></g>
+        <g class="state-item" id="deadlock-b1"><rect class="slot tone-amber" x="680" y="100" width="210" height="30" rx="4"/><text class="t-item" x="785" y="119">lock product 9</text></g>
+        <g class="state-item" id="deadlock-b2"><rect class="slot tone-amber" x="680" y="140" width="210" height="30" rx="4"/><text class="t-item" x="785" y="159">lock product 7: waits</text></g>
+        <g class="state-item" id="deadlock-b3"><rect class="slot tone-amber" x="680" y="180" width="210" height="30" rx="4"/><text class="t-item" x="785" y="199">error 40P01, ROLLBACK</text></g>
+        <g class="state-item" id="deadlock-b4"><rect class="slot tone-amber" x="680" y="220" width="210" height="30" rx="4"/><text class="t-item" x="785" y="239">try again</text></g>
+        <g class="state-item" id="v-7-1"><rect class="slot tone-neutral" x="310" y="96" width="300" height="30" rx="4"/><text class="t-item" x="460" y="115">product 7: stock 1, committed</text></g>
+        <g class="state-item" id="v-7-0-open"><rect class="slot tone-teal" x="310" y="130" width="300" height="30" rx="4"/><text class="t-item" x="460" y="149">product 7: stock 0, A not committed</text></g>
+        <g class="state-item" id="v-7-0-done"><rect class="slot tone-teal" x="310" y="130" width="300" height="30" rx="4"/><text class="t-item" x="460" y="149">product 7: stock 0, committed</text></g>
+
+        <path class="flow" id="a-a-row" d="M250,128 L298,128" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-b-row" d="M670,128 L622,128" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-a-lock" d="M250,205 L298,205" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-b-lock" d="M670,205 L622,205" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-b-retry" d="M670,285 L622,285" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-retry-log" d="M460,310 L460,338" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-oversold" x="460" y="440">TWO ORDERS FOR ONE ITEM</text>
+        <text class="ghost-label" id="t-deadlock" x="460" y="440">DEADLOCK FOUND AFTER 1 S: B IS CANCELLED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="lost" aria-pressed="true">Lost update: read, then write</button>
+        <button type="button" data-flow="lock" aria-pressed="false">Row lock with FOR UPDATE</button>
+        <button type="button" data-flow="retry" aria-pressed="false">Repeatable read and a retry</button>
+        <button type="button" data-flow="snapshot" aria-pressed="false">Readers see a snapshot</button>
+        <button type="button" data-flow="deadlock" aria-pressed="false">Deadlock</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="lost" hidden>
+        <li data-highlight="n-app-a a-a-row n-row" data-show="lost-a1 v-7-1">Buyer 1's checkout starts a transaction at the default level, read committed, and reads the stock of product 7: 1.</li>
+        <li data-highlight="n-app-b a-b-row n-row" data-show="lost-a1 lost-b1 v-7-1">Buyer 2's checkout does the same at the same moment. It also reads 1.</li>
+        <li data-highlight="n-app-a a-a-row n-row n-lock" data-show="lost-a1 lost-a2 lost-b1 v-7-1 v-7-0-open">A's code computes 1 - 1 = 0 and runs <code>UPDATE products SET stock = 0</code>. PostgreSQL writes a new row version and locks the row.</li>
+        <li data-highlight="n-app-a n-row" data-show="lost-a1 lost-a2 lost-a3 lost-b1 v-7-0-done">A commits. Stock 0 is now the committed version.</li>
+        <li data-highlight="n-app-b a-b-row n-row t-oversold" data-show="lost-a1 lost-a2 lost-a3 lost-b1 lost-b2 lost-b3 v-7-0-done">B's code also computes 0 from its earlier read and writes stock 0. Nothing fails. Both orders are saved, but only one item existed.</li>
+        <li data-highlight="n-app-b" data-show="lost-a1 lost-a2 lost-a3 lost-b1 lost-b2 lost-b3 v-7-0-done">Fixes: one conditional <code>UPDATE ... WHERE stock &gt;= 1</code> (click Transaction B), a row lock (next flow), or repeatable read with a retry.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="lock" hidden>
+        <li data-highlight="n-app-a a-a-row n-row a-a-lock n-lock" data-show="lock-a1 v-7-1">A reads the stock with <code>SELECT stock ... FOR UPDATE</code>. It gets 1 and a lock on the row until it ends.</li>
+        <li data-highlight="n-app-b a-b-lock n-lock" data-show="lock-a1 lock-b1 lock-b2 v-7-1">B runs the same query. The row is locked, so B's query waits.</li>
+        <li data-highlight="n-app-a a-a-row n-row" data-show="lock-a1 lock-a2 lock-a3 lock-b1 lock-b2 v-7-0-done">A writes stock 0, inserts the order and commits. The lock is released.</li>
+        <li data-highlight="n-app-b a-b-row n-row" data-show="lock-a1 lock-a2 lock-a3 lock-b1 lock-b2 lock-b3 v-7-0-done">B's query continues. At read committed it returns the newest committed version: stock 0.</li>
+        <li data-highlight="n-app-b" data-show="lock-a1 lock-a2 lock-a3 lock-b1 lock-b2 lock-b3 lock-b4 v-7-0-done">B's code sees 0, rolls back and answers "out of stock". One order, one item.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="retry" hidden>
+        <li data-highlight="n-app-a n-app-b a-a-row a-b-row n-row" data-show="retry-a1 retry-a2 retry-b1 retry-b2 v-7-1">Both checkouts start repeatable read transactions and read stock 1. Each keeps the snapshot from its first statement.</li>
+        <li data-highlight="n-app-a a-a-row n-row" data-show="retry-a1 retry-a2 retry-a3 retry-a4 retry-b1 retry-b2 v-7-0-done">A writes stock 0 and commits.</li>
+        <li data-highlight="n-app-b a-b-row n-row" data-show="retry-a1 retry-a2 retry-a3 retry-a4 retry-b1 retry-b2 retry-b3 v-7-0-done">B tries to update a row that changed after its snapshot. PostgreSQL stops it: <code>could not serialize access due to concurrent update</code>, SQLSTATE <code>40001</code>.</li>
+        <li data-highlight="n-app-b a-b-retry n-retry" data-show="retry-a1 retry-a2 retry-a3 retry-a4 retry-b1 retry-b2 retry-b3 retry-b4 v-7-0-done">B rolls back. The retry code runs the whole transaction again, with a new snapshot.</li>
+        <li data-highlight="n-retry a-retry-log n-log a-b-row n-row" data-show="retry-a1 retry-a2 retry-a3 retry-a4 retry-b1 retry-b2 retry-b3 retry-b4 retry-b5 retry-b6 v-7-0-done">The second attempt reads stock 0 and answers "out of stock". The retry was logged at warn with the attempt number and SQLSTATE.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="snapshot" hidden>
+        <li data-highlight="n-app-a a-a-row n-row" data-show="snapshot-a1 v-7-1 v-7-0-open">A updates product 7 but does not commit yet. The old version stays in the table next to the new one.</li>
+        <li data-highlight="n-app-b a-b-row n-row" data-show="snapshot-a1 snapshot-b1 v-7-1 v-7-0-open">B reads the row and gets the last committed version: stock 1. B does not wait for A's lock. Readers do not block writers, and writers do not block readers.</li>
+        <li data-highlight="n-app-a n-row" data-show="snapshot-a1 snapshot-a2 snapshot-b1 v-7-1 v-7-0-done">A commits.</li>
+        <li data-highlight="n-app-b a-b-row n-row" data-show="snapshot-a1 snapshot-a2 snapshot-b1 snapshot-b2 v-7-1 v-7-0-done">B reads again. At read committed each statement takes a new snapshot, so it now sees 0. At repeatable read it would still see 1.</li>
+        <li data-highlight="n-row" data-show="snapshot-a1 snapshot-a2 snapshot-b1 snapshot-b2 v-7-1 v-7-0-done">No transaction can see the stock 1 version any more. <code>VACUUM</code> removes it later. A transaction left open keeps old versions from being removed.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="deadlock" hidden>
+        <li data-highlight="n-app-a n-app-b a-a-lock a-b-lock n-lock" data-show="deadlock-a1 deadlock-b1">A's order has products 7 and 9. B's order has 9 and 7. A locks 7 first, and B locks 9 first.</li>
+        <li data-highlight="n-app-a a-a-lock n-lock" data-show="deadlock-a1 deadlock-a2 deadlock-b1">A asks for product 9 and waits for B.</li>
+        <li data-highlight="n-app-b a-b-lock n-lock" data-show="deadlock-a1 deadlock-a2 deadlock-b1 deadlock-b2">B asks for product 7 and waits for A. Neither can continue.</li>
+        <li data-highlight="n-lock t-deadlock n-app-b" data-show="deadlock-a1 deadlock-a2 deadlock-b1 deadlock-b2 deadlock-b3">After <code>deadlock_timeout</code> (1 s) PostgreSQL looks for a cycle of waits, finds one and cancels one transaction with SQLSTATE <code>40P01</code>. Here it cancels B.</li>
+        <li data-highlight="n-app-a a-b-retry n-retry a-retry-log n-log" data-show="deadlock-a1 deadlock-a2 deadlock-a3 deadlock-a4 deadlock-b1 deadlock-b2 deadlock-b3 deadlock-b4">A gets product 9 and commits. B retries. To prevent it, lock products in a fixed order, for example by id.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Transaction A</span>
+      <span class="chip tone-amber">Transaction B</span>
+      <span class="chip tone-neutral">Database</span>
+      <span class="chip tone-blue">Retry</span>
+      <span>Statements appear in each transaction's column in the order they run. Product 7 starts with stock 1. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop-api/</div>
+      <button type="button" class="tree-row" data-file="src/place-order-with-lock.ts"><span class="path">├─ src/place-order-with-lock.ts</span><span class="chip tone-teal">Row lock</span></button>
+      <button type="button" class="tree-row" data-file="src/place-order-conditional.ts"><span class="path">├─ src/place-order-conditional.ts</span><span class="chip tone-amber">One statement</span></button>
+      <button type="button" class="tree-row" data-file="src/with-transaction-retry.ts"><span class="path">├─ src/with-transaction-retry.ts</span><span class="chip tone-blue">Retry</span></button>
+      <button type="button" class="tree-row" data-file="db/row-versions.sql"><span class="path">├─ db/row-versions.sql</span><span class="chip tone-neutral">Database</span></button>
+      <button type="button" class="tree-row" data-file="db/row-locks.sql"><span class="path">├─ db/row-locks.sql</span><span class="chip tone-neutral">Database</span></button>
+      <button type="button" class="tree-row" data-file="db/postgresql.conf"><span class="path">├─ db/postgresql.conf</span><span class="chip tone-neutral">Logging</span></button>
+      <button type="button" class="tree-row" data-file="db/long-transactions.sql"><span class="path">└─ db/long-transactions.sql</span><span class="chip tone-neutral">Logging</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">ShopApi/</div>
+      <button type="button" class="tree-row" data-file="PlaceOrderWithLock.cs"><span class="path">├─ PlaceOrderWithLock.cs</span><span class="chip tone-teal">Row lock</span></button>
+      <button type="button" class="tree-row" data-file="PlaceOrderConditional.cs"><span class="path">├─ PlaceOrderConditional.cs</span><span class="chip tone-amber">One statement</span></button>
+      <button type="button" class="tree-row" data-file="TransactionRetry.cs"><span class="path">├─ TransactionRetry.cs</span><span class="chip tone-blue">Retry</span></button>
+      <button type="button" class="tree-row" data-file="db/row-versions.sql"><span class="path">├─ db/row-versions.sql</span><span class="chip tone-neutral">Database</span></button>
+      <button type="button" class="tree-row" data-file="db/row-locks.sql"><span class="path">├─ db/row-locks.sql</span><span class="chip tone-neutral">Database</span></button>
+      <button type="button" class="tree-row" data-file="db/postgresql.conf"><span class="path">├─ db/postgresql.conf</span><span class="chip tone-neutral">Logging</span></button>
+      <button type="button" class="tree-row" data-file="db/long-transactions.sql"><span class="path">└─ db/long-transactions.sql</span><span class="chip tone-neutral">Logging</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Changes that stop halfway</strong><span>Stock is never lowered without the order row, even if the app crashes between the two statements.</span></li>
+        <li><strong>Concurrent requests overwriting each other</strong><span>Locks and higher isolation levels stop lost updates and overselling.</span></li>
+        <li><strong>Reports that see half-finished work</strong><span>A snapshot gives every query a consistent view of committed data.</span></li>
+        <li><strong>Data lost in a crash</strong><span>A committed change is on disk in the write-ahead log.</span></li>
+        <li><strong>Readers slowing down writers</strong><span>With row versions, reads and writes do not wait for each other.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Waiting for locks</strong><span>A busy row, such as a popular product, makes transactions queue behind each other.</span></li>
+        <li><strong>Errors you must retry</strong><span>Repeatable read, serializable and deadlocks all return errors that the code must handle.</span></li>
+        <li><strong>Deadlocks</strong><span>Locks taken in different orders cancel transactions under load.</span></li>
+        <li><strong>Table growth</strong><span>Old row versions stay until <code>VACUUM</code> removes them, and a long transaction delays that.</span></li>
+        <li><strong>Only inside one database</strong><span>A transaction cannot include a call to another service or a message broker. That needs the <a href="../../../architecture/messaging-and-events/outbox/">outbox</a> or a <a href="../../../architecture/messaging-and-events/saga/">saga</a>.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="app-a">
+      <div class="file-head"><span class="chip tone-teal">Row lock</span><span class="name">src/place-order-with-lock.ts</span><span class="why">All statements of one transaction must run on the same connection, so the code takes one from the pool. <code>FOR UPDATE</code> locks the product row until <code>COMMIT</code> or <code>ROLLBACK</code>. The <code>finally</code> block returns the connection to the pool, so it is never left inside an open transaction.</span></div>
+<pre><code>import type { Pool } from "pg";
+
+export type OrderResult = "placed" | "out-of-stock";
+
+export async function placeOrderWithLock(database: Pool, customerId: string, productId: number): Promise&lt;OrderResult&gt; {
+  const connection = await database.connect();
+  try {
+    await connection.query("BEGIN");
+    const { rows } = await connection.query&lt;{ stock: number }&gt;(
+      "SELECT stock FROM products WHERE id = $1 FOR UPDATE",
+      [productId],
+    );
+    if (rows.length === 0 || rows[0].stock &lt; 1) {
+      await connection.query("ROLLBACK");
+      return "out-of-stock";
+    }
+    await connection.query("UPDATE products SET stock = stock - 1 WHERE id = $1", [productId]);
+    await connection.query("INSERT INTO orders (customer_id, product_id) VALUES ($1, $2)", [customerId, productId]);
+    await connection.query("COMMIT");
+    return "placed";
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="app-b">
+      <div class="file-head"><span class="chip tone-amber">One statement</span><span class="name">src/place-order-conditional.ts</span><span class="why">The stock check and the change happen in one <code>UPDATE</code>. If two of these run at once, the second waits for the first, then checks <code>stock &gt;= 1</code> again on the new version and changes 0 rows. No explicit lock and no retry are needed. A <code>CHECK (stock &gt;= 0)</code> constraint on the table catches any code path that forgets the condition.</span></div>
+<pre><code>import type { Pool } from "pg";
+import type { OrderResult } from "./place-order-with-lock.js";
+
+export async function placeOrderConditional(database: Pool, customerId: string, productId: number): Promise&lt;OrderResult&gt; {
+  const connection = await database.connect();
+  try {
+    await connection.query("BEGIN");
+    const stockUpdate = await connection.query(
+      "UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock &gt;= 1",
+      [productId],
+    );
+    if (stockUpdate.rowCount === 0) {
+      await connection.query("ROLLBACK");
+      return "out-of-stock";
+    }
+    await connection.query("INSERT INTO orders (customer_id, product_id) VALUES ($1, $2)", [customerId, productId]);
+    await connection.query("COMMIT");
+    return "placed";
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="retry">
+      <div class="file-head"><span class="chip tone-blue">Retry</span><span class="name">src/with-transaction-retry.ts</span><span class="why">Runs the whole transaction function again on a serialization failure or a deadlock. The random wait spreads out transactions that collided. Each retry is logged at warn with the request ID from the request logger. After the last attempt the error goes to the caller, which logs it once.</span></div>
+<pre><code>import { setTimeout as wait } from "node:timers/promises";
+import type { Pool } from "pg";
+import type { Logger } from "pino";
+import { placeOrderWithLock } from "./place-order-with-lock.js";
+
+const retryableErrorCodes = new Set(["40001", "40P01"]);
+
+export async function withTransactionRetry&lt;Result&gt;(
+  requestLogger: Logger,
+  operationName: string,
+  runTransaction: () =&gt; Promise&lt;Result&gt;,
+  maxAttempts = 3,
+): Promise&lt;Result&gt; {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await runTransaction();
+    } catch (error) {
+      const errorCode = (error as { code?: string }).code;
+      const canRetry = errorCode !== undefined &amp;&amp; retryableErrorCodes.has(errorCode) &amp;&amp; attempt &lt; maxAttempts;
+      if (!canRetry) throw error;
+
+      requestLogger.warn({ operationName, attempt, errorCode }, "transaction conflict, retrying");
+      await wait(Math.random() * 50 * attempt);
+    }
+  }
+}
+
+export function placeOrderSafely(database: Pool, requestLogger: Logger, customerId: string, productId: number) {
+  return withTransactionRetry(requestLogger, "placeOrder", () =&gt; placeOrderWithLock(database, customerId, productId));
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="app-a">
+      <div class="file-head"><span class="chip tone-teal">Row lock</span><span class="name">PlaceOrderWithLock.cs</span><span class="why">The command uses the transaction's connection. <code>FOR UPDATE</code> locks the product row until commit or rollback. If the method returns or throws before <code>CommitAsync</code>, disposing the transaction rolls it back.</span></div>
+<pre><code>using Npgsql;
+
+public enum OrderResult { Placed, OutOfStock }
+
+public sealed class PlaceOrderWithLock(NpgsqlDataSource dataSource)
+{
+    public async Task&lt;OrderResult&gt; RunAsync(string customerId, int productId)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        await using var readStock = new NpgsqlCommand(
+            "SELECT stock FROM products WHERE id = $1 FOR UPDATE", connection, transaction);
+        readStock.Parameters.Add(new NpgsqlParameter { Value = productId });
+        var stock = (int?)await readStock.ExecuteScalarAsync();
+        if (stock is null or &lt; 1)
+        {
+            return OrderResult.OutOfStock;
+        }
+
+        await using var lowerStock = new NpgsqlCommand(
+            "UPDATE products SET stock = stock - 1 WHERE id = $1", connection, transaction);
+        lowerStock.Parameters.Add(new NpgsqlParameter { Value = productId });
+        await lowerStock.ExecuteNonQueryAsync();
+
+        await using var insertOrder = new NpgsqlCommand(
+            "INSERT INTO orders (customer_id, product_id) VALUES ($1, $2)", connection, transaction);
+        insertOrder.Parameters.Add(new NpgsqlParameter { Value = customerId });
+        insertOrder.Parameters.Add(new NpgsqlParameter { Value = productId });
+        await insertOrder.ExecuteNonQueryAsync();
+
+        await transaction.CommitAsync();
+        return OrderResult.Placed;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="app-b">
+      <div class="file-head"><span class="chip tone-amber">One statement</span><span class="name">PlaceOrderConditional.cs</span><span class="why">The stock check and the change happen in one <code>UPDATE</code>. If two of these run at once, the second waits for the first, then checks <code>stock &gt;= 1</code> again on the new version and changes 0 rows. No explicit lock and no retry are needed. With Entity Framework Core, <code>ExecuteUpdateAsync</code> sends the same single statement.</span></div>
+<pre><code>using Npgsql;
+
+public sealed class PlaceOrderConditional(NpgsqlDataSource dataSource)
+{
+    public async Task&lt;OrderResult&gt; RunAsync(string customerId, int productId)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        await using var lowerStock = new NpgsqlCommand(
+            "UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock &gt;= 1", connection, transaction);
+        lowerStock.Parameters.Add(new NpgsqlParameter { Value = productId });
+        if (await lowerStock.ExecuteNonQueryAsync() == 0)
+        {
+            return OrderResult.OutOfStock;
+        }
+
+        await using var insertOrder = new NpgsqlCommand(
+            "INSERT INTO orders (customer_id, product_id) VALUES ($1, $2)", connection, transaction);
+        insertOrder.Parameters.Add(new NpgsqlParameter { Value = customerId });
+        insertOrder.Parameters.Add(new NpgsqlParameter { Value = productId });
+        await insertOrder.ExecuteNonQueryAsync();
+
+        await transaction.CommitAsync();
+        return OrderResult.Placed;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="retry">
+      <div class="file-head"><span class="chip tone-blue">Retry</span><span class="name">TransactionRetry.cs</span><span class="why">Runs the whole transaction function again on a serialization failure or a deadlock. The <code>when</code> filter lets every other error, and the last failed attempt, go to the caller. The random wait spreads out transactions that collided. ASP.NET Core adds the trace ID to each warning through the request's logging scope.</span></div>
+<pre><code>using Npgsql;
+
+public static class TransactionRetry
+{
+    public static async Task&lt;T&gt; RunAsync&lt;T&gt;(ILogger logger, string operationName, Func&lt;Task&lt;T&gt;&gt; runTransaction, int maxAttempts = 3)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await runTransaction();
+            }
+            catch (PostgresException exception) when (attempt &lt; maxAttempts &amp;&amp; IsRetryable(exception))
+            {
+                logger.LogWarning("Transaction conflict in {OperationName}, attempt {Attempt}, SQLSTATE {SqlState}, retrying",
+                    operationName, attempt, exception.SqlState);
+                await Task.Delay(Random.Shared.Next(0, 50 * attempt));
+            }
+        }
+    }
+
+    private static bool IsRetryable(PostgresException exception) =&gt;
+        exception.SqlState is PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected;
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="row">
+      <div class="file-head"><span class="chip tone-neutral">Database</span><span class="name">db/row-versions.sql</span><span class="why">Run the two sessions in two terminals with <code>psql</code>. <code>xmin</code> is the id of the transaction that created the row version. Session 2 keeps seeing stock 1 until session 1 commits, and it never waits. After the commit, the row has a new <code>ctid</code>: it is a new version in a new place.</span></div>
+<pre><code>CREATE TABLE products (
+  id    integer PRIMARY KEY,
+  name  text NOT NULL,
+  stock integer NOT NULL CHECK (stock &gt;= 0)
+);
+INSERT INTO products VALUES (7, 'Desk lamp', 1), (9, 'Bulb', 4);
+
+-- session 1
+BEGIN;
+UPDATE products SET stock = 0 WHERE id = 7;
+SELECT xmin, ctid, stock FROM products WHERE id = 7;
+
+-- session 2
+SELECT xmin, ctid, stock FROM products WHERE id = 7;
+
+-- session 1
+COMMIT;
+
+-- session 2
+SELECT xmin, ctid, stock FROM products WHERE id = 7;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="lock">
+      <div class="file-head"><span class="chip tone-neutral">Database</span><span class="name">db/row-locks.sql</span><span class="why"><code>NOWAIT</code> fails at once instead of waiting. <code>SKIP LOCKED</code> leaves out locked rows, which lets several workers take different jobs from one table. Sorting by <code>id</code> before locking makes every transaction lock rows in the same order, which prevents deadlocks. The last query shows which process blocks which.</span></div>
+<pre><code>SELECT stock FROM products WHERE id = 7 FOR UPDATE;
+
+SELECT stock FROM products WHERE id = 7 FOR UPDATE NOWAIT;
+
+SELECT id, payload
+  FROM jobs
+ WHERE status = 'waiting'
+ ORDER BY id
+ LIMIT 10
+   FOR UPDATE SKIP LOCKED;
+
+SELECT id, stock
+  FROM products
+ WHERE id = ANY($1)
+ ORDER BY id
+   FOR UPDATE;
+
+SELECT pid, pg_blocking_pids(pid) AS blocked_by, wait_event_type, left(query, 80) AS query
+  FROM pg_stat_activity
+ WHERE cardinality(pg_blocking_pids(pid)) &gt; 0;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Logging</span><span class="name">db/long-transactions.sql</span><span class="why">Lists transactions open for more than a minute, oldest first. <code>idle in transaction</code> means the app started a transaction and is not sending anything: often a missing commit, or a slow call made inside the transaction. <code>application_name</code> shows which service holds it, if each service sets it in its connection string.</span></div>
+<pre><code>SELECT pid,
+       application_name,
+       state,
+       now() - xact_start AS open_for,
+       left(query, 80) AS last_query
+  FROM pg_stat_activity
+ WHERE xact_start &lt; now() - interval '1 minute'
+ ORDER BY xact_start;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-ini">
+    <div class="file" data-lang="any" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Logging</span><span class="name">db/postgresql.conf</span><span class="why"><code>log_lock_waits</code> logs every lock wait longer than <code>deadlock_timeout</code>. <code>idle_in_transaction_session_timeout</code> ends sessions that leave a transaction open and idle. <code>transaction_timeout</code> (PostgreSQL 17 and later) ends any transaction that runs too long. Set the timeouts per app role if batch jobs need longer.</span></div>
+<pre><code>log_lock_waits = on
+deadlock_timeout = 1s
+
+idle_in_transaction_session_timeout = 30s
+transaction_timeout = 60s
+lock_timeout = 5s</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-ini.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
