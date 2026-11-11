@@ -439,4 +439,7 @@ window.glossaryTerms = [
   { forms: ["AbortController"], definition: "A built-in object whose signal is passed to fetch. Calling abort() cancels the request, and the fetch rejects with an AbortError." },
   { forms: ["subscription", "subscriptions"], definition: "A registration to be notified of events, such as messages from a WebSocket. It must be removed when no longer needed." },
   { forms: ["custom hook", "custom hooks"], definition: "Your own function whose name starts with use and that calls other hooks, so several components can share the same stateful logic." },
+  { forms: ["Zustand"], definition: "A small state library for React. Components read a store through a selector function and render only when the part they selected changes." },
+  { forms: ["selectors", "selector"], definition: "A function that picks the part of a store a component needs, such as state => state.cartCount.", onlyOn: ["where-state-lives"] },
+  { forms: ["mutation", "mutations"], definition: "In TanStack Query, a request that changes data on the server, such as adding an item to a cart.", onlyOn: ["where-state-lives"] },
 ];

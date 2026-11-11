@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where React State Lives</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">React</a> / State</div>
+    <h1>Where React State Lives</h1>
+    <p class="aka">Choosing the right place for each piece of data: a component, a parent, the URL, a context, or a cache of server data. Examples use React 19, TanStack Query 5 and React Router 8.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Not all state is the same. A dropdown that is open, the filters on a product list, the logged-in user and the products loaded from the server change for different reasons and are needed by different parts of the page. Putting all of it in <code>useState</code> at the top of the app makes every change render everything, and copies of server data go out of date.</p>
+    <p>Each kind of state has a place where it works best. The question for each value is: who needs it, how long must it survive, and where is the real copy?</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Local state</span></td><td>State in the one component that uses it.</td><td>The quantity typed in one product card</td></tr>
+          <tr><td><span class="chip tone-teal">Lifting state up</span></td><td>Moving state to the closest parent of the components that share it, and passing it down as props.</td><td><code>ProductsPage</code> holds what <code>Filters</code> and <code>ProductList</code> share</td></tr>
+          <tr><td><span class="chip tone-amber">URL state</span></td><td>State kept in the address, such as <code>?category=books&amp;page=2</code>. It survives reloads and can be shared as a link.</td><td>Filters and page number</td></tr>
+          <tr><td><span class="chip tone-blue">Server state</span></td><td>A local copy of data whose real version is on the server. It can be out of date at any time.</td><td>Products, the cart</td></tr>
+          <tr><td><span class="chip tone-blue">Query cache</span></td><td>A store for server state, keyed by what was asked for, that fetches, caches and refreshes it.</td><td>TanStack Query, key <code>["products", filters]</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Context</span></td><td>A value provided once high in the tree that any component below can read without props.</td><td>The current user</td></tr>
+          <tr><td><span class="chip tone-neutral">Prop drilling</span></td><td>Passing a value through several components that do not use it, only to reach one that does.</td><td>What context and the query cache avoid</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> keep state as low in the tree as possible and only as high as needed. Data from the server goes in a query cache, not in <code>useState</code>. Anything a link should reproduce goes in the URL.</div>
+  </section>
+
+  <section>
+    <h2>Kinds of state and where they go</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Kind</th><th>Example</th><th>Place</th></tr></thead>
+        <tbody>
+          <tr><td>One component's UI</td><td>Dropdown open, input text before submit</td><td><code>useState</code> in that component</td></tr>
+          <tr><td>Shared by nearby components</td><td>Selected row shown in a details panel</td><td>Lift to the closest common parent</td></tr>
+          <tr><td>Should survive reload or be shareable</td><td>Search text, filters, sort order, page, open tab</td><td>The URL search parameters</td></tr>
+          <tr><td>Comes from the server</td><td>Products, orders, the cart</td><td>A query cache such as TanStack Query, or server components in Next.js</td></tr>
+          <tr><td>Needed far apart, changes rarely</td><td>Current user, theme, language</td><td>Context</td></tr>
+          <tr><td>Needed far apart, changes often</td><td>A drawing canvas, a multi-step editor</td><td>A store with selectors, such as Zustand, so each component renders only for its own part</td></tr>
+          <tr><td>Form fields</td><td>A checkout form</td><td>The form itself, read on submit, or a form library</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What a query cache does that useState does not</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Problem</th><th>With <code>useState</code> and an effect</th><th>With TanStack Query</th></tr></thead>
+        <tbody>
+          <tr><td>Two components need the same data</td><td>Two requests, or lift and drill the data</td><td>Same <code>queryKey</code>: one request, both read the cache</td></tr>
+          <tr><td>Data changed on the server</td><td>Stays old until reload</td><td>Refetched when stale and the window gets focus, or when invalidated</td></tr>
+          <tr><td>After a change, related data is old</td><td>Update each copy by hand</td><td><code>invalidateQueries({ queryKey: ["cart"] })</code> refetches every reader</td></tr>
+          <tr><td>Loading and error states</td><td>Written in every component</td><td><code>isPending</code>, <code>error</code> on every query</td></tr>
+          <tr><td>Going back to a page</td><td>Loading again</td><td>Shown at once from the cache, refreshed in the background</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Context: what to watch</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Behaviour</th><th>Effect</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Every component that reads a context renders when its value changes</td><td>A context with often-changing data renders many components</td><td>Use context for values that change rarely</td></tr>
+          <tr><td>A new object as the value counts as a change</td><td><code>value={{ user, logout }}</code> creates a new object on each render of the provider</td><td>Memoize the value, or let the React Compiler do it</td></tr>
+          <tr><td>One context with unrelated values</td><td>Changing the theme renders components that only need the user</td><td>One context per concern</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td><code>QueryCache</code> <code>onError</code></td><td>One report per failed query: query key name, status, the server's request ID. Set once on the <code>QueryClient</code>, not in each component.</td><td>error</td></tr>
+          <tr><td><code>MutationCache</code> <code>onError</code></td><td>Failed changes such as "add to cart", with the same fields</td><td>error, alert on rate</td></tr>
+          <tr><td>Query keys</td><td>Only the key's name, such as <code>products</code>. Keys can contain search text and IDs.</td><td></td></tr>
+          <tr><td><code>localStorage</code></td><td>Do not persist personal data or tokens to it. Any script on the page can read it.</td><td></td></tr>
+          <tr><td>Metric</td><td>Share of cache hits for common queries</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 420" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The component tree on the left: App with providers, CartBadge in the header, ProductsPage, and ProductCard. On the right, the places state lives: the URL holds the filters, the query cache holds products and the cart, and a context holds the current user. ProductCard keeps its own quantity input.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="15" y="15" width="430" height="390" rx="10"/>
+        <text class="t-label" x="230" y="34">COMPONENT TREE</text>
+        <rect class="frame" x="580" y="15" width="325" height="390" rx="10"/>
+        <text class="t-label" x="742" y="34">WHERE STATE LIVES</text>
+
+        <g class="node" id="n-app" tabindex="0" role="button" aria-label="Show the app setup" data-title="App: providers and error reporting" data-node="app">
+          <rect class="shape tone-neutral" x="130" y="50" width="200" height="60" rx="6"/>
+          <text class="t-name" x="230" y="75">App</text>
+          <text class="t-kind" x="230" y="93">QueryClient, user provider</text>
+        </g>
+        <g class="node" id="n-badge" tabindex="0" role="button" aria-label="Show CartBadge" data-title="CartBadge: reads the cart query" data-node="badge">
+          <rect class="shape tone-neutral" x="35" y="150" width="180" height="60" rx="6"/>
+          <text class="t-name" x="125" y="175">CartBadge</text>
+          <text class="t-kind" x="125" y="193">in the header</text>
+        </g>
+        <g class="node" id="n-page" tabindex="0" role="button" aria-label="Show ProductsPage" data-title="ProductsPage: filters from the URL" data-node="page">
+          <rect class="shape tone-neutral" x="245" y="150" width="180" height="60" rx="6"/>
+          <text class="t-name" x="335" y="175">ProductsPage</text>
+          <text class="t-kind" x="335" y="193">Filters, ProductList</text>
+        </g>
+        <g class="node" id="n-card" tabindex="0" role="button" aria-label="Show ProductCard" data-title="ProductCard: local state and a mutation" data-node="card">
+          <rect class="shape tone-teal" x="245" y="260" width="180" height="80" rx="6"/>
+          <text class="t-name" x="335" y="285">ProductCard</text>
+          <text class="t-kind" x="335" y="303">local: quantity input</text>
+          <text class="t-kind" x="335" y="319">adds to the cart</text>
+        </g>
+        <g class="node" id="n-url" tabindex="0" role="button" aria-label="Show the URL filter hook" data-title="URL: filters in search parameters" data-node="url">
+          <rect class="shape tone-amber" x="600" y="50" width="285" height="70" rx="6"/>
+          <text class="t-name" x="742" y="75">URL</text>
+          <text class="t-item" x="742" y="97">?category=books&amp;page=2</text>
+        </g>
+        <g class="node" id="n-query" tabindex="0" role="button" aria-label="Show the queries" data-title="Query cache: server state" data-node="query">
+          <rect class="shape tone-blue" x="600" y="150" width="285" height="110" rx="6"/>
+          <text class="t-name" x="742" y="175">Query cache</text>
+          <text class="t-item" x="742" y="198">["products", books, 2]</text>
+          <text class="t-item" x="742" y="218">["cart"]</text>
+          <text class="t-kind" x="742" y="240">copies of server data</text>
+        </g>
+        <g class="node" id="n-context" tabindex="0" role="button" aria-label="Show the user context" data-title="Context: the current user" data-node="context">
+          <rect class="shape tone-neutral" x="600" y="290" width="285" height="60" rx="6"/>
+          <text class="t-name" x="742" y="315">Context</text>
+          <text class="t-kind" x="742" y="333">current user, changes rarely</text>
+        </g>
+
+        <g class="state-item" id="s-badge-2"><rect class="slot tone-blue" x="80" y="220" width="125" height="26" rx="4"/><text class="t-item" x="142" y="237">cart: 2 items</text></g>
+        <g class="state-item" id="s-badge-3"><rect class="slot tone-teal" x="80" y="220" width="125" height="26" rx="4"/><text class="t-item" x="142" y="237">cart: 3 items</text></g>
+
+        <path class="flow" id="a-app-badge" d="M180,110 L140,148" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-page" d="M280,110 L320,148" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-page-card" d="M335,210 L335,258" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-url-page" d="M600,85 L470,85 L470,170 L427,170" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-query-page" d="M600,195 L427,195" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-query-badge" d="M600,230 L520,230 L520,370 L50,370 L50,212" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-card-query" d="M425,300 L540,300 L540,250 L598,250" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-context-card" d="M600,330 L427,330" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-page-url" d="M425,160 L460,160 L460,75 L598,75" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-one-request" x="742" y="140">TWO READERS, ONE REQUEST</text>
+        <text class="ghost-label" id="t-all-render" x="742" y="380">NEW VALUE: EVERY READER RENDERS</text>
+        <text class="ghost-label" id="t-stale-copy" x="230" y="395">COPY IN useState: STAYS OLD</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="filter" aria-pressed="true">Change a filter</button>
+        <button type="button" data-flow="add" aria-pressed="false">Add to cart updates the badge</button>
+        <button type="button" data-flow="shared" aria-pressed="false">Same data in two places</button>
+        <button type="button" data-flow="context" aria-pressed="false">A context value changes</button>
+        <button type="button" data-flow="copy" aria-pressed="false">Server data copied into state</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="filter" hidden>
+        <li data-highlight="n-page a-page-url n-url">The user picks "books" in the filters. The handler writes it to the URL: <code>?category=books&amp;page=1</code>. No <code>useState</code> holds it.</li>
+        <li data-highlight="n-url a-url-page n-page">The URL changed, so <code>ProductsPage</code> renders and reads the new filters from it.</li>
+        <li data-highlight="n-page a-query-page n-query">It asks the query cache for <code>["products", { category: "books", page: 1 }]</code>. That key is not cached yet, so the cache fetches it.</li>
+        <li data-highlight="n-query a-query-page n-page a-page-card n-card">The products arrive and the list renders. The previous key stays cached for a while.</li>
+        <li data-highlight="n-url n-page">The user presses Back. The URL returns to the old filters, and the old key is shown at once from the cache. A copied link opens the same filtered page.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="add" hidden>
+        <li data-highlight="n-card" data-show="s-badge-2">The user types 1 in a card's quantity input, which is local state, and clicks Add. The badge says 2 items.</li>
+        <li data-highlight="n-card a-card-query n-query" data-show="s-badge-2">The card runs a mutation: <code>POST /api/cart/items</code>. On success it calls <code>invalidateQueries({ queryKey: ["cart"] })</code>.</li>
+        <li data-highlight="n-query a-query-badge n-badge" data-show="s-badge-2">The cart query is marked stale. <code>CartBadge</code> reads it, so the cache refetches it.</li>
+        <li data-highlight="n-badge" data-show="s-badge-3">The badge shows 3 items. The card and the badge never passed anything to each other: both talk to the cache.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="shared" hidden>
+        <li data-highlight="n-badge a-query-badge n-query">The header's <code>CartBadge</code> calls <code>useCart()</code>, which is <code>useQuery({ queryKey: ["cart"] })</code>.</li>
+        <li data-highlight="n-page a-query-page n-query t-one-request">On the same page, a mini cart in <code>ProductsPage</code> also calls <code>useCart()</code>. Same key: the cache sends one request and gives both the result.</li>
+        <li data-highlight="n-query">For 30 seconds, the <code>staleTime</code>, other readers get the cached cart with no request.</li>
+        <li data-highlight="n-query n-badge n-page">With <code>useState</code> and an effect in each component, there would be two requests and two copies that can disagree.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="context" hidden>
+        <li data-highlight="n-app a-app-page n-page a-page-card n-card">The user provider passes <code>value={{ user, logout }}</code>. Components such as <code>ProductCard</code> read the user to show member prices.</li>
+        <li data-highlight="n-app">Something unrelated makes <code>App</code> render, for example a toast message in its state.</li>
+        <li data-highlight="n-context a-context-card n-card t-all-render">The provider creates a new value object. React compares it with <code>Object.is</code>, sees a change, and renders every component that reads the context.</li>
+        <li data-highlight="n-context">Memoize the value with <code>useMemo</code>, or let the React Compiler do it, and keep often-changing data out of context.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="copy" hidden>
+        <li data-highlight="n-card a-card-query n-query">An edit form loads a product with <code>useQuery</code> and puts it into <code>useState(product)</code> to edit it.</li>
+        <li data-highlight="n-card t-stale-copy"><code>useState</code> uses its argument only on the first render. When the query refetches newer data, the form keeps the first copy.</li>
+        <li data-highlight="n-query">The user saves and overwrites a change someone else made in between.</li>
+        <li data-highlight="n-card">Read from the query while showing data. If a form needs its own copy, render it with <code>key={product.updatedAt}</code> so new data creates a new form, and let the server reject old versions.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Components and context</span>
+      <span class="chip tone-teal">Local state</span>
+      <span class="chip tone-amber">URL</span>
+      <span class="chip tone-blue">Server state</span>
+      <span>Arrows from the right point to the components that read that state. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">shop-web/</div>
+      <button type="button" class="tree-row" data-file="src/App.tsx"><span class="path">├─ src/App.tsx</span><span class="chip tone-neutral">Setup</span></button>
+      <button type="button" class="tree-row" data-file="src/user/CurrentUserContext.tsx"><span class="path">├─ src/user/CurrentUserContext.tsx</span><span class="chip tone-neutral">Context</span></button>
+      <button type="button" class="tree-row" data-file="src/products/useProductFilters.ts"><span class="path">├─ src/products/useProductFilters.ts</span><span class="chip tone-amber">URL</span></button>
+      <button type="button" class="tree-row" data-file="src/queries.ts"><span class="path">├─ src/queries.ts</span><span class="chip tone-blue">Server state</span></button>
+      <button type="button" class="tree-row" data-file="src/products/ProductsPage.tsx"><span class="path">├─ src/products/ProductsPage.tsx</span><span class="chip tone-neutral">Page</span></button>
+      <button type="button" class="tree-row" data-file="src/products/ProductCard.tsx"><span class="path">├─ src/products/ProductCard.tsx</span><span class="chip tone-teal">Local state</span></button>
+      <button type="button" class="tree-row" data-file="src/layout/CartBadge.tsx"><span class="path">└─ src/layout/CartBadge.tsx</span><span class="chip tone-neutral">Header</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Everything renders on every change</strong><span>State placed low renders only the components that use it.</span></li>
+        <li><strong>Out-of-date server data</strong><span>A query cache refetches stale data and updates every reader.</span></li>
+        <li><strong>Links that lose the view</strong><span>Filters and pages in the URL survive reloads, Back and shared links.</span></li>
+        <li><strong>Props passed through many layers</strong><span>Context and the query cache reach distant components directly.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>More places to look</strong><span>A value can be in props, the URL, a context, the cache or a store.</span></li>
+        <li><strong>Cache rules to learn</strong><span>Query keys, stale time and invalidation decide when data refreshes.</span></li>
+        <li><strong>URL parsing</strong><span>URL values are strings and can be edited by hand, so they must be checked.</span></li>
+        <li><strong>Context renders</strong><span>A frequently changing context renders every reader.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-tsx">
+    <div class="file" data-lang="any" data-node="app">
+      <div class="file-head"><span class="chip tone-neutral">Setup</span><span class="name">src/App.tsx</span><span class="why">One <code>QueryClient</code> for the app. The caches' <code>onError</code> callbacks report every failed query and mutation once, with the first part of the key as its name, so components do not each log errors. <code>staleTime</code> of 30 seconds means data younger than that is used without a request.</span></div>
+<pre><code>import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Route, Routes } from "react-router";
+import { CartBadge } from "./layout/CartBadge";
+import { reportError } from "./monitoring";
+import { ProductsPage } from "./products/ProductsPage";
+import { CurrentUserProvider } from "./user/CurrentUserContext";
+
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) =&gt; reportError(error, { kind: "query", name: String(query.queryKey[0]) }),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) =&gt; reportError(error, { kind: "mutation", name: String(mutation.options.mutationKey?.[0]) }),
+  }),
+  defaultOptions: { queries: { staleTime: 30_000 } },
+});
+
+export function App() {
+  return (
+    &lt;QueryClientProvider client={queryClient}&gt;
+      &lt;CurrentUserProvider&gt;
+        &lt;BrowserRouter&gt;
+          &lt;header&gt;
+            &lt;CartBadge /&gt;
+          &lt;/header&gt;
+          &lt;Routes&gt;
+            &lt;Route path="/products" element={&lt;ProductsPage /&gt;} /&gt;
+          &lt;/Routes&gt;
+        &lt;/BrowserRouter&gt;
+      &lt;/CurrentUserProvider&gt;
+    &lt;/QueryClientProvider&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="context">
+      <div class="file-head"><span class="chip tone-neutral">Context</span><span class="name">src/user/CurrentUserContext.tsx</span><span class="why">The provider memoizes its value, so readers render only when the user changes, not every time the provider renders. The hook throws when used outside the provider, which finds setup mistakes at once. The user itself comes from a query, so it stays in the query cache.</span></div>
+<pre><code>import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { useCurrentUserQuery, type CurrentUser } from "../queries";
+
+type CurrentUserValue = { user: CurrentUser | null; isMember: boolean };
+
+const CurrentUserContext = createContext&lt;CurrentUserValue | null&gt;(null);
+
+export function CurrentUserProvider({ children }: { children: ReactNode }) {
+  const { data: user = null } = useCurrentUserQuery();
+  const value = useMemo(() =&gt; ({ user, isMember: user?.membership === "gold" }), [user]);
+  return &lt;CurrentUserContext value={value}&gt;{children}&lt;/CurrentUserContext&gt;;
+}
+
+export function useCurrentUser(): CurrentUserValue {
+  const value = useContext(CurrentUserContext);
+  if (!value) throw new Error("useCurrentUser must be used inside CurrentUserProvider.");
+  return value;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="page">
+      <div class="file-head"><span class="chip tone-neutral">Page</span><span class="name">src/products/ProductsPage.tsx</span><span class="why">The page holds no state for filters: it reads them from the URL and writes changes back to it. The products come from the query cache with the filters in the key. <code>placeholderData</code> keeps the old list visible while the next page loads.</span></div>
+<pre><code>import { keepPreviousData } from "@tanstack/react-query";
+import { useProducts } from "../queries";
+import { ProductCard } from "./ProductCard";
+import { useProductFilters } from "./useProductFilters";
+
+export function ProductsPage() {
+  const [filters, setFilters] = useProductFilters();
+  const { data: products = [], isPending, error } = useProducts(filters, { placeholderData: keepPreviousData });
+
+  return (
+    &lt;main&gt;
+      &lt;select value={filters.category} onChange={(event) =&gt; setFilters({ category: event.target.value, page: 1 })}&gt;
+        &lt;option value="all"&gt;All&lt;/option&gt;
+        &lt;option value="books"&gt;Books&lt;/option&gt;
+      &lt;/select&gt;
+      {error &amp;&amp; &lt;p role="alert"&gt;Products could not be loaded.&lt;/p&gt;}
+      {isPending ? &lt;p&gt;Loading...&lt;/p&gt; : products.map((product) =&gt; &lt;ProductCard key={product.id} product={product} /&gt;)}
+      &lt;button onClick={() =&gt; setFilters({ ...filters, page: filters.page + 1 })}&gt;Next page&lt;/button&gt;
+    &lt;/main&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="card">
+      <div class="file-head"><span class="chip tone-teal">Local state</span><span class="name">src/products/ProductCard.tsx</span><span class="why">The quantity input matters only inside this card, so it is local state. Adding to the cart is a mutation; the card does not know who shows the cart. <code>isPending</code> disables the button while the request runs, so a double click does not add twice.</span></div>
+<pre><code>import { useState } from "react";
+import { useAddToCart, type Product } from "../queries";
+import { useCurrentUser } from "../user/CurrentUserContext";
+
+export function ProductCard({ product }: { product: Product }) {
+  const [quantity, setQuantity] = useState(1);
+  const { isMember } = useCurrentUser();
+  const addToCart = useAddToCart();
+  const price = isMember ? product.memberPrice : product.price;
+
+  return (
+    &lt;article&gt;
+      &lt;h3&gt;{product.name}&lt;/h3&gt;
+      &lt;p&gt;{price.toFixed(2)}&lt;/p&gt;
+      &lt;input type="number" min={1} value={quantity} onChange={(event) =&gt; setQuantity(Number(event.target.value))} /&gt;
+      &lt;button disabled={addToCart.isPending} onClick={() =&gt; addToCart.mutate({ productId: product.id, quantity })}&gt;
+        Add to cart
+      &lt;/button&gt;
+    &lt;/article&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="badge">
+      <div class="file-head"><span class="chip tone-neutral">Header</span><span class="name">src/layout/CartBadge.tsx</span><span class="why">The badge sits in the header, far from the product cards. It reads the cart from the cache with the same key as every other cart reader, so it updates when the cart query is invalidated.</span></div>
+<pre><code>import { useCart } from "../queries";
+
+export function CartBadge() {
+  const { data: cart } = useCart();
+  const itemCount = cart?.items.reduce((total, item) =&gt; total + item.quantity, 0) ?? 0;
+  return &lt;a href="/cart"&gt;Cart ({itemCount})&lt;/a&gt;;
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="url">
+      <div class="file-head"><span class="chip tone-amber">URL</span><span class="name">src/products/useProductFilters.ts</span><span class="why">The filters are read from the URL and checked, because anyone can edit a URL: an unknown category becomes <code>"all"</code>, a bad page becomes 1. Writing them replaces the search parameters, which adds a history entry, so Back returns to the previous filters.</span></div>
+<pre><code>import { useSearchParams } from "react-router";
+
+export type ProductFilters = { category: string; page: number };
+
+const knownCategories = new Set(["all", "books", "games"]);
+
+export function useProductFilters(): [ProductFilters, (next: ProductFilters) =&gt; void] {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const category = searchParams.get("category") ?? "all";
+  const page = Number(searchParams.get("page"));
+  const filters = {
+    category: knownCategories.has(category) ? category : "all",
+    page: Number.isInteger(page) &amp;&amp; page &gt; 0 ? page : 1,
+  };
+
+  const setFilters = (next: ProductFilters) =&gt;
+    setSearchParams({ category: next.category, page: String(next.page) });
+
+  return [filters, setFilters];
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="query">
+      <div class="file-head"><span class="chip tone-blue">Server state</span><span class="name">src/queries.ts</span><span class="why">All server state in one file. Each query has a key: the same key means the same cached data. The filters are part of the products key, so each filter combination is cached on its own. After adding to the cart, invalidating <code>["cart"]</code> refetches the cart for every component that shows it.</span></div>
+<pre><code>import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
+import type { ProductFilters } from "./products/useProductFilters";
+
+export type Product = { id: string; name: string; price: number; memberPrice: number };
+export type Cart = { items: { productId: string; quantity: number }[] };
+export type CurrentUser = { id: string; name: string; membership: "basic" | "gold" };
+
+async function getJson&lt;T&gt;(path: string, init?: RequestInit): Promise&lt;T&gt; {
+  const response = await fetch(path, init);
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}, request ID ${response.headers.get("x-request-id")}.`);
+  }
+  return (await response.json()) as T;
+}
+
+export function useProducts(filters: ProductFilters, options?: Partial&lt;UseQueryOptions&lt;Product[]&gt;&gt;) {
+  return useQuery({
+    queryKey: ["products", filters],
+    queryFn: () =&gt; getJson&lt;Product[]&gt;(`/api/products?category=${filters.category}&amp;page=${filters.page}`),
+    ...options,
+  });
+}
+
+export function useCart() {
+  return useQuery({ queryKey: ["cart"], queryFn: () =&gt; getJson&lt;Cart&gt;("/api/cart") });
+}
+
+export function useCurrentUserQuery() {
+  return useQuery({ queryKey: ["current-user"], queryFn: () =&gt; getJson&lt;CurrentUser&gt;("/api/me"), staleTime: 5 * 60_000 });
+}
+
+export function useAddToCart() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["add-to-cart"],
+    mutationFn: (item: { productId: string; quantity: number }) =&gt;
+      getJson&lt;Cart&gt;("/api/cart/items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item) }),
+    onSuccess: () =&gt; queryClient.invalidateQueries({ queryKey: ["cart"] }),
+  });
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
