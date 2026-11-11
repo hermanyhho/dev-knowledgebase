@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>React Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">React</div>
+    <h1>React Overview</h1>
+    <p class="aka">A library that builds the page from components: functions that describe the screen for the current data. Examples use React 19.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>You write components that return JSX: a description of what the screen should show. When data changes, React calls the components again, compares the new description with the old one, and changes only the parts of the page that differ.</p>
+    <p>Three ideas cover most of daily React work: how a change becomes a new screen, how a component keeps state and talks to the outside world, and where each piece of state should live.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>Key idea</th><th>Common mistake</th></tr></thead>
+        <tbody>
+          <tr><td><a href="rendering/how-react-renders/">How React renders</a></td><td>A state change renders the component and everything below it. React compares by element type and <code>key</code>; same type and key keeps state.</td><td>List keys from the array index</td></tr>
+          <tr><td><a href="hooks/state-and-effects/">State and effects</a></td><td><code>useState</code> keeps values between renders. <code>useEffect</code> syncs with things outside React and cleans up after itself. Hooks are matched by call order.</td><td>Effects that only copy one state into another</td></tr>
+          <tr><td><a href="state/where-state-lives/">Where state lives</a></td><td>Local state in the component that uses it; shared state in the closest parent; filters in the URL; server data in a query cache such as TanStack Query.</td><td>Server data copied into <code>useState</code>, which goes out of date</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> keep rendering pure, compute what you can during render, and keep each piece of state in one place: as low in the tree as possible, as high as needed.</div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log</th></tr></thead>
+        <tbody>
+          <tr><td><code>createRoot</code> error options</td><td>Render errors with the component stack, page and release, sent to an error service</td></tr>
+          <tr><td>Query cache <code>onError</code></td><td>Failed server requests once, with the server's request ID</td></tr>
+          <tr><td>Event handlers</td><td>User actions you want to count. Not the component body: it runs more often than you expect.</td></tr>
+          <tr><td>Never</td><td>Form values, tokens, full props</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 280" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">State lives in a component, the URL or a query cache. A change renders components, React compares the result with the previous one and commits the differences to the page, then effects run.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-state" tabindex="0" role="button" aria-label="Show where state lives" data-title="Where state lives" data-node="state">
+          <rect class="shape tone-blue" x="20" y="40" width="220" height="200" rx="6"/>
+          <text class="t-name" x="130" y="70">State</text>
+          <text class="t-item" x="130" y="105">local: useState</text>
+          <text class="t-item" x="130" y="135">URL: ?category=books</text>
+          <text class="t-item" x="130" y="165">server: query cache</text>
+          <text class="t-item" x="130" y="195">rare, global: context</text>
+        </g>
+        <g class="node" id="n-render" tabindex="0" role="button" aria-label="Show a component" data-title="Render" data-node="render">
+          <rect class="shape tone-teal" x="290" y="40" width="190" height="80" rx="6"/>
+          <text class="t-name" x="385" y="70">Render</text>
+          <text class="t-kind" x="385" y="90">call components,</text>
+          <text class="t-kind" x="385" y="106">get JSX</text>
+        </g>
+        <g class="node" id="n-compare" tabindex="0" role="button" aria-label="Show keys" data-title="Compare and commit" data-node="compare">
+          <rect class="shape tone-teal" x="530" y="40" width="190" height="80" rx="6"/>
+          <text class="t-name" x="625" y="70">Compare, commit</text>
+          <text class="t-kind" x="625" y="90">by type and key,</text>
+          <text class="t-kind" x="625" y="106">change only differences</text>
+        </g>
+        <g class="node" id="n-effects" tabindex="0" role="button" aria-label="Show an effect" data-title="Effects" data-node="effects">
+          <rect class="shape tone-amber" x="530" y="160" width="190" height="80" rx="6"/>
+          <text class="t-name" x="625" y="190">Effects</text>
+          <text class="t-kind" x="625" y="210">after the screen updates</text>
+        </g>
+        <g id="p-screen">
+          <rect class="shape tone-neutral" x="760" y="40" width="140" height="80" rx="6"/>
+          <text class="t-name" x="830" y="76">Screen</text>
+          <text class="t-kind" x="830" y="94">the DOM</text>
+        </g>
+
+        <path class="flow" id="a-state-render" d="M240,80 L288,80" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-render-compare" d="M480,80 L528,80" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-compare-screen" d="M720,80 L758,80" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-compare-effects" d="M625,120 L625,158" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-effects-state" d="M530,200 L242,200" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="search" aria-pressed="true">Typing in a search box</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="search" hidden>
+        <li data-highlight="n-state">The user types. The input's handler sets the query state.</li>
+        <li data-highlight="n-state a-state-render n-render">React calls the search component again, with the new query.</li>
+        <li data-highlight="n-render a-render-compare n-compare a-compare-screen p-screen">React compares the new JSX with the old and changes only the input's value and the result count on the page.</li>
+        <li data-highlight="n-compare a-compare-effects n-effects">The effect that depends on the query runs: its cleanup cancels the old request, its setup starts a new one.</li>
+        <li data-highlight="n-effects a-effects-state n-state">The results arrive and are stored in state, which renders the list. With TanStack Query, the cache does this step for you.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-blue">State</span>
+      <span class="chip tone-teal">Render and commit</span>
+      <span class="chip tone-amber">Effects</span>
+      <span>Click a box to see a short example. Each topic's name in the first table links to its detail page.</span>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Updating the page by hand</strong><span>You describe the result; React changes the DOM.</span></li>
+        <li><strong>Screens out of step with data</strong><span>Every change produces the whole description again.</span></li>
+        <li><strong>Reusing UI</strong><span>Components and custom hooks package markup and logic together.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Extra renders</strong><span>A change high in the tree renders everything below it.</span></li>
+        <li><strong>Rules to learn</strong><span>Pure render, hook order, dependency arrays and keys.</span></li>
+        <li><strong>Many places for state</strong><span>Props, URL, context and caches each fit different data.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-tsx">
+    <div class="file" data-lang="any" data-node="state">
+      <div class="file-head"><span class="chip tone-blue">State</span><span class="name">ProductsPage.tsx</span><span class="why">The quantity is local state; the category comes from the URL; the products come from the query cache, keyed by the category. Each value lives in one place.</span></div>
+<pre><code>import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router";
+
+export function ProductsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const category = searchParams.get("category") ?? "all";
+  const [quantity, setQuantity] = useState(1);
+  const { data: products = [] } = useQuery({
+    queryKey: ["products", category],
+    queryFn: () =&gt; fetch(`/api/products?category=${category}`).then((response) =&gt; response.json()),
+  });
+
+  return (
+    &lt;main&gt;
+      &lt;button onClick={() =&gt; setSearchParams({ category: "books" })}&gt;Books&lt;/button&gt;
+      &lt;input type="number" value={quantity} onChange={(event) =&gt; setQuantity(Number(event.target.value))} /&gt;
+      &lt;p&gt;{products.length} products&lt;/p&gt;
+    &lt;/main&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="render">
+      <div class="file-head"><span class="chip tone-teal">Render</span><span class="name">Greeting.tsx</span><span class="why">A pure component: the same props give the same JSX, with no side effects. React may call it more often than you expect, and twice in Strict Mode.</span></div>
+<pre><code>export function Greeting({ name, unreadCount }: { name: string; unreadCount: number }) {
+  const message = unreadCount === 0 ? "No new messages" : `${unreadCount} new messages`;
+  return (
+    &lt;p&gt;
+      Hello {name}. {message}.
+    &lt;/p&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="compare">
+      <div class="file-head"><span class="chip tone-teal">Keys</span><span class="name">TodoList.tsx</span><span class="why">The <code>key</code> comes from the data, so React matches each row to the same item after a delete or a reorder, and each row keeps its own state.</span></div>
+<pre><code>type Todo = { id: string; title: string };
+
+export function TodoList({ todos }: { todos: Todo[] }) {
+  return (
+    &lt;ul&gt;
+      {todos.map((todo) =&gt; (
+        &lt;li key={todo.id}&gt;
+          {todo.title} &lt;input placeholder="note" /&gt;
+        &lt;/li&gt;
+      ))}
+    &lt;/ul&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="effects">
+      <div class="file-head"><span class="chip tone-amber">Effects</span><span class="name">useOnlineStatus.ts</span><span class="why">An effect for something outside React: the browser's online events. The setup subscribes, the cleanup unsubscribes, so no listener is left behind.</span></div>
+<pre><code>import { useEffect, useState } from "react";
+
+export function useOnlineStatus(): boolean {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() =&gt; {
+    const goOnline = () =&gt; setIsOnline(true);
+    const goOffline = () =&gt; setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () =&gt; {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  return isOnline;
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
+<script src="../assets/topic.js"></script>
+</body>
+</html>

@@ -20,6 +20,7 @@ react/<category>/<topic>/
 
 ## Topics
 
+- [React Overview](index.html) - start here
 - [How React Renders](rendering/how-react-renders/index.html) - rendering
 - [React State and Effects](hooks/state-and-effects/index.html) - hooks
 - [Where React State Lives](state/where-state-lives/index.html) - state

@@ -65,6 +65,7 @@ What each category covers: [react/README.md](react/README.md)
 
 | Topic | Category | Page | Source |
 |---|---|---|---|
+| React Overview | All | [open](https://hermanyhho.github.io/dev-knowledgebase/react/) | [index.html](react/index.html) |
 | How React Renders | Rendering | [open](https://hermanyhho.github.io/dev-knowledgebase/react/rendering/how-react-renders/) | [index.html](react/rendering/how-react-renders/index.html) |
 | React State and Effects | Hooks | [open](https://hermanyhho.github.io/dev-knowledgebase/react/hooks/state-and-effects/) | [index.html](react/hooks/state-and-effects/index.html) |
 | Where React State Lives | State | [open](https://hermanyhho.github.io/dev-knowledgebase/react/state/where-state-lives/) | [index.html](react/state/where-state-lives/index.html) |
