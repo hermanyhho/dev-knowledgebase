@@ -153,7 +153,7 @@ try { savedLanguage = localStorage.getItem(languageStorageKey); } catch {}
 setLanguage(savedLanguage === "cs" ? "cs" : "ts");
 
 const glossaryScriptUrl = new URL("glossary.js", document.currentScript.src);
-const glossaryExcludedAreas = "pre, svg, a, h1, h2, h3, button, .code-store, .flow-steps, .tree, .legend, .term, table.terms td:first-child";
+const glossaryExcludedAreas = "pre, svg, a, h1, h2, h3, button, .code-store, .flow-steps, .tree, .legend, .term";
 
 function escapeForPattern(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -161,12 +161,18 @@ function escapeForPattern(text) {
 
 function patternForTerm(glossaryTerm) {
   const isCaseSensitive = glossaryTerm.forms.some((form) => /[A-Z]/.test(form));
-  const alternatives = [...glossaryTerm.forms].sort((first, second) => second.length - first.length).map(escapeForPattern).join("|");
+  const alternatives = [...glossaryTerm.forms]
+    .sort((first, second) => second.length - first.length)
+    .map((form) => (/^\d+$/.test(form) ? `${form}(?=\\s[A-Z]|$)` : escapeForPattern(form)))
+    .join("|");
   return new RegExp(`(?<![\\w-])(?:${alternatives})(?![\\w-])`, isCaseSensitive ? "" : "i");
 }
 
-function isDefinedInTermsTable(pattern) {
-  return [...document.querySelectorAll("table.terms td:first-child")].some((cell) => pattern.test(cell.textContent));
+function isDefinedInTermsTable(glossaryTerm) {
+  const forms = glossaryTerm.forms.map((form) => form.toLowerCase());
+  const definitionTables = [...document.querySelectorAll("table.terms")].filter((table) => table.querySelector("th")?.textContent.trim() === "Term");
+  return definitionTables.some((table) =>
+    [...table.querySelectorAll("td:first-child")].some((cell) => forms.includes(cell.textContent.trim().toLowerCase())));
 }
 
 function createTermMark(glossaryTerm) {
@@ -178,9 +184,12 @@ function createTermMark(glossaryTerm) {
   return termMark;
 }
 
+const pageFolderName = location.pathname.split("/").filter((segment) => segment && !segment.endsWith(".html")).at(-1);
+
 function markFirstMention(glossaryTerm) {
+  if (glossaryTerm.onlyOn && !glossaryTerm.onlyOn.includes(pageFolderName)) return;
   const pattern = patternForTerm(glossaryTerm);
-  if (isDefinedInTermsTable(pattern)) return;
+  if (isDefinedInTermsTable(glossaryTerm)) return;
 
   const textWalker = document.createTreeWalker(document.querySelector("main"), NodeFilter.SHOW_TEXT);
   for (let textNode = textWalker.nextNode(); textNode; textNode = textWalker.nextNode()) {
@@ -263,5 +272,11 @@ window.addEventListener("scroll", () => {
 
 const glossaryScript = document.createElement("script");
 glossaryScript.src = glossaryScriptUrl;
-glossaryScript.onload = () => window.glossaryTerms.forEach(markFirstMention);
+function longestFormLength(glossaryTerm) {
+  return Math.max(...glossaryTerm.forms.map((form) => form.length));
+}
+
+glossaryScript.onload = () => {
+  [...window.glossaryTerms].sort((first, second) => longestFormLength(second) - longestFormLength(first)).forEach(markFirstMention);
+};
 document.body.append(glossaryScript);
