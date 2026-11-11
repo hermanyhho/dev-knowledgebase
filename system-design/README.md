@@ -4,6 +4,7 @@
 
 | Folder | Question it answers | Topics |
 |---|---|---|
+| `caching-and-load-balancing/` | How do I answer more requests faster? | caching, CDNs, load balancing (one overview page) |
 | `databases/` | How is data stored, found and kept correct when the data or the traffic grows? | indexes, transactions and isolation levels, replication, sharding, CAP |
 
 A folder is created when its first topic is added.
@@ -23,3 +24,4 @@ system-design/<category>/<topic>/
 - [Database Replication](databases/replication/index.html) - databases
 - [Sharding and Consistent Hashing](databases/sharding/index.html) - databases
 - [CAP and Consistency](databases/cap-and-consistency/index.html) - databases
+- [Caching, CDNs and Load Balancing](caching-and-load-balancing/index.html) - speed

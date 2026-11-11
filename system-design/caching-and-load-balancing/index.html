@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caching, CDNs and Load Balancing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../">System design</a> / Speed</div>
+    <h1>Caching, CDNs and Load Balancing</h1>
+    <p class="aka">Three ways to answer more requests faster: keep answers close, keep them in memory, and spread requests over several servers.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Most requests ask for the same data again and again, and each one costs a database query and a trip across the network. Speed comes from not doing that work twice, doing it closer to the user, and sharing it across servers.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Idea</th><th>Key point</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Caching</td><td>Keep the result of slow work, usually in memory or in Redis, and reuse it. The common pattern is cache-aside: read the cache, and on a miss read the database and store the result.</td><td>Cached data can be out of date. Deciding when to remove it is the hard part.</td></tr>
+          <tr><td>CDN</td><td>A network of servers in many cities that keep copies of files and responses close to users. Your server answers once; the CDN answers the rest.</td><td>Only for responses that are the same for many users; changes need a purge or short lifetimes</td></tr>
+          <tr><td>Load balancing</td><td>One address in front of several app servers. The load balancer sends each request to a healthy server.</td><td>Servers must not keep user data in their own memory, or the next request may land elsewhere</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> cache data that is read far more often than it changes, give every cache entry a lifetime, and keep app servers stateless so any of them can answer any request.</div>
+  </section>
+
+  <section>
+    <h2>Where caches sit</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Place</th><th>Example</th><th>Controlled by</th></tr></thead>
+        <tbody>
+          <tr><td>Browser</td><td>Images, scripts, API responses</td><td><code>Cache-Control</code> response header</td></tr>
+          <tr><td>CDN</td><td>Static files, public pages, public API responses</td><td><code>Cache-Control: public, s-maxage=...</code> and purges</td></tr>
+          <tr><td>App memory</td><td>Settings, small lookup tables</td><td>Code; lost on restart, one copy per server</td></tr>
+          <tr><td>Shared cache</td><td>Redis or Valkey: product details, sessions</td><td>Code; one copy shared by all servers</td></tr>
+          <tr><td>Database</td><td>Its own memory cache of table pages</td><td>The database</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Keeping a cache correct</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Problem</th><th>What happens</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>Stale data</td><td>The database changed, the cache still has the old value</td><td>Delete the key when you write, and set a lifetime (TTL) as a safety net</td></tr>
+          <tr><td>Stampede</td><td>A popular key expires and hundreds of requests query the database at once</td><td>Let one request refresh it while others wait, or refresh before it expires</td></tr>
+          <tr><td>Cache down</td><td>Every request goes to the database</td><td>Treat the cache as optional: on error, read the database and log a warning</td></tr>
+          <tr><td>Personal data in a shared cache</td><td>One user's response shown to another</td><td>Include the user in the key, or mark the response <code>Cache-Control: private</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Load balancing basics</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Choice</th><th>Options</th></tr></thead>
+        <tbody>
+          <tr><td>How to pick a server</td><td>Round robin; least connections, which suits requests of different lengths</td></tr>
+          <tr><td>Health</td><td>The balancer calls a health endpoint, such as <code>/health/ready</code>, and stops sending to servers that fail it</td></tr>
+          <tr><td>Layer</td><td>Layer 4 forwards TCP connections; layer 7 reads HTTP and can route by path or header</td></tr>
+          <tr><td>Sessions</td><td>Store them in a shared cache or a token, not in one server's memory. Sticky sessions work but make scaling uneven.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to watch</th></tr></thead>
+        <tbody>
+          <tr><td>Cache</td><td>Hit rate per key type. A drop means more database load. Log cache errors at warn, not each miss.</td></tr>
+          <tr><td>CDN</td><td>Hit rate and responses served from the origin. Pass the request ID from the CDN to your app in a header.</td></tr>
+          <tr><td>Load balancer</td><td>Requests and errors per server, unhealthy servers, and p95 latency</td></tr>
+          <tr><td>Access log</td><td>Which server answered each request, with the request ID, so one slow server can be found</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 300" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A user's request reaches a CDN, then a load balancer that picks one of several app servers. Each app server checks a shared cache before reading the database.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g id="p-user">
+          <rect class="shape tone-neutral" x="15" y="115" width="100" height="60" rx="6"/>
+          <text class="t-name" x="65" y="141">User</text>
+          <text class="t-kind" x="65" y="159">browser</text>
+        </g>
+        <g class="node" id="n-cdn" tabindex="0" role="button" aria-label="Show CDN cache headers" data-title="CDN: cache headers" data-node="cdn">
+          <rect class="shape tone-teal" x="145" y="110" width="140" height="70" rx="6"/>
+          <text class="t-name" x="215" y="138">CDN</text>
+          <text class="t-kind" x="215" y="156">copies near users</text>
+        </g>
+        <g class="node" id="n-lb" tabindex="0" role="button" aria-label="Show the health endpoint" data-title="Load balancer: health checks" data-node="lb">
+          <rect class="shape tone-blue" x="315" y="110" width="150" height="70" rx="6"/>
+          <text class="t-name" x="390" y="138">Load balancer</text>
+          <text class="t-kind" x="390" y="156">picks a healthy server</text>
+        </g>
+        <g class="node" id="n-app" tabindex="0" role="button" aria-label="Show cache-aside code" data-title="App server: cache-aside" data-node="app">
+          <rect class="shape tone-neutral" x="500" y="110" width="160" height="70" rx="6"/>
+          <text class="t-name" x="580" y="138">App server 1</text>
+          <text class="t-kind" x="580" y="156">cache first, then database</text>
+        </g>
+        <g id="p-app-2">
+          <rect class="shape tone-neutral" x="500" y="30" width="160" height="50" rx="6"/>
+          <text class="t-name" x="580" y="60">App server 2</text>
+        </g>
+        <g id="p-app-3">
+          <rect class="shape tone-neutral" x="500" y="210" width="160" height="50" rx="6"/>
+          <text class="t-name" x="580" y="240">App server 3</text>
+        </g>
+        <g class="node" id="n-cache" tabindex="0" role="button" aria-label="Show Redis commands" data-title="Shared cache: Redis" data-node="cache">
+          <rect class="shape tone-amber" x="700" y="50" width="200" height="70" rx="6"/>
+          <text class="t-name" x="800" y="78">Shared cache</text>
+          <text class="t-kind" x="800" y="96">Redis, keys with a TTL</text>
+        </g>
+        <g id="p-db">
+          <rect class="shape tone-neutral" x="700" y="170" width="200" height="70" rx="6"/>
+          <text class="t-name" x="800" y="198">Database</text>
+          <text class="t-kind" x="800" y="216">the real copy</text>
+        </g>
+
+        <path class="flow" id="a-user-cdn" d="M115,145 L143,145" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-cdn-lb" d="M285,145 L313,145" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-lb-app" d="M465,145 L498,145" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-lb-app2" d="M465,130 L498,60" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-lb-app3" d="M465,160 L498,235" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-cache" d="M660,130 L698,95" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-db" d="M660,160 L698,200" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-cdn-user" d="M145,170 L117,170" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-hit" x="215" y="200">CDN HIT: SERVER NOT CALLED</text>
+        <text class="ghost-label" id="t-down" x="580" y="285">FAILS HEALTH CHECK: SKIPPED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="miss" aria-pressed="true">Cache miss, then hit</button>
+        <button type="button" data-flow="cdn" aria-pressed="false">CDN answers</button>
+        <button type="button" data-flow="unhealthy" aria-pressed="false">A server fails</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="miss" hidden>
+        <li data-highlight="p-user a-user-cdn n-cdn a-cdn-lb n-lb a-lb-app n-app">A request for product 7 passes the CDN, which may not cache it, and the load balancer sends it to server 1.</li>
+        <li data-highlight="n-app a-app-cache n-cache">Server 1 reads <code>product:7</code> from Redis. It is not there: a miss.</li>
+        <li data-highlight="n-app a-app-db p-db a-app-cache n-cache">It reads the database and stores the result in Redis for 5 minutes.</li>
+        <li data-highlight="n-lb a-lb-app3 p-app-3 n-cache">The load balancer sends the next request to server 3. It finds <code>product:7</code> in the shared cache and skips the database.</li>
+        <li data-highlight="n-app n-cache">When the product is edited, the code deletes <code>product:7</code>, so the next read loads the new version.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="cdn" hidden>
+        <li data-highlight="p-user a-user-cdn n-cdn">A user in Oslo asks for the product image. The CDN's Oslo server has a copy.</li>
+        <li data-highlight="n-cdn a-cdn-user p-user t-hit">It answers in a few milliseconds. Your servers and database do no work.</li>
+        <li data-highlight="n-cdn a-cdn-lb n-lb a-lb-app n-app">On a miss, the CDN asks your server once, keeps the response for as long as <code>Cache-Control</code> allows, and answers the next users itself.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="unhealthy" hidden>
+        <li data-highlight="n-lb a-lb-app3 p-app-3">Server 3 loses its database connection. Its <code>/health/ready</code> endpoint starts returning 503.</li>
+        <li data-highlight="n-lb p-app-3 t-down">After a few failed checks, the load balancer stops sending requests to it.</li>
+        <li data-highlight="n-lb a-lb-app n-app a-lb-app2 p-app-2">Servers 1 and 2 take all requests. Users see no errors, because no server kept anything in its own memory that they needed.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">CDN</span>
+      <span class="chip tone-blue">Load balancer</span>
+      <span class="chip tone-amber">Shared cache</span>
+      <span class="chip tone-neutral">App and database</span>
+      <span>Click a box to see a short example.</span>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems these ideas solve</h2>
+      <ul>
+        <li><strong>Slow responses</strong><span>Memory and nearby copies answer in milliseconds.</span></li>
+        <li><strong>Database overload</strong><span>A cache takes most repeated reads.</span></li>
+        <li><strong>One server is not enough</strong><span>A load balancer spreads requests over many.</span></li>
+        <li><strong>A server fails</strong><span>Health checks move traffic to the others.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems they introduce</h2>
+      <ul>
+        <li><strong>Out-of-date answers</strong><span>Every cache layer can show old data until it expires or is cleared.</span></li>
+        <li><strong>More to run</strong><span>Redis, CDN settings and the load balancer are more parts to configure and watch.</span></li>
+        <li><strong>Stateless servers</strong><span>Sessions and uploads must move out of server memory and disk.</span></li>
+        <li><strong>Harder debugging</strong><span>The same request can be answered by a CDN, a cache or the database.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="app">
+      <div class="file-head"><span class="chip tone-neutral">App</span><span class="name">src/product-cache.ts</span><span class="why">Cache-aside with ioredis. A miss reads the database and stores the result for 5 minutes. If Redis fails, the request still works from the database, and a warning is logged with the request ID. Editing a product deletes its key.</span></div>
+<pre><code>import type { Redis } from "ioredis";
+import type { Logger } from "pino";
+import { loadProductFromDatabase, saveProductToDatabase, type Product } from "./products-db.js";
+
+const productTtlSeconds = 300;
+const productKey = (productId: string) =&gt; `product:${productId}`;
+
+export async function getProduct(redis: Redis, requestLogger: Logger, productId: string): Promise&lt;Product | null&gt; {
+  try {
+    const cached = await redis.get(productKey(productId));
+    if (cached) return JSON.parse(cached) as Product;
+  } catch (error) {
+    requestLogger.warn({ err: error, operation: "cache read" }, "cache unavailable, reading the database");
+  }
+
+  const product = await loadProductFromDatabase(productId);
+  if (product) {
+    await redis.set(productKey(productId), JSON.stringify(product), "EX", productTtlSeconds).catch(() =&gt; undefined);
+  }
+  return product;
+}
+
+export async function updateProduct(redis: Redis, product: Product): Promise&lt;void&gt; {
+  await saveProductToDatabase(product);
+  await redis.del(productKey(product.id));
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="lb">
+      <div class="file-head"><span class="chip tone-blue">Health</span><span class="name">src/health.ts</span><span class="why">The load balancer calls <code>/health/ready</code>. It answers 503 when the database cannot be reached, so the balancer stops sending requests here. <code>/health/live</code> only says the process runs.</span></div>
+<pre><code>import type { Express } from "express";
+import type { Pool } from "pg";
+
+export function addHealthRoutes(app: Express, database: Pool) {
+  app.get("/health/live", (_req, res) =&gt; res.send("ok"));
+
+  app.get("/health/ready", async (_req, res) =&gt; {
+    try {
+      await database.query("SELECT 1");
+      res.send("ready");
+    } catch {
+      res.status(503).send("database unreachable");
+    }
+  });
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="app">
+      <div class="file-head"><span class="chip tone-neutral">App</span><span class="name">ProductCache.cs</span><span class="why"><code>HybridCache</code> keeps a copy in memory and in Redis, and lets only one caller load a missing key while others wait, which prevents a stampede. Editing a product removes its key.</span></div>
+<pre><code>using Microsoft.Extensions.Caching.Hybrid;
+
+public sealed class ProductCache(HybridCache cache, ProductsDatabase database)
+{
+    private static readonly HybridCacheEntryOptions ProductEntry = new() { Expiration = TimeSpan.FromMinutes(5) };
+
+    public ValueTask&lt;Product?&gt; GetProductAsync(string productId, CancellationToken cancellationToken) =&gt;
+        cache.GetOrCreateAsync(
+            $"product:{productId}",
+            async token =&gt; await database.LoadProductAsync(productId, token),
+            ProductEntry,
+            cancellationToken: cancellationToken);
+
+    public async Task UpdateProductAsync(Product product, CancellationToken cancellationToken)
+    {
+        await database.SaveProductAsync(product, cancellationToken);
+        await cache.RemoveAsync($"product:{product.Id}", cancellationToken);
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="lb">
+      <div class="file-head"><span class="chip tone-blue">Health</span><span class="name">Program.cs</span><span class="why">The load balancer calls <code>/health/ready</code>, which runs the checks tagged <code>ready</code>, here the database. <code>AddNpgSql</code> comes from the <code>AspNetCore.HealthChecks.NpgSql</code> package. <code>/health/live</code> runs no checks. Redis is the second layer of <code>HybridCache</code>.</span></div>
+<pre><code>var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddStackExchangeRedisCache(options =&gt;
+    options.Configuration = builder.Configuration.GetConnectionString("Redis"));
+builder.Services.AddHybridCache();
+builder.Services.AddHealthChecks()
+    .AddNpgSql(builder.Configuration.GetConnectionString("Orders")!, tags: ["ready"]);
+
+var app = builder.Build();
+
+app.MapHealthChecks("/health/live", new() { Predicate = _ =&gt; false });
+app.MapHealthChecks("/health/ready", new() { Predicate = check =&gt; check.Tags.Contains("ready") });
+
+app.Run();</code></pre>
+    </div>
+  </div>
+
+  <div class="language-none">
+    <div class="file" data-lang="any" data-node="cdn">
+      <div class="file-head"><span class="chip tone-teal">CDN</span><span class="name">cache-headers.txt</span><span class="why">The response header decides who may cache it. <code>s-maxage</code> applies to shared caches such as a CDN, <code>max-age</code> to browsers. Files with a hash in the name never change, so they can be cached for a year. Personal pages are <code>private</code>.</span></div>
+<pre><code>GET /assets/app.3f9a1c.js
+Cache-Control: public, max-age=31536000, immutable
+
+GET /products/7
+Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=60
+
+GET /account
+Cache-Control: private, no-store</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cache">
+      <div class="file-head"><span class="chip tone-amber">Redis</span><span class="name">redis-cli.txt</span><span class="why">What the app does, typed by hand in <code>redis-cli</code>. <code>EX 300</code> sets a lifetime of 300 seconds. <code>TTL</code> shows the seconds left. <code>INFO stats</code> includes hit and miss counts for the hit rate.</span></div>
+<pre><code>&gt; SET product:7 '{"id":"7","name":"Desk lamp"}' EX 300
+OK
+&gt; GET product:7
+"{\"id\":\"7\",\"name\":\"Desk lamp\"}"
+&gt; TTL product:7
+(integer) 297
+&gt; DEL product:7
+(integer) 1
+&gt; INFO stats
+keyspace_hits:18234
+keyspace_misses:912</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="../../assets/topic.js"></script>
+</body>
+</html>

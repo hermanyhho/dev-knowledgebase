@@ -101,3 +101,4 @@ What each category covers: [system-design/README.md](system-design/README.md)
 | Database Replication | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/replication/) | [index.html](system-design/databases/replication/index.html) |
 | Sharding and Consistent Hashing | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/sharding/) | [index.html](system-design/databases/sharding/index.html) |
 | CAP and Consistency | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/cap-and-consistency/) | [index.html](system-design/databases/cap-and-consistency/index.html) |
+| Caching, CDNs and Load Balancing | Speed | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/caching-and-load-balancing/) | [index.html](system-design/caching-and-load-balancing/index.html) |

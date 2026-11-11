@@ -449,4 +449,12 @@ window.glossaryTerms = [
   { forms: ["Suspense"], definition: "A React component that shows a fallback while the components inside it are still loading, then replaces it with their content." },
   { forms: ["prerendered", "prerender"], definition: "Rendered at build time instead of when a request arrives, so the HTML can be sent at once." },
   { forms: ["serializable"], definition: "Data that can be turned into text and back without loss, such as strings, numbers, arrays and plain objects. Functions and class instances are not." },
+  { forms: ["Valkey"], definition: "An open-source fork of Redis, run by the Linux Foundation. It speaks the same protocol, so Redis clients work with it." },
+  { forms: ["TTL"], definition: "Time to live: how long a cache entry is kept before it is removed automatically." },
+  { forms: ["Layer 4"], definition: "The transport layer of the network model. A layer 4 load balancer forwards TCP connections without reading the HTTP inside them." },
+  { forms: ["layer 7", "Layer 7"], definition: "The application layer. A layer 7 load balancer reads HTTP, so it can route by path, host or header." },
+  { forms: ["Sticky sessions", "sticky sessions"], definition: "A load balancer setting that sends all requests from one user to the same server, usually by a cookie." },
+  { forms: ["Round robin", "round robin"], definition: "Sending requests to servers in turn: first, second, third, then the first again." },
+  { forms: ["cache-aside"], definition: "A caching pattern: the app reads the cache first, and on a miss reads the database and stores the result in the cache." },
+  { forms: ["Stampede", "stampede"], definition: "Many requests missing the cache at the same moment, usually when a popular key expires, and all hitting the database." },
 ];
