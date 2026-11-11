@@ -61,3 +61,11 @@ What each category covers: [infrastructure/README.md](infrastructure/README.md)
 |---|---|---|---|
 | Docker | Containers | [open](https://hermanyhho.github.io/dev-knowledgebase/infrastructure/containers/docker/) | [index.html](infrastructure/containers/docker/index.html) |
 | Kubernetes | Containers | [open](https://hermanyhho.github.io/dev-knowledgebase/infrastructure/containers/kubernetes/) | [index.html](infrastructure/containers/kubernetes/index.html) |
+
+## System Design
+
+What each category covers: [system-design/README.md](system-design/README.md)
+
+| Topic | Category | Page | Source |
+|---|---|---|---|
+| Database Indexes | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/indexes/) | [index.html](system-design/databases/indexes/index.html) |

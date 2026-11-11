@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Database Indexes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">System design</a> / Databases</div>
+    <h1>Database Indexes</h1>
+    <p class="aka">A sorted copy of chosen columns that lets the database find rows without reading the whole table. Examples use PostgreSQL 18.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Without an index, the database answers <code>WHERE customer_id = 'c-042'</code> by reading every row of the table and checking each one. With 2 million orders, that is about 40,000 pages of 8 KB.</p>
+    <p>An index is a separate structure that stores the values of chosen columns in sorted order. Next to each value it stores where the row is in the table. Because the values are sorted, the database finds a value in a few steps, the same way you find a word in a dictionary, and then reads only the matching rows.</p>
+    <p>The cost: every insert, update and delete must also change every index on the table.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-blue">Index</span></td><td>A separate structure with chosen column values in sorted order, each with the location of its row.</td><td><code>orders_customer_created_idx</code></td></tr>
+          <tr><td><span class="chip tone-blue">B-tree</span></td><td>The default index type. A tree of 8 KB pages: one root page, branch pages, and leaf pages that hold the sorted values.</td><td>3 levels for 2 million rows</td></tr>
+          <tr><td><span class="chip tone-amber">Heap</span></td><td>How PostgreSQL stores a table: rows in 8 KB pages, in no particular order.</td><td>The <code>orders</code> table</td></tr>
+          <tr><td><span class="chip tone-amber">Row location (ctid)</span></td><td>The page number and position of a row in the heap. Each index entry stores one.</td><td><code>(2,4)</code>: page 2, row 4</td></tr>
+          <tr><td><span class="chip tone-teal">Query planner</span></td><td>The part of the database that decides how to run a query, using statistics about the table.</td><td><code>EXPLAIN</code> shows its choice</td></tr>
+          <tr><td><span class="chip tone-neutral">Sequential scan</span></td><td>Reading every page of the table and checking each row.</td><td><code>Seq Scan on orders</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Index scan</span></td><td>Finding the matching values in the index, then reading only those rows from the heap.</td><td><code>Index Scan using ...</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Index-only scan</span></td><td>Answering from the index alone, without reading the heap.</td><td><code>Index Only Scan using ...</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Selectivity</span></td><td>The share of rows a condition matches. An index helps most when the share is small.</td><td>20 of 2 million rows</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> create indexes for the queries you run often, matching their <code>WHERE</code>, <code>JOIN</code> and <code>ORDER BY</code> columns. Every index slows down writes and uses disk, so check with <code>EXPLAIN</code> before and after.</div>
+  </section>
+
+  <section>
+    <h2>How one lookup works</h2>
+    <p>The query: the 20 newest orders of customer <code>c-042</code>, in a table of 2 million orders, with an index on <code>(customer_id, created_at)</code>.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What PostgreSQL does</th><th>Pages read</th></tr></thead>
+        <tbody>
+          <tr><td>1. Plan</td><td>The planner estimates that about 100 rows match and picks an index scan.</td><td>0</td></tr>
+          <tr><td>2. Root page</td><td>Compares <code>c-042</code> with the separator values and follows the pointer to the right branch page.</td><td>1</td></tr>
+          <tr><td>3. Branch page</td><td>Does the same and follows the pointer to the right leaf page.</td><td>1</td></tr>
+          <tr><td>4. Leaf page</td><td>The entries for <code>c-042</code> are next to each other, sorted by <code>created_at</code>. It reads them from the newest end.</td><td>1-2</td></tr>
+          <tr><td>5. Heap</td><td>Reads each of the 20 rows from its page, using the row location.</td><td>up to 20</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>About 24 pages instead of 40,000. The tree grows slowly: each page holds hundreds of entries, so 3 or 4 levels cover hundreds of millions of rows.</p>
+  </section>
+
+  <section>
+    <h2>Column order in a multicolumn index</h2>
+    <p>An index on <code>(customer_id, created_at)</code> is sorted by <code>customer_id</code> first. Inside each customer, entries are sorted by <code>created_at</code>.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Query</th><th>Uses the index?</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>WHERE customer_id = $1</code></td><td>Yes</td><td>It is the first column.</td></tr>
+          <tr><td><code>WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 20</code></td><td>Yes, with no sort step</td><td>One customer's entries are already sorted by date. PostgreSQL reads the index backwards and stops after 20.</td></tr>
+          <tr><td><code>WHERE customer_id = $1 AND created_at &gt;= $2</code></td><td>Yes, both columns</td><td>An equal value on the first column, then a range on the second.</td></tr>
+          <tr><td><code>WHERE customer_id = $1 AND status = 'pending'</code></td><td>Partly</td><td>The index finds the customer. Each of those rows is then checked for <code>status</code>.</td></tr>
+          <tr><td><code>WHERE created_at &gt;= $1</code></td><td>Usually no</td><td>One day's orders are spread across every customer in the index. PostgreSQL 18 can use a skip scan when the first column has few distinct values, which is not the case for customers.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Order the columns:</strong> columns compared with <code>=</code> first, then the column used for a range or for sorting.</div>
+  </section>
+
+  <section>
+    <h2>When the planner does not use an index</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Query</th><th>Why the index is not used</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td><code>WHERE lower(email) = $1</code>, index on <code>email</code></td><td>The index stores <code>email</code>, not <code>lower(email)</code>.</td><td>An index on the expression: <code>(lower(email))</code></td></tr>
+          <tr><td><code>WHERE created_at::date = '2026-11-10'</code></td><td>The cast turns the column into an expression.</td><td><code>WHERE created_at &gt;= '2026-11-10' AND created_at &lt; '2026-11-11'</code></td></tr>
+          <tr><td><code>WHERE name LIKE '%son'</code></td><td>A value that starts with a wildcard has no place in sorted order.</td><td>A trigram index: <code>pg_trgm</code> with GIN</td></tr>
+          <tr><td><code>WHERE status = 'paid'</code>, and 95% of rows are paid</td><td>Reading almost every row through the index is slower than reading the table in order.</td><td>None needed. For the rare values, a partial index.</td></tr>
+          <tr><td>Right after loading a million rows</td><td>The statistics still describe the old table, so the estimates are wrong.</td><td>Run <code>ANALYZE orders</code>. Autovacuum runs it later on its own.</td></tr>
+          <tr><td>A table with a few hundred rows</td><td>Reading a few pages in order is faster.</td><td>None needed.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Index types in PostgreSQL</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Type</th><th>Use it for</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>B-tree</td><td>The default. <code>=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>BETWEEN</code>, <code>ORDER BY</code>, <code>IS NULL</code>.</td><td><code>(customer_id, created_at)</code></td></tr>
+          <tr><td>Unique</td><td>A B-tree that also rejects a second row with the same value.</td><td><code>UNIQUE (email)</code></td></tr>
+          <tr><td>Partial</td><td>Only the rows that match a condition. Smaller and cheaper to keep up to date.</td><td><code>WHERE status = 'pending'</code></td></tr>
+          <tr><td>Covering</td><td>Extra columns stored in the leaf entries with <code>INCLUDE</code>, so a query can skip the heap.</td><td><code>INCLUDE (total)</code></td></tr>
+          <tr><td>GIN</td><td>Values that contain many items: <code>jsonb</code>, arrays, full-text search.</td><td><code>tags @&gt; '{gift}'</code></td></tr>
+          <tr><td>GiST</td><td>Ranges and shapes: overlap and nearest-match queries.</td><td>Room bookings that must not overlap</td></tr>
+          <tr><td>BRIN</td><td>Very large tables where row order follows a column. Stores one summary per group of pages, so it is very small.</td><td><code>created_at</code> on an event log that only grows</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What each index costs</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Cost</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Slower writes</td><td>An insert writes the row and one entry in every index. A table with 6 indexes does 7 writes per insert.</td></tr>
+          <tr><td>Fewer HOT updates</td><td>PostgreSQL can update a row without touching its indexes (a HOT update) only when no indexed column changes. Indexing a column that changes often removes this.</td></tr>
+          <tr><td>Disk and memory</td><td>Indexes take disk space and share the database's memory cache with the table pages.</td></tr>
+          <tr><td>Random keys</td><td>Random UUIDs (version 4) are inserted at random places in the index, so many pages change. <code>uuidv7()</code>, new in PostgreSQL 18, is ordered by time, so new keys go to the end.</td></tr>
+          <tr><td>Locks while building</td><td><code>CREATE INDEX</code> blocks writes until it finishes. <code>CREATE INDEX CONCURRENTLY</code> does not, but takes longer and cannot run inside a transaction.</td></tr>
+          <tr><td>No automatic indexes on foreign keys</td><td>PostgreSQL indexes primary keys and unique constraints only. Add indexes on foreign key columns you join or delete by.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How PostgreSQL, SQL Server and MySQL differ</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>PostgreSQL</th><th>SQL Server</th><th>MySQL (InnoDB)</th></tr></thead>
+        <tbody>
+          <tr><td>How the table is stored</td><td>A heap, in no order</td><td>Usually a clustered index: the table itself is a B-tree sorted by primary key</td><td>Always a clustered index on the primary key</td></tr>
+          <tr><td>What other indexes point to</td><td>The row location</td><td>The clustered key</td><td>The primary key value</td></tr>
+          <tr><td>Extra columns in an index</td><td><code>INCLUDE</code></td><td><code>INCLUDE</code></td><td>Add them to the key columns</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>App, each query over 200 ms</td><td>Query name, duration, row count and the request ID. Not the parameter values: they can hold personal data.</td><td>warn</td></tr>
+          <tr><td>PostgreSQL slow query log</td><td><code>log_min_duration_statement = 500ms</code>. Set <code>log_parameter_max_length = 0</code> so values are not written to the log.</td><td></td></tr>
+          <tr><td><code>auto_explain</code></td><td>The plan of each slow query, which shows whether an index was used.</td><td></td></tr>
+          <tr><td><code>pg_stat_statements</code></td><td>Total time per query. A 5 ms query that runs a million times costs more than a rare 2 s query.</td><td>Review the top 10 each week</td></tr>
+          <tr><td><code>pg_stat_user_indexes</code></td><td>Indexes with <code>idx_scan = 0</code> are candidates to drop. Counters are per server, so check replicas too.</td><td></td></tr>
+          <tr><td>Matching app and database logs</td><td>Add the request ID as a SQL comment, as sqlcommenter does. <code>pg_stat_statements</code> ignores comments when it groups queries.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 470" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A query goes to the query planner. The planner either walks the B-tree index from the root page through a branch page to a leaf page and then reads only the matching heap pages, or reads every heap page in a sequential scan. Slow queries are written to the slow query log.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="265" y="15" width="645" height="270" rx="10"/>
+        <text class="t-label" x="587" y="34">INDEX orders_customer_created_idx</text>
+        <rect class="frame" x="265" y="305" width="645" height="155" rx="10"/>
+        <text class="t-label" x="587" y="324">TABLE orders: HEAP PAGES OF 8 KB</text>
+
+        <g class="node" id="n-query" tabindex="0" role="button" aria-label="Show the repository code" data-title="Query: the repository code" data-node="query">
+          <rect class="shape tone-neutral" x="20" y="40" width="220" height="70" rx="6"/>
+          <text class="t-name" x="130" y="66">Query</text>
+          <text class="t-kind" x="130" y="84">orders of customer c-042</text>
+          <text class="t-kind" x="130" y="100">newest 20 first</text>
+        </g>
+        <g class="node" id="n-planner" tabindex="0" role="button" aria-label="Show EXPLAIN before and after the index" data-title="Query planner: EXPLAIN" data-node="planner">
+          <rect class="shape tone-teal" x="20" y="170" width="220" height="70" rx="6"/>
+          <text class="t-name" x="130" y="196">Query planner</text>
+          <text class="t-kind" x="130" y="214">picks an index scan</text>
+          <text class="t-kind" x="130" y="230">or a sequential scan</text>
+        </g>
+        <g class="node" id="n-log" tabindex="0" role="button" aria-label="Show slow query logging" data-title="Slow query log" data-node="log">
+          <rect class="shape tone-neutral" x="20" y="375" width="220" height="70" rx="6"/>
+          <text class="t-name" x="130" y="401">Slow query log</text>
+          <text class="t-kind" x="130" y="419">app: over 200 ms</text>
+          <text class="t-kind" x="130" y="435">PostgreSQL: over 500 ms</text>
+        </g>
+
+        <g class="node" id="n-root" tabindex="0" role="button" aria-label="Show how the index is created" data-title="Root page: creating the index" data-node="root">
+          <rect class="shape tone-blue" x="495" y="50" width="180" height="50" rx="6"/>
+          <text class="t-name" x="585" y="71">Root page</text>
+          <text class="t-item" x="585" y="89">c-300 | c-600</text>
+        </g>
+        <g class="node" id="n-branch" tabindex="0" role="button" aria-label="Show index size and depth" data-title="Branch pages: size and depth" data-node="branch">
+          <rect class="shape tone-blue" x="290" y="125" width="180" height="45" rx="6"/>
+          <text class="t-item" x="380" y="145">branch</text>
+          <text class="t-item" x="380" y="161">c-001 .. c-299</text>
+        </g>
+        <g id="p-branch2">
+          <rect class="shape tone-blue" x="495" y="125" width="180" height="45" rx="6"/>
+          <text class="t-item" x="585" y="145">branch</text>
+          <text class="t-item" x="585" y="161">c-300 .. c-599</text>
+        </g>
+        <g id="p-branch3">
+          <rect class="shape tone-blue" x="700" y="125" width="190" height="45" rx="6"/>
+          <text class="t-item" x="795" y="145">branch</text>
+          <text class="t-item" x="795" y="161">c-600 .. c-999</text>
+        </g>
+        <g class="node" id="n-leaf" tabindex="0" role="button" aria-label="Show a covering index and an index-only scan" data-title="Leaf pages: covering index" data-node="leaf">
+          <rect class="shape tone-blue" x="290" y="200" width="145" height="70" rx="6"/>
+          <text class="t-item" x="362" y="220">c-041 11-02 (3,1)</text>
+          <text class="t-item" x="362" y="238">c-042 11-08 (0,7)</text>
+          <text class="t-item" x="362" y="256">c-042 11-10 (2,4)</text>
+        </g>
+        <g id="p-leaf2">
+          <rect class="shape tone-blue" x="445" y="200" width="145" height="70" rx="6"/>
+          <text class="t-item" x="517" y="220">c-043 10-30 (1,2)</text>
+          <text class="t-item" x="517" y="238">c-043 11-04 (3,5)</text>
+          <text class="t-item" x="517" y="256">c-044 11-01 (0,3)</text>
+        </g>
+        <g id="p-leaf3">
+          <rect class="shape tone-blue" x="600" y="200" width="145" height="70" rx="6"/>
+          <text class="t-item" x="672" y="238">...</text>
+        </g>
+        <g id="p-leaf4">
+          <rect class="shape tone-blue" x="755" y="200" width="135" height="70" rx="6"/>
+          <text class="t-item" x="822" y="238">...</text>
+        </g>
+        <g id="p-heap0">
+          <rect class="shape tone-amber" x="290" y="335" width="145" height="110" rx="6"/>
+          <text class="t-name" x="362" y="356">page 0</text>
+          <text class="t-item" x="362" y="376">(0,3) c-044</text>
+          <text class="t-item" x="362" y="394">(0,7) c-042</text>
+        </g>
+        <g id="p-heap1">
+          <rect class="shape tone-amber" x="445" y="335" width="145" height="110" rx="6"/>
+          <text class="t-name" x="517" y="356">page 1</text>
+          <text class="t-item" x="517" y="376">(1,2) c-043</text>
+          <text class="t-item" x="517" y="394">(1,6) c-517</text>
+        </g>
+        <g class="node" id="n-heap" tabindex="0" role="button" aria-label="Show the table and row locations" data-title="Heap: the orders table" data-node="heap">
+          <rect class="shape tone-amber" x="600" y="335" width="145" height="110" rx="6"/>
+          <text class="t-name" x="672" y="356">page 2</text>
+          <text class="t-item" x="672" y="376">(2,4) c-042</text>
+          <text class="t-item" x="672" y="394">(2,5) c-871</text>
+        </g>
+        <g id="p-heap3">
+          <rect class="shape tone-amber" x="755" y="335" width="135" height="110" rx="6"/>
+          <text class="t-name" x="822" y="356">page 3</text>
+          <text class="t-item" x="822" y="376">(3,1) c-041</text>
+          <text class="t-item" x="822" y="394">(3,5) c-043</text>
+        </g>
+
+        <path class="flow" id="a-query-planner" d="M130,110 L130,168" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-planner-root" d="M240,190 L278,190 L278,75 L493,75" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-root-branch" d="M560,100 L400,123" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-branch-leaf" d="M380,170 L366,198" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-leaf-heap0" d="M340,270 L340,333" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-leaf-heap2" d="M400,270 L400,294 L730,294 L730,333" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-planner-seq" d="M200,240 L200,300 L252,300 L252,415 L288,415" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-seq-across" d="M300,432 L885,432" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-leaf-planner" d="M288,236 L242,222" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-planner-log" d="M80,240 L80,373" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-seq" x="587" y="424">READS ALL 40,000 PAGES</text>
+        <text class="ghost-label" id="t-split" x="540" y="192">LEAF FULL: SPLIT IN TWO</text>
+        <text class="ghost-label" id="t-skip-heap" x="587" y="299">HEAP NOT READ</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="index-scan" aria-pressed="true">Find one customer's newest orders</button>
+        <button type="button" data-flow="seq-scan" aria-pressed="false">Filter on a column with no index</button>
+        <button type="button" data-flow="index-only" aria-pressed="false">Read only indexed columns</button>
+        <button type="button" data-flow="insert" aria-pressed="false">Insert a new order</button>
+        <button type="button" data-flow="slow-query" aria-pressed="false">Find and fix a slow query</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="index-scan" hidden>
+        <li data-highlight="n-query a-query-planner n-planner">The app runs <code>SELECT ... WHERE customer_id = 'c-042' ORDER BY created_at DESC LIMIT 20</code>.</li>
+        <li data-highlight="n-planner">The planner's statistics say about 100 of 2 million rows match. It picks an index scan on <code>orders_customer_created_idx</code>.</li>
+        <li data-highlight="n-planner a-planner-root n-root">PostgreSQL reads the root page. <code>c-042</code> sorts before <code>c-300</code>, so it follows the first pointer.</li>
+        <li data-highlight="n-root a-root-branch n-branch">The branch page for <code>c-001 .. c-299</code> points to the leaf page that holds <code>c-042</code>.</li>
+        <li data-highlight="n-branch a-branch-leaf n-leaf">In the leaf page, the entries for <code>c-042</code> sit next to each other, sorted by date. PostgreSQL reads them from the newest one backwards.</li>
+        <li data-highlight="n-leaf a-leaf-heap2 a-leaf-heap0 n-heap p-heap0">Each entry holds a row location. PostgreSQL reads page 2 for row <code>(2,4)</code> and page 0 for row <code>(0,7)</code>. About 24 pages in total.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="seq-scan" hidden>
+        <li data-highlight="n-query a-query-planner n-planner">The app runs <code>SELECT ... WHERE total &gt; 1000</code>. No index starts with <code>total</code>.</li>
+        <li data-highlight="n-planner">The planner has no index to use, so it plans a sequential scan, split across 2 parallel workers.</li>
+        <li data-highlight="n-planner a-planner-seq p-heap0 p-heap1 n-heap p-heap3 a-seq-across t-seq">PostgreSQL reads every heap page and checks <code>total</code> on every row. With 2 million rows this takes about 100 ms.</li>
+        <li data-highlight="n-planner a-planner-log n-log">If the query runs often, the slow query log and <code>pg_stat_statements</code> show it. An index on <code>total</code> only helps if few orders are over 1000.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="index-only" hidden>
+        <li data-highlight="n-query a-query-planner n-planner">The app needs only <code>created_at</code> and <code>total</code>. The index was created with <code>INCLUDE (total)</code>, so its leaf entries hold both.</li>
+        <li data-highlight="n-planner a-planner-root n-root a-root-branch n-branch a-branch-leaf n-leaf">PostgreSQL walks from the root page to the leaf page, as in the first flow.</li>
+        <li data-highlight="n-leaf a-leaf-planner n-planner t-skip-heap">The leaf entries already hold every column the query needs. If <code>VACUUM</code> has marked those heap pages as all-visible, PostgreSQL does not read the heap at all.</li>
+        <li data-highlight="n-planner">The plan shows <code>Index Only Scan</code> and <code>Heap Fetches: 0</code>. On a table with many recent changes, the heap fetches grow until the next <code>VACUUM</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="insert" hidden>
+        <li data-highlight="n-query a-query-planner n-planner">The app inserts an order for <code>c-042</code>.</li>
+        <li data-highlight="p-heap3">PostgreSQL writes the row into a heap page with free space, for example page 3. It gets a new row location.</li>
+        <li data-highlight="n-root a-root-branch n-branch a-branch-leaf n-leaf">PostgreSQL walks the index to the leaf page for <code>c-042</code> and adds an entry with the new date and row location, in sorted position.</li>
+        <li data-highlight="n-leaf t-split">If the leaf page is full, PostgreSQL splits it into two pages and adds a pointer to the branch page. This is extra work on the write.</li>
+        <li data-highlight="n-leaf n-branch n-root">The same happens in every other index on <code>orders</code>, including the primary key. Each index makes every insert slower.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="slow-query" hidden>
+        <li data-highlight="n-query a-query-planner n-planner a-planner-log n-log">Before the index exists, the query takes about 100 ms. The app logs <code>slow query</code> with the query name, duration and request ID.</li>
+        <li data-highlight="n-log">You find the query in <code>pg_stat_statements</code> by total time, then run <code>EXPLAIN (ANALYZE)</code>. The plan shows <code>Seq Scan</code> and <code>Rows Removed by Filter: 1999904</code>.</li>
+        <li data-highlight="n-root">You add the index with <code>CREATE INDEX CONCURRENTLY</code>, so writes to <code>orders</code> continue while it builds.</li>
+        <li data-highlight="n-planner a-planner-root n-root a-root-branch n-branch a-branch-leaf n-leaf a-leaf-heap2 n-heap a-leaf-heap0 p-heap0">You run <code>EXPLAIN (ANALYZE)</code> again. The plan shows <code>Index Scan Backward</code> and the query takes under 1 ms.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">App</span>
+      <span class="chip tone-teal">Planner</span>
+      <span class="chip tone-blue">Index pages</span>
+      <span class="chip tone-amber">Table pages</span>
+      <span>A leaf entry such as <code>c-042 11-10 (2,4)</code> means: customer c-042, created on 10 November, row 4 on heap page 2. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop-api/</div>
+      <button type="button" class="tree-row" data-file="src/orders-repository.ts"><span class="path">├─ src/orders-repository.ts</span><span class="chip tone-neutral">Query</span></button>
+      <button type="button" class="tree-row" data-file="src/timed-query.ts"><span class="path">├─ src/timed-query.ts</span><span class="chip tone-neutral">Logging</span></button>
+      <button type="button" class="tree-row" data-file="db/schema.sql"><span class="path">├─ db/schema.sql</span><span class="chip tone-amber">Table</span></button>
+      <button type="button" class="tree-row" data-file="db/migrations/0042-add-orders-customer-index.sql"><span class="path">├─ db/migrations/0042-add-orders-customer-index.sql</span><span class="chip tone-blue">Index</span></button>
+      <button type="button" class="tree-row" data-file="db/more-index-examples.sql"><span class="path">├─ db/more-index-examples.sql</span><span class="chip tone-blue">Index</span></button>
+      <button type="button" class="tree-row" data-file="db/covering-index.sql"><span class="path">├─ db/covering-index.sql</span><span class="chip tone-blue">Index</span></button>
+      <button type="button" class="tree-row" data-file="db/index-size-and-depth.sql"><span class="path">├─ db/index-size-and-depth.sql</span><span class="chip tone-blue">Index</span></button>
+      <button type="button" class="tree-row" data-file="db/explain-recent-orders.sql"><span class="path">├─ db/explain-recent-orders.sql</span><span class="chip tone-teal">Planner</span></button>
+      <button type="button" class="tree-row" data-file="db/explain-output.txt"><span class="path">├─ db/explain-output.txt</span><span class="chip tone-teal">Planner</span></button>
+      <button type="button" class="tree-row" data-file="db/postgresql.conf"><span class="path">├─ db/postgresql.conf</span><span class="chip tone-neutral">Logging</span></button>
+      <button type="button" class="tree-row" data-file="db/find-slow-and-unused.sql"><span class="path">└─ db/find-slow-and-unused.sql</span><span class="chip tone-neutral">Logging</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">ShopApi/</div>
+      <button type="button" class="tree-row" data-file="OrdersRepository.cs"><span class="path">├─ OrdersRepository.cs</span><span class="chip tone-neutral">Query</span></button>
+      <button type="button" class="tree-row" data-file="SlowQueryLog.cs"><span class="path">├─ SlowQueryLog.cs</span><span class="chip tone-neutral">Logging</span></button>
+      <button type="button" class="tree-row" data-file="db/schema.sql"><span class="path">├─ db/schema.sql</span><span class="chip tone-amber">Table</span></button>
+      <button type="button" class="tree-row" data-file="db/migrations/0042-add-orders-customer-index.sql"><span class="path">├─ db/migrations/0042-add-orders-customer-index.sql</span><span class="chip tone-blue">Index</span></button>
+      <button type="button" class="tree-row" data-file="db/more-index-examples.sql"><span class="path">├─ db/more-index-examples.sql</span><span class="chip tone-blue">Index</span></button>
+      <button type="button" class="tree-row" data-file="db/covering-index.sql"><span class="path">├─ db/covering-index.sql</span><span class="chip tone-blue">Index</span></button>
+      <button type="button" class="tree-row" data-file="db/index-size-and-depth.sql"><span class="path">├─ db/index-size-and-depth.sql</span><span class="chip tone-blue">Index</span></button>
+      <button type="button" class="tree-row" data-file="db/explain-recent-orders.sql"><span class="path">├─ db/explain-recent-orders.sql</span><span class="chip tone-teal">Planner</span></button>
+      <button type="button" class="tree-row" data-file="db/explain-output.txt"><span class="path">├─ db/explain-output.txt</span><span class="chip tone-teal">Planner</span></button>
+      <button type="button" class="tree-row" data-file="db/postgresql.conf"><span class="path">├─ db/postgresql.conf</span><span class="chip tone-neutral">Logging</span></button>
+      <button type="button" class="tree-row" data-file="db/find-slow-and-unused.sql"><span class="path">└─ db/find-slow-and-unused.sql</span><span class="chip tone-neutral">Logging</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Slow reads on large tables</strong><span>A lookup reads about 24 pages instead of 40,000, and the gap grows with the table.</span></li>
+        <li><strong>Sorting large results</strong><span>Rows come out of the index already in order, so <code>ORDER BY ... LIMIT</code> stops early.</span></li>
+        <li><strong>Duplicate values</strong><span>A unique index rejects a second row with the same email or order number.</span></li>
+        <li><strong>Slow joins</strong><span>An index on the join column finds the matching rows in the other table directly.</span></li>
+        <li><strong>Database load</strong><span>Less disk reading and CPU per query, so one server handles more queries.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Slower writes</strong><span>Every insert, and every update of an indexed column, changes every index.</span></li>
+        <li><strong>Disk and memory</strong><span>Indexes can together be larger than the table, and they compete for the cache.</span></li>
+        <li><strong>Indexes that are never used</strong><span>A wrong column order or a function on the column means the planner ignores the index, but writes still pay for it.</span></li>
+        <li><strong>Locks on live tables</strong><span>A plain <code>CREATE INDEX</code> blocks writes. The concurrent version needs extra care in migrations.</span></li>
+        <li><strong>Plans that change</strong><span>The planner decides from statistics, so the same query can switch plans when the data grows.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="query">
+      <div class="file-head"><span class="chip tone-neutral">Query</span><span class="name">src/orders-repository.ts</span><span class="why">The <code>WHERE</code> and <code>ORDER BY</code> columns match the index <code>(customer_id, created_at)</code> in the same order, so PostgreSQL reads 20 index entries and stops. Values go in as parameters (<code>$1</code>), never pasted into the SQL text.</span></div>
+<pre><code>import type { Pool } from "pg";
+import type { Logger } from "pino";
+import { timedQuery } from "./timed-query.js";
+
+export type OrderSummary = { id: string; createdAt: Date; total: string };
+
+export function findRecentOrders(
+  database: Pool,
+  requestLogger: Logger,
+  customerId: string,
+  limit = 20,
+): Promise&lt;OrderSummary[]&gt; {
+  return timedQuery&lt;OrderSummary&gt;(
+    database,
+    requestLogger,
+    "findRecentOrders",
+    `SELECT id, created_at AS "createdAt", total
+       FROM orders
+      WHERE customer_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2`,
+    [customerId, limit],
+  );
+}
+
+export async function createOrder(
+  database: Pool,
+  requestLogger: Logger,
+  customerId: string,
+  total: string,
+): Promise&lt;void&gt; {
+  await timedQuery(
+    database,
+    requestLogger,
+    "createOrder",
+    "INSERT INTO orders (customer_id, status, total) VALUES ($1, 'pending', $2)",
+    [customerId, total],
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Logging</span><span class="name">src/timed-query.ts</span><span class="why">Every query goes through this function. <code>requestLogger</code> is the per-request child logger, so each line already has the request ID. It logs the query name, not the values, because values can hold personal data.</span></div>
+<pre><code>import type { Pool, QueryResultRow } from "pg";
+import type { Logger } from "pino";
+
+const slowQueryThresholdMs = 200;
+
+export async function timedQuery&lt;Row extends QueryResultRow&gt;(
+  database: Pool,
+  requestLogger: Logger,
+  queryName: string,
+  sql: string,
+  values: unknown[],
+): Promise&lt;Row[]&gt; {
+  const startedAt = performance.now();
+  const result = await database.query&lt;Row&gt;(sql, values);
+  const durationMs = Math.round(performance.now() - startedAt);
+
+  if (durationMs &gt;= slowQueryThresholdMs) {
+    requestLogger.warn({ queryName, durationMs, rowCount: result.rowCount }, "slow query");
+  }
+  return result.rows;
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="query">
+      <div class="file-head"><span class="chip tone-neutral">Query</span><span class="name">OrdersRepository.cs</span><span class="why">The <code>WHERE</code> and <code>ORDER BY</code> columns match the index <code>(customer_id, created_at)</code> in the same order, so PostgreSQL reads 20 index entries and stops. Npgsql sends the values as parameters (<code>$1</code>), never pasted into the SQL text.</span></div>
+<pre><code>using Npgsql;
+
+public sealed record OrderSummary(Guid Id, DateTime CreatedAt, decimal Total);
+
+public sealed class OrdersRepository(NpgsqlDataSource dataSource, ILogger&lt;OrdersRepository&gt; logger)
+{
+    public Task&lt;List&lt;OrderSummary&gt;&gt; FindRecentOrdersAsync(string customerId, int limit = 20) =&gt;
+        SlowQueryLog.TimeAsync(logger, "FindRecentOrders", async () =&gt;
+        {
+            await using var command = dataSource.CreateCommand("""
+                SELECT id, created_at, total
+                  FROM orders
+                 WHERE customer_id = $1
+                 ORDER BY created_at DESC
+                 LIMIT $2
+                """);
+            command.Parameters.Add(new NpgsqlParameter { Value = customerId });
+            command.Parameters.Add(new NpgsqlParameter { Value = limit });
+
+            var orders = new List&lt;OrderSummary&gt;();
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                orders.Add(new OrderSummary(reader.GetGuid(0), reader.GetDateTime(1), reader.GetDecimal(2)));
+            }
+            return orders;
+        });
+
+    public Task&lt;int&gt; CreateOrderAsync(string customerId, decimal total) =&gt;
+        SlowQueryLog.TimeAsync(logger, "CreateOrder", async () =&gt;
+        {
+            await using var command = dataSource.CreateCommand(
+                "INSERT INTO orders (customer_id, status, total) VALUES ($1, 'pending', $2)");
+            command.Parameters.Add(new NpgsqlParameter { Value = customerId });
+            command.Parameters.Add(new NpgsqlParameter { Value = total });
+            return await command.ExecuteNonQueryAsync();
+        });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Logging</span><span class="name">SlowQueryLog.cs</span><span class="why">Every query goes through this method. ASP.NET Core adds the trace ID to each log line through the request's logging scope, so the line can be matched to the request. It logs the query name, not the values, because values can hold personal data.</span></div>
+<pre><code>using System.Diagnostics;
+
+public static class SlowQueryLog
+{
+    private static readonly TimeSpan SlowQueryThreshold = TimeSpan.FromMilliseconds(200);
+
+    public static async Task&lt;T&gt; TimeAsync&lt;T&gt;(ILogger logger, string queryName, Func&lt;Task&lt;T&gt;&gt; runQuery)
+    {
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = await runQuery();
+        var elapsed = Stopwatch.GetElapsedTime(startedAt);
+
+        if (elapsed &gt;= SlowQueryThreshold)
+        {
+            logger.LogWarning("Slow query {QueryName} took {DurationMs} ms", queryName, (long)elapsed.TotalMilliseconds);
+        }
+        return result;
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="heap">
+      <div class="file-head"><span class="chip tone-amber">Table</span><span class="name">db/schema.sql</span><span class="why">The primary key creates a unique B-tree index on <code>id</code> automatically. <code>uuidv7()</code> (PostgreSQL 18) makes ids ordered by time, so new entries go to the end of that index. The second query shows each row's location: a result such as <code>(2,4)</code> means page 2, row 4. A row's location changes when it is updated, because PostgreSQL writes a new version of the row.</span></div>
+<pre><code>CREATE TABLE orders (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  customer_id text NOT NULL,
+  status      text NOT NULL,
+  total       numeric(10, 2) NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+SELECT ctid, id, customer_id, created_at
+  FROM orders
+ WHERE customer_id = 'c-042';</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="root">
+      <div class="file-head"><span class="chip tone-blue">Index</span><span class="name">db/migrations/0042-add-orders-customer-index.sql</span><span class="why"><code>CONCURRENTLY</code> lets inserts and updates continue while the index builds. It cannot run inside a transaction, so turn off the migration tool's transaction for this file. If the build fails, it leaves an invalid index: the second query finds it, then drop it and run the migration again.</span></div>
+<pre><code>CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_customer_created_idx
+    ON orders (customer_id, created_at);
+
+SELECT indexrelid::regclass AS invalid_index
+  FROM pg_index
+ WHERE NOT indisvalid;
+
+DROP INDEX CONCURRENTLY IF EXISTS orders_customer_created_idx;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="root">
+      <div class="file-head"><span class="chip tone-blue">Index</span><span class="name">db/more-index-examples.sql</span><span class="why">An expression index for case-insensitive email lookups, a partial index that holds only pending orders (a small share of the table), a GIN index for <code>jsonb</code> containment, and a BRIN index for a large table that only grows by time.</span></div>
+<pre><code>CREATE UNIQUE INDEX CONCURRENTLY customers_email_lower_idx
+    ON customers (lower(email));
+
+CREATE INDEX CONCURRENTLY orders_pending_created_idx
+    ON orders (created_at)
+ WHERE status = 'pending';
+
+CREATE INDEX CONCURRENTLY products_attributes_idx
+    ON products USING gin (attributes);
+
+CREATE INDEX CONCURRENTLY audit_events_created_brin
+    ON audit_events USING brin (created_at);
+
+SELECT id FROM customers WHERE lower(email) = lower($1);
+SELECT id FROM orders WHERE status = 'pending' AND created_at &lt; now() - interval '1 hour';
+SELECT id FROM products WHERE attributes @&gt; '{"color": "red"}';</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="branch">
+      <div class="file-head"><span class="chip tone-blue">Index</span><span class="name">db/index-size-and-depth.sql</span><span class="why">For 2 million orders, expect a table around 300 MB and this index around 70 MB. <code>bt_metap</code> from the <code>pageinspect</code> extension returns the root's level: leaf pages are level 0, so <code>level = 2</code> means three pages from root to leaf. <code>pageinspect</code> needs a superuser, so run it on a copy, not in production.</span></div>
+<pre><code>SELECT pg_size_pretty(pg_relation_size('orders')) AS table_size,
+       pg_size_pretty(pg_relation_size('orders_customer_created_idx')) AS index_size;
+
+CREATE EXTENSION IF NOT EXISTS pageinspect;
+
+SELECT level AS root_level
+  FROM bt_metap('orders_customer_created_idx');</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="leaf">
+      <div class="file-head"><span class="chip tone-blue">Index</span><span class="name">db/covering-index.sql</span><span class="why"><code>INCLUDE (total)</code> stores <code>total</code> in the leaf entries without sorting by it. Use this index instead of <code>orders_customer_created_idx</code>, not next to it. <code>VACUUM</code> marks pages as all-visible, which an index-only scan needs. The plan then shows <code>Index Only Scan Backward</code> and <code>Heap Fetches: 0</code>.</span></div>
+<pre><code>CREATE INDEX CONCURRENTLY orders_customer_created_total_idx
+    ON orders (customer_id, created_at) INCLUDE (total);
+
+DROP INDEX CONCURRENTLY orders_customer_created_idx;
+
+VACUUM (ANALYZE) orders;
+
+EXPLAIN (ANALYZE, COSTS OFF)
+SELECT created_at, total
+  FROM orders
+ WHERE customer_id = 'c-042'
+ ORDER BY created_at DESC
+ LIMIT 20;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="planner">
+      <div class="file-head"><span class="chip tone-teal">Planner</span><span class="name">db/explain-recent-orders.sql</span><span class="why"><code>EXPLAIN</code> shows the plan. <code>ANALYZE</code> runs the query and adds real times and row counts. Since PostgreSQL 18 it also shows buffers: how many pages were read. Run it with real values from a slow query, because the plan depends on them.</span></div>
+<pre><code>EXPLAIN (ANALYZE, COSTS OFF)
+SELECT id, created_at, total
+  FROM orders
+ WHERE customer_id = 'c-042'
+ ORDER BY created_at DESC
+ LIMIT 20;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Logging</span><span class="name">db/find-slow-and-unused.sql</span><span class="why">The first query lists the queries with the most total time, which is where an index helps most. The second lists indexes that were never used since statistics were last reset. Unique indexes are left out, because they also prevent duplicates.</span></div>
+<pre><code>SELECT calls,
+       round(total_exec_time) AS total_ms,
+       round(mean_exec_time::numeric, 1) AS mean_ms,
+       rows,
+       query
+  FROM pg_stat_statements
+ ORDER BY total_exec_time DESC
+ LIMIT 10;
+
+SELECT stats.relname AS table_name,
+       stats.indexrelname AS index_name,
+       stats.idx_scan AS times_used,
+       pg_size_pretty(pg_relation_size(stats.indexrelid)) AS index_size
+  FROM pg_stat_user_indexes AS stats
+  JOIN pg_index AS definition ON definition.indexrelid = stats.indexrelid
+ WHERE stats.idx_scan = 0
+   AND NOT definition.indisunique
+ ORDER BY pg_relation_size(stats.indexrelid) DESC;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-none">
+    <div class="file" data-lang="any" data-node="planner">
+      <div class="file-head"><span class="chip tone-teal">Planner</span><span class="name">db/explain-output.txt</span><span class="why">Shortened output, before and after the index. Before: two workers read every page (40,000 buffers) and threw away almost 2 million rows. After: the index is read backwards, 24 buffers, and the query is about 1,000 times faster.</span></div>
+<pre><code>Before the index:
+
+Limit (actual time=95.1..98.7 rows=20.00 loops=1)
+  Buffers: shared hit=2112 read=38001
+  -&gt;  Gather Merge (actual time=95.1..98.7 rows=20.00 loops=1)
+        Workers Launched: 2
+        -&gt;  Sort (actual time=91.2..91.2 rows=7.00 loops=3)
+              Sort Key: created_at DESC
+              Sort Method: top-N heapsort  Memory: 26kB
+              -&gt;  Parallel Seq Scan on orders (actual time=0.9..91.0 rows=32.00 loops=3)
+                    Filter: (customer_id = 'c-042'::text)
+                    Rows Removed by Filter: 666635
+Execution Time: 98.8 ms
+
+After the index:
+
+Limit (actual time=0.041..0.067 rows=20.00 loops=1)
+  Buffers: shared hit=24
+  -&gt;  Index Scan Backward using orders_customer_created_idx on orders (actual time=0.040..0.064 rows=20.00 loops=1)
+        Index Cond: (customer_id = 'c-042'::text)
+        Index Searches: 1
+Execution Time: 0.085 ms</code></pre>
+    </div>
+  </div>
+
+  <div class="language-ini">
+    <div class="file" data-lang="any" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Logging</span><span class="name">db/postgresql.conf</span><span class="why">PostgreSQL logs every statement slower than 500 ms. <code>log_parameter_max_length = 0</code> keeps parameter values out of that log. <code>auto_explain</code> adds the plan of each slow statement. <code>log_analyze</code> measures every query, which adds overhead, so some teams turn it off and log only the plan.</span></div>
+<pre><code>shared_preload_libraries = 'pg_stat_statements,auto_explain'
+
+log_min_duration_statement = 500ms
+log_parameter_max_length = 0
+
+auto_explain.log_min_duration = 500ms
+auto_explain.log_analyze = on
+auto_explain.log_buffers = on</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-ini.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
