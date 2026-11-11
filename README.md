@@ -70,3 +70,4 @@ What each category covers: [system-design/README.md](system-design/README.md)
 |---|---|---|---|
 | Database Indexes | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/indexes/) | [index.html](system-design/databases/indexes/index.html) |
 | Transactions and Isolation Levels | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/transactions-and-isolation-levels/) | [index.html](system-design/databases/transactions-and-isolation-levels/index.html) |
+| Database Replication | Databases | [open](https://hermanyhho.github.io/dev-knowledgebase/system-design/databases/replication/) | [index.html](system-design/databases/replication/index.html) |

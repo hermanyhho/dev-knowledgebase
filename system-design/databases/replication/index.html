@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Database Replication</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">System design</a> / Databases</div>
+    <h1>Database Replication</h1>
+    <p class="aka">Keeping copies of a database on other servers, to spread reads and to survive the loss of a server. Examples use PostgreSQL 18.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>One server, the <strong>primary</strong>, accepts all writes. Every change it makes is written to its write-ahead log (WAL). The primary sends that log to one or more <strong>replicas</strong>, which apply the same changes in the same order. Each replica becomes a copy of the primary, a moment later.</p>
+    <p>Replicas answer read queries, so reads are spread over several servers. If the primary fails, a replica is <strong>promoted</strong> and becomes the new primary.</p>
+    <p>The cost is time: a replica is behind the primary by some milliseconds, or by seconds under load. A read from a replica can return data that was already changed on the primary.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Primary</span></td><td>The one server that accepts writes. Also called leader.</td><td><code>db-1</code></td></tr>
+          <tr><td><span class="chip tone-blue">Replica</span></td><td>A server that applies the primary's changes and answers reads. Also called standby or follower.</td><td>Replica A, replica B</td></tr>
+          <tr><td><span class="chip tone-blue">Streaming replication</span></td><td>The primary sends WAL records to each replica as they are written.</td><td>PostgreSQL's built-in replication</td></tr>
+          <tr><td><span class="chip tone-amber">Replication lag</span></td><td>How far a replica is behind the primary, in time or in bytes of WAL.</td><td>Replica B: 4 s</td></tr>
+          <tr><td><span class="chip tone-amber">Synchronous replica</span></td><td>The primary waits for this replica to confirm each commit before telling the app it succeeded.</td><td>Replica A</td></tr>
+          <tr><td><span class="chip tone-amber">Asynchronous replica</span></td><td>The primary does not wait. Faster commits, but the last changes can be lost if the primary dies.</td><td>Replica B</td></tr>
+          <tr><td><span class="chip tone-neutral">Failover</span></td><td>Promoting a replica to primary after the primary fails, and pointing the apps at it.</td><td>Replica A becomes primary</td></tr>
+          <tr><td><span class="chip tone-neutral">LSN</span></td><td>Log sequence number: a position in the WAL. Comparing LSNs tells whether a replica has a given change.</td><td><code>0/3A01F28</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> send writes, and reads that must see those writes, to the primary. Send reads that can be a few seconds old to replicas. Measure the lag and alert on it.</div>
+  </section>
+
+  <section>
+    <h2>Synchronous and asynchronous replication</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Asynchronous (default)</th><th>Synchronous</th></tr></thead>
+        <tbody>
+          <tr><td>When <code>COMMIT</code> returns</td><td>When the primary has the change on its own disk</td><td>When the primary and a synchronous replica have it</td></tr>
+          <tr><td>Extra time per commit</td><td>None</td><td>One network round trip: about 1 ms inside one data center, more across regions</td></tr>
+          <tr><td>Primary crashes</td><td>Commits not yet sent to a replica are lost</td><td>No committed change is lost</td></tr>
+          <tr><td>The synchronous replica goes down</td><td>No effect</td><td>Commits wait until a replica answers again. Name two candidates with <code>ANY 1 (...)</code>.</td></tr>
+          <tr><td>Can a read on the replica still be old?</td><td>Yes</td><td>Yes, unless <code>synchronous_commit = remote_apply</code>, which waits until the replica has applied the change</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Problems caused by replication lag</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Problem</th><th>What the user sees</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>Reading your own write</td><td>A user changes their name, the page reloads from a replica and shows the old name.</td><td>Read from the primary for that user for a few seconds after a write, or wait until the replica has the write's LSN.</td></tr>
+          <tr><td>Data that goes backwards</td><td>Two reads hit two replicas with different lag. A new comment appears, then disappears.</td><td>Send all reads of one user to the same replica.</td></tr>
+          <tr><td>Checks made on old data</td><td>A uniqueness check on a replica passes, but the value was taken a second ago.</td><td>Make checks that lead to a write on the primary, ideally with a unique constraint.</td></tr>
+          <tr><td>Queries cancelled on the replica</td><td>A long report on a replica fails with <code>canceling statement due to conflict with recovery</code>.</td><td>Set <code>hot_standby_feedback = on</code>, or run long reports on a separate replica with a higher <code>max_standby_streaming_delay</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What happens during a failover</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What happens</th><th>Typical time</th></tr></thead>
+        <tbody>
+          <tr><td>1. Detect</td><td>A failover manager, such as Patroni or the cloud service, sees that the primary stopped answering health checks.</td><td>10-30 s</td></tr>
+          <tr><td>2. Choose</td><td>It picks the replica with the most WAL applied. A synchronous replica has every commit.</td><td>Under 1 s</td></tr>
+          <tr><td>3. Fence</td><td>It makes sure the old primary cannot accept writes, for example by stopping it. Two primaries at once would split the data.</td><td>Under 1 s</td></tr>
+          <tr><td>4. Promote</td><td>The replica stops applying WAL and starts accepting writes.</td><td>A few seconds</td></tr>
+          <tr><td>5. Redirect</td><td>The database's DNS name or proxy now points to the new primary. Apps reconnect.</td><td>Seconds, depending on DNS caching</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>During these steps writes fail. The app must retry them, or return an error the client can retry. Managed services such as Amazon RDS, Azure Database for PostgreSQL and Cloud SQL run all five steps for you.</p>
+  </section>
+
+  <section>
+    <h2>Physical and logical replication</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Physical (streaming)</th><th>Logical</th></tr></thead>
+        <tbody>
+          <tr><td>What is copied</td><td>Changed disk blocks, for the whole server</td><td>Row changes, for chosen tables</td></tr>
+          <tr><td>Replica</td><td>Read-only, an exact copy</td><td>A normal database that can have its own tables and indexes</td></tr>
+          <tr><td>Versions</td><td>Same PostgreSQL major version</td><td>Can differ, so it is used for upgrades with little downtime</td></tr>
+          <tr><td>Use it for</td><td>Read replicas and failover</td><td>Copying some tables to another system, upgrades, change data capture</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Metric: replication lag per replica</td><td><code>replay_lag</code> from <code>pg_stat_replication</code> on the primary</td><td>Alert over 10 s</td></tr>
+          <tr><td>Metric: WAL kept for replicas</td><td>Bytes held by each replication slot. A replica that is gone keeps WAL on the primary until its disk is full.</td><td>Alert over 10 GB</td></tr>
+          <tr><td>Metric: synchronous replicas connected</td><td><code>sync_state = 'sync'</code> count</td><td>Alert at 0: commits are waiting</td></tr>
+          <tr><td>App, slow query log</td><td>Add the pool name, <code>primary</code> or <code>replica</code>, next to the query name and request ID.</td><td>warn</td></tr>
+          <tr><td>App, connection errors during failover</td><td>Error code, host, attempt number and request ID</td><td>warn per retry, error if all fail</td></tr>
+          <tr><td>Failover manager</td><td>Each promotion, with the old and new primary</td><td>Alert on every failover</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 420" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">The app sends writes through connection routing to the primary, and reads to two replicas. The primary streams its WAL to replica A, which is synchronous, and replica B, which is asynchronous. A failover manager watches the primary and can promote replica A. Monitoring reads the replication lag.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-app" tabindex="0" role="button" aria-label="Show the profile code" data-title="App: reading your own writes" data-node="app">
+          <rect class="shape tone-neutral" x="20" y="30" width="200" height="60" rx="6"/>
+          <text class="t-name" x="120" y="55">App</text>
+          <text class="t-kind" x="120" y="73">API instances</text>
+        </g>
+        <g class="node" id="n-router" tabindex="0" role="button" aria-label="Show the connection setup" data-title="Connection routing: two pools" data-node="router">
+          <rect class="shape tone-neutral" x="20" y="165" width="200" height="80" rx="6"/>
+          <text class="t-name" x="120" y="192">Connection routing</text>
+          <text class="t-kind" x="120" y="210">writes: primary</text>
+          <text class="t-kind" x="120" y="226">reads: replicas</text>
+        </g>
+        <g class="node" id="n-log" tabindex="0" role="button" aria-label="Show the monitoring queries" data-title="Monitoring: replication lag" data-node="log">
+          <rect class="shape tone-neutral" x="20" y="330" width="200" height="60" rx="6"/>
+          <text class="t-name" x="120" y="355">Monitoring</text>
+          <text class="t-kind" x="120" y="373">lag, slots, failovers</text>
+        </g>
+        <g class="node" id="n-primary" tabindex="0" role="button" aria-label="Show the primary settings" data-title="Primary: settings" data-node="primary">
+          <rect class="shape tone-teal" x="330" y="165" width="220" height="100" rx="6"/>
+          <text class="t-name" x="440" y="195">Primary</text>
+          <text class="t-kind" x="440" y="213">all writes</text>
+          <text class="t-kind" x="440" y="229">writes WAL and sends it</text>
+          <text class="t-kind" x="440" y="245">to each replica</text>
+        </g>
+        <g class="node" id="n-failover" tabindex="0" role="button" aria-label="Show the failover commands" data-title="Failover manager: promote" data-node="failover">
+          <rect class="shape tone-neutral" x="330" y="330" width="220" height="60" rx="6"/>
+          <text class="t-name" x="440" y="355">Failover manager</text>
+          <text class="t-kind" x="440" y="373">Patroni or the cloud service</text>
+        </g>
+        <g class="node" id="n-replica-a" tabindex="0" role="button" aria-label="Show how a replica is created" data-title="Replica A: creating a replica" data-node="replica-a">
+          <rect class="shape tone-blue" x="660" y="50" width="240" height="90" rx="6"/>
+          <text class="t-name" x="780" y="78">Replica A</text>
+          <text class="t-kind" x="780" y="96">synchronous, same region</text>
+          <text class="t-kind" x="780" y="112">applies WAL, answers reads</text>
+        </g>
+        <g class="node" id="n-replica-b" tabindex="0" role="button" aria-label="Show lag checks on a replica" data-title="Replica B: checking lag" data-node="replica-b">
+          <rect class="shape tone-blue" x="660" y="250" width="240" height="90" rx="6"/>
+          <text class="t-name" x="780" y="278">Replica B</text>
+          <text class="t-kind" x="780" y="296">asynchronous, other zone</text>
+          <text class="t-kind" x="780" y="312">applies WAL, answers reads</text>
+        </g>
+
+        <g class="state-item" id="s-lag-a"><rect class="slot tone-blue" x="720" y="150" width="120" height="26" rx="4"/><text class="t-item" x="780" y="167">lag: 0 s</text></g>
+        <g class="state-item" id="s-lag-b4"><rect class="slot tone-amber" x="720" y="350" width="120" height="26" rx="4"/><text class="t-item" x="780" y="367">lag: 4 s</text></g>
+        <g class="state-item" id="s-lag-b60"><rect class="slot tone-amber" x="720" y="350" width="120" height="26" rx="4"/><text class="t-item" x="780" y="367">lag: 60 s</text></g>
+        <g class="state-item" id="s-new-primary"><rect class="slot tone-teal" x="700" y="150" width="160" height="26" rx="4"/><text class="t-item" x="780" y="167">now the primary</text></g>
+
+        <path class="flow" id="a-app-router" d="M120,90 L120,163" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-router-primary" d="M220,200 L328,200" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-router-replica-a" d="M220,178 L290,178 L290,95 L658,95" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-router-replica-b" d="M220,232 L290,232 L290,300 L658,300" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-primary-replica-a" d="M550,185 L658,125" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-primary-replica-b" d="M550,245 L658,280" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-replica-a-ack" d="M658,135 L552,200" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-failover-primary" d="M440,330 L440,267" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-failover-replica-a" d="M550,360 L620,360 L620,130 L658,130" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-router-log" d="M120,245 L120,328" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-replica-b-app" d="M658,320 L300,320 L300,250 L222,250" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-old-name" x="460" y="314">RETURNS THE OLD NAME</text>
+        <text class="ghost-label" id="t-primary-down" x="440" y="157">PRIMARY DOWN</text>
+        <text class="ghost-label" id="t-out-of-pool" x="780" y="405">REMOVED FROM READ POOL</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="own-write" aria-pressed="true">Read your own write</button>
+        <button type="button" data-flow="sync" aria-pressed="false">Synchronous commit</button>
+        <button type="button" data-flow="reads" aria-pressed="false">Spread reads over replicas</button>
+        <button type="button" data-flow="failover" aria-pressed="false">Primary fails</button>
+        <button type="button" data-flow="lag" aria-pressed="false">Replica falls behind</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="own-write" hidden>
+        <li data-highlight="n-app a-app-router n-router a-router-primary n-primary">A user changes their display name. The write goes to the primary and commits.</li>
+        <li data-highlight="n-primary a-primary-replica-b n-replica-b" data-show="s-lag-b4">The primary sends the change to replica B. Replica B is 4 seconds behind, so it does not have the change yet.</li>
+        <li data-highlight="n-app a-app-router n-router a-router-replica-b n-replica-b a-replica-b-app t-old-name" data-show="s-lag-b4">The page reloads and reads the profile from replica B. It shows the old name.</li>
+        <li data-highlight="n-app a-app-router n-router a-router-primary n-primary" data-show="s-lag-b4">The fix in the app: after a write, the user's reads go to the primary for 5 seconds. Click App to see the code.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="sync" hidden>
+        <li data-highlight="n-app a-app-router n-router a-router-primary n-primary">The app commits an order on the primary.</li>
+        <li data-highlight="n-primary a-primary-replica-a n-replica-a a-primary-replica-b n-replica-b">The primary writes the change to its WAL and sends it to both replicas.</li>
+        <li data-highlight="n-replica-a a-replica-a-ack n-primary">Replica A is synchronous. It writes the WAL to its disk and confirms. The primary waits for this.</li>
+        <li data-highlight="n-primary a-router-primary n-router n-app">Only then does <code>COMMIT</code> return to the app. If the primary dies now, replica A has the order.</li>
+        <li data-highlight="n-replica-b" data-show="s-lag-b4">Replica B is asynchronous. The primary did not wait for it, and it may still be a few seconds behind.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="reads" hidden>
+        <li data-highlight="n-app a-app-router n-router">The product list page runs a read query. Its data can be a few seconds old.</li>
+        <li data-highlight="n-router a-router-replica-a n-replica-a a-router-replica-b n-replica-b" data-show="s-lag-a s-lag-b4">The read pool spreads the queries over replica A and replica B.</li>
+        <li data-highlight="n-primary">The primary gets fewer reads, so it has more capacity for writes. To handle more reads, add another replica.</li>
+        <li data-highlight="n-router a-router-log n-log" data-show="s-lag-a s-lag-b4">Slow query logs include the pool name, so a slow replica can be found.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="failover" hidden>
+        <li data-highlight="n-primary t-primary-down">The primary's server fails. Writes from the app fail with connection errors.</li>
+        <li data-highlight="n-failover a-failover-primary n-primary t-primary-down">The failover manager sees missed health checks for about 15 seconds and decides the primary is gone. It fences the old primary so that it cannot accept writes if it comes back.</li>
+        <li data-highlight="n-failover a-failover-replica-a n-replica-a" data-show="s-new-primary">It promotes replica A. Replica A was synchronous, so no committed write is lost.</li>
+        <li data-highlight="n-app a-app-router n-router n-replica-a" data-show="s-new-primary">The database's DNS name now points to replica A. The app's retries reconnect, and writes work again.</li>
+        <li data-highlight="n-log n-replica-b" data-show="s-new-primary">Replica B now follows the new primary. The failover is logged and alerted. Later, a new replica replaces the failed server.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="lag" hidden>
+        <li data-highlight="n-replica-b" data-show="s-lag-b4">Replica B normally runs a few seconds behind.</li>
+        <li data-highlight="n-primary a-primary-replica-b n-replica-b" data-show="s-lag-b60">A large data import on the primary produces a lot of WAL. Replica B, in another zone, cannot apply it fast enough. The lag grows to 60 seconds.</li>
+        <li data-highlight="n-log" data-show="s-lag-b60">The lag metric passes 10 seconds and an alert fires.</li>
+        <li data-highlight="n-router n-replica-b t-out-of-pool" data-show="s-lag-b60">The routing removes replicas over the lag limit from the read pool. Reads go to replica A until replica B catches up.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">App and tools</span>
+      <span class="chip tone-teal">Primary</span>
+      <span class="chip tone-blue">Replicas</span>
+      <span>Arrows from the primary to the replicas carry the WAL. Click a box to see its code or settings.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">profile-api/</div>
+      <button type="button" class="tree-row" data-file="src/database-pools.ts"><span class="path">├─ src/database-pools.ts</span><span class="chip tone-neutral">Routing</span></button>
+      <button type="button" class="tree-row" data-file="src/profile-service.ts"><span class="path">├─ src/profile-service.ts</span><span class="chip tone-neutral">App</span></button>
+      <button type="button" class="tree-row" data-file="db/primary.conf"><span class="path">├─ db/primary.conf</span><span class="chip tone-teal">Primary</span></button>
+      <button type="button" class="tree-row" data-file="scripts/create-replica.sh"><span class="path">├─ scripts/create-replica.sh</span><span class="chip tone-blue">Replica</span></button>
+      <button type="button" class="tree-row" data-file="db/replica-checks.sql"><span class="path">├─ db/replica-checks.sql</span><span class="chip tone-blue">Replica</span></button>
+      <button type="button" class="tree-row" data-file="db/failover.sql"><span class="path">├─ db/failover.sql</span><span class="chip tone-neutral">Failover</span></button>
+      <button type="button" class="tree-row" data-file="db/replication-monitoring.sql"><span class="path">└─ db/replication-monitoring.sql</span><span class="chip tone-neutral">Monitoring</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">ProfileApi/</div>
+      <button type="button" class="tree-row" data-file="DatabaseSetup.cs"><span class="path">├─ DatabaseSetup.cs</span><span class="chip tone-neutral">Routing</span></button>
+      <button type="button" class="tree-row" data-file="ProfileService.cs"><span class="path">├─ ProfileService.cs</span><span class="chip tone-neutral">App</span></button>
+      <button type="button" class="tree-row" data-file="db/primary.conf"><span class="path">├─ db/primary.conf</span><span class="chip tone-teal">Primary</span></button>
+      <button type="button" class="tree-row" data-file="scripts/create-replica.sh"><span class="path">├─ scripts/create-replica.sh</span><span class="chip tone-blue">Replica</span></button>
+      <button type="button" class="tree-row" data-file="db/replica-checks.sql"><span class="path">├─ db/replica-checks.sql</span><span class="chip tone-blue">Replica</span></button>
+      <button type="button" class="tree-row" data-file="db/failover.sql"><span class="path">├─ db/failover.sql</span><span class="chip tone-neutral">Failover</span></button>
+      <button type="button" class="tree-row" data-file="db/replication-monitoring.sql"><span class="path">└─ db/replication-monitoring.sql</span><span class="chip tone-neutral">Monitoring</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>One server cannot handle all reads</strong><span>Each replica adds read capacity. Most apps read far more than they write.</span></li>
+        <li><strong>Losing the only database server</strong><span>A replica is promoted in seconds or minutes, instead of restoring a backup for hours.</span></li>
+        <li><strong>Losing committed data</strong><span>A synchronous replica holds every commit on a second server.</span></li>
+        <li><strong>Reports slowing down the app</strong><span>Heavy analytics queries run on their own replica.</span></li>
+        <li><strong>Users far from the database</strong><span>A replica in another region answers reads close to those users.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Old data on replicas</strong><span>Every read from a replica can be behind. The code must decide which reads can accept that.</span></li>
+        <li><strong>Writes do not scale</strong><span>All writes still go to one primary. Spreading writes needs sharding.</span></li>
+        <li><strong>Slower commits</strong><span>A synchronous replica adds a network round trip to every commit.</span></li>
+        <li><strong>Failover is hard to get right</strong><span>Detection, fencing and redirecting must all work, or two primaries can accept writes at once.</span></li>
+        <li><strong>More servers to run</strong><span>Each replica costs the same as the primary and needs monitoring.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="router">
+      <div class="file-head"><span class="chip tone-neutral">Routing</span><span class="name">src/database-pools.ts</span><span class="why">Two connection pools. <code>DATABASE_PRIMARY_URL</code> points to the primary's DNS name, which follows a failover. <code>DATABASE_REPLICA_URL</code> points to a reader endpoint that spreads connections over the replicas; managed services provide one. The <code>pg</code> package has no built-in read/write routing, so the code picks the pool.</span></div>
+<pre><code>import { Pool } from "pg";
+
+export type DatabasePools = { primary: Pool; replica: Pool };
+
+export function createDatabasePools(): DatabasePools {
+  return {
+    primary: new Pool({ connectionString: process.env.DATABASE_PRIMARY_URL, max: 20 }),
+    replica: new Pool({ connectionString: process.env.DATABASE_REPLICA_URL, max: 40 }),
+  };
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="app">
+      <div class="file-head"><span class="chip tone-neutral">App</span><span class="name">src/profile-service.ts</span><span class="why">After a user writes, their reads go to the primary for 5 seconds, which is longer than the normal lag. <code>lastWriteAt</code> is stored in the user's session, so it works on every API instance. Reads by other users still go to replicas.</span></div>
+<pre><code>import type { Pool } from "pg";
+import type { DatabasePools } from "./database-pools.js";
+
+const readFromPrimaryAfterWriteMs = 5_000;
+
+export type UserSession = { userId: string; lastWriteAt?: number };
+
+function poolForReading(databases: DatabasePools, session: UserSession): Pool {
+  const wroteRecently = Date.now() - (session.lastWriteAt ?? 0) &lt; readFromPrimaryAfterWriteMs;
+  return wroteRecently ? databases.primary : databases.replica;
+}
+
+export async function updateDisplayName(databases: DatabasePools, session: UserSession, displayName: string): Promise&lt;void&gt; {
+  await databases.primary.query("UPDATE profiles SET display_name = $1 WHERE user_id = $2", [displayName, session.userId]);
+  session.lastWriteAt = Date.now();
+}
+
+export async function getProfile(databases: DatabasePools, session: UserSession, userId: string) {
+  const { rows } = await poolForReading(databases, session).query(
+    "SELECT user_id, display_name FROM profiles WHERE user_id = $1",
+    [userId],
+  );
+  return rows[0];
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="router">
+      <div class="file-head"><span class="chip tone-neutral">Routing</span><span class="name">DatabaseSetup.cs</span><span class="why">Npgsql connects to several hosts and asks each whether it is a primary or a standby. <code>Primary</code> always finds the current primary, also after a failover. <code>PreferStandby</code> uses a replica and falls back to the primary if none is up. <code>Load Balance Hosts</code> spreads connections over the replicas. Example connection string: <code>Host=db-1,db-2,db-3;Database=profiles;Username=profile_api;Load Balance Hosts=true</code>.</span></div>
+<pre><code>using Npgsql;
+
+public static class DatabaseSetup
+{
+    public static void AddDatabases(this IServiceCollection services, string connectionString)
+    {
+        var allHosts = new NpgsqlDataSourceBuilder(connectionString).BuildMultiHost();
+
+        services.AddKeyedSingleton&lt;NpgsqlDataSource&gt;("primary",
+            allHosts.WithTargetSession(TargetSessionAttributes.Primary));
+        services.AddKeyedSingleton&lt;NpgsqlDataSource&gt;("replica",
+            allHosts.WithTargetSession(TargetSessionAttributes.PreferStandby));
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="app">
+      <div class="file-head"><span class="chip tone-neutral">App</span><span class="name">ProfileService.cs</span><span class="why">After a user writes, their reads go to the primary for 5 seconds, which is longer than the normal lag. <code>LastWriteAt</code> is stored in the user's session, so it works on every API instance. Reads by other users still go to replicas.</span></div>
+<pre><code>using Npgsql;
+
+public sealed class UserSession
+{
+    public required string UserId { get; init; }
+    public DateTimeOffset? LastWriteAt { get; set; }
+}
+
+public sealed class ProfileService(
+    [FromKeyedServices("primary")] NpgsqlDataSource primary,
+    [FromKeyedServices("replica")] NpgsqlDataSource replica)
+{
+    private static readonly TimeSpan ReadFromPrimaryAfterWrite = TimeSpan.FromSeconds(5);
+
+    public async Task UpdateDisplayNameAsync(UserSession session, string displayName)
+    {
+        await using var command = primary.CreateCommand("UPDATE profiles SET display_name = $1 WHERE user_id = $2");
+        command.Parameters.Add(new NpgsqlParameter { Value = displayName });
+        command.Parameters.Add(new NpgsqlParameter { Value = session.UserId });
+        await command.ExecuteNonQueryAsync();
+        session.LastWriteAt = DateTimeOffset.UtcNow;
+    }
+
+    public async Task&lt;string?&gt; GetDisplayNameAsync(UserSession session, string userId)
+    {
+        await using var command = DataSourceForReading(session)
+            .CreateCommand("SELECT display_name FROM profiles WHERE user_id = $1");
+        command.Parameters.Add(new NpgsqlParameter { Value = userId });
+        return (string?)await command.ExecuteScalarAsync();
+    }
+
+    private NpgsqlDataSource DataSourceForReading(UserSession session) =&gt;
+        DateTimeOffset.UtcNow - session.LastWriteAt &lt; ReadFromPrimaryAfterWrite ? primary : replica;
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-ini">
+    <div class="file" data-lang="any" data-node="primary">
+      <div class="file-head"><span class="chip tone-teal">Primary</span><span class="name">db/primary.conf</span><span class="why"><code>ANY 1 (replica_a, replica_c)</code> makes a commit wait for whichever of the two confirms first, so one replica can be down. <code>max_slot_wal_keep_size</code> limits how much WAL a lost replica can hold on the primary's disk. A single unimportant write can skip the wait with <code>SET LOCAL synchronous_commit = local</code>.</span></div>
+<pre><code>wal_level = replica
+max_wal_senders = 10
+max_replication_slots = 10
+max_slot_wal_keep_size = 50GB
+
+synchronous_standby_names = 'ANY 1 (replica_a, replica_c)'
+synchronous_commit = on</code></pre>
+    </div>
+  </div>
+
+  <div class="language-bash">
+    <div class="file" data-lang="any" data-node="replica-a">
+      <div class="file-head"><span class="chip tone-blue">Replica</span><span class="name">scripts/create-replica.sh</span><span class="why"><code>pg_basebackup</code> copies the primary's data folder over the network. <code>-R</code> writes the connection settings and the file that makes the server start as a replica. <code>-C -S replica_a</code> creates a replication slot, so the primary keeps the WAL this replica still needs. The <code>application_name</code> must match the name in <code>synchronous_standby_names</code>.</span></div>
+<pre><code>pg_basebackup \
+  --host=db-1 \
+  --username=replicator \
+  --pgdata=/var/lib/postgresql/data \
+  --wal-method=stream \
+  -R -C -S replica_a \
+  --progress
+
+cat &gt;&gt; /var/lib/postgresql/data/postgresql.auto.conf &lt;&lt;'SETTINGS'
+primary_conninfo = 'host=db-1 user=replicator application_name=replica_a'
+hot_standby = on
+hot_standby_feedback = on
+SETTINGS
+
+pg_ctl start -D /var/lib/postgresql/data</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="replica-b">
+      <div class="file-head"><span class="chip tone-blue">Replica</span><span class="name">db/replica-checks.sql</span><span class="why">The first query runs on a replica and shows how old its newest applied change is. If the primary has no writes for a while, this number grows even though the replica is up to date. The last two queries are the exact way to read your own write: after the write, read the primary's LSN, then wait until the replica has replayed that far.</span></div>
+<pre><code>SELECT pg_is_in_recovery() AS is_replica,
+       now() - pg_last_xact_replay_timestamp() AS behind_by;
+
+SELECT pg_current_wal_lsn() AS write_position;
+
+SELECT pg_last_wal_replay_lsn() &gt;= $1::pg_lsn AS has_the_write;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="failover">
+      <div class="file-head"><span class="chip tone-neutral">Failover</span><span class="name">db/failover.sql</span><span class="why">What a failover manager runs. On the chosen replica, <code>pg_promote</code> ends replication and waits up to 60 seconds for the server to accept writes. Never promote while the old primary can still accept writes: stop it first. Patroni and managed services do these steps and the DNS change for you.</span></div>
+<pre><code>SELECT pg_is_in_recovery();
+
+SELECT pg_last_wal_replay_lsn();
+
+SELECT pg_promote(wait =&gt; true, wait_seconds =&gt; 60);
+
+SELECT pg_is_in_recovery();</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="log">
+      <div class="file-head"><span class="chip tone-neutral">Monitoring</span><span class="name">db/replication-monitoring.sql</span><span class="why">Run on the primary. The first query shows each connected replica, whether it is synchronous, and its lag. The second shows how much WAL each replication slot holds. An inactive slot with growing WAL means a replica is gone: drop the slot or the disk fills up.</span></div>
+<pre><code>SELECT application_name,
+       client_addr,
+       state,
+       sync_state,
+       write_lag,
+       flush_lag,
+       replay_lag
+  FROM pg_stat_replication;
+
+SELECT slot_name,
+       active,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS wal_held
+  FROM pg_replication_slots;</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-ini.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

@@ -188,6 +188,7 @@ const pageFolderName = location.pathname.split("/").filter((segment) => segment 
 
 function markFirstMention(glossaryTerm) {
   if (glossaryTerm.onlyOn && !glossaryTerm.onlyOn.includes(pageFolderName)) return;
+  if (glossaryTerm.notOn?.includes(pageFolderName)) return;
   const pattern = patternForTerm(glossaryTerm);
   if (isDefinedInTermsTable(glossaryTerm)) return;
 
