@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compile Time and Runtime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">TypeScript</a> / Compiling</div>
+    <h1>Compile Time and Runtime</h1>
+    <p class="aka">TypeScript checks types before the program runs, then removes them. While the program runs, only JavaScript is left.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>TypeScript is JavaScript with type annotations. The TypeScript compiler, <code>tsc</code>, reads your code and reports places where a value does not match its type. Then the types are removed and plain JavaScript is left. Node.js and browsers only ever run that JavaScript.</p>
+    <p>This means types only protect values that your own code created and the compiler could see. Data from outside, such as a request body, a JSON file or an environment variable, arrives while the program runs. No type check happens then. If the data has the wrong shape, the code runs with it anyway.</p>
+    <p>The fix is to check outside data once, where it enters, with code that runs: a schema library such as <a href="https://zod.dev">Zod</a>. After that check, the type is true.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Type annotation</span></td><td>The <code>: Type</code> part that says what a variable, parameter or return value holds.</td><td><code>order: Order</code></td></tr>
+          <tr><td><span class="chip tone-teal">Type checker</span></td><td>The part of <code>tsc</code> that compares values with their types and reports errors. It does not run your code.</td><td><code>tsc --noEmit</code></td></tr>
+          <tr><td><span class="chip tone-teal">Type erasure</span></td><td>Removing all types when producing JavaScript. Nothing about them is left to check while the program runs.</td><td><code>dist/orders.js</code></td></tr>
+          <tr><td><span class="chip tone-amber"><code>any</code></span></td><td>A type that turns off checking. Anything can be assigned to it and done with it.</td><td><code>JSON.parse</code> returns <code>any</code></td></tr>
+          <tr><td><span class="chip tone-amber"><code>unknown</code></span></td><td>A type for a value you know nothing about. You must check it before using it.</td><td>A request body before validation</td></tr>
+          <tr><td><span class="chip tone-amber">Type assertion</span></td><td><code>value as Type</code>: tells the compiler to treat a value as that type. It changes nothing at runtime and checks nothing.</td><td><code>req.body as NewOrder</code></td></tr>
+          <tr><td><span class="chip tone-blue">Schema validation</span></td><td>Code that checks the shape of data while the program runs, and gives a matching type.</td><td><code>NewOrderSchema.safeParse(req.body)</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> trust a type only for values your own code created. Every value from outside starts as <code>unknown</code> and is validated once, where it enters.</div>
+  </section>
+
+  <section>
+    <h2>What is left when the program runs</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>You write</th><th>In the JavaScript output</th><th>Can you check it at runtime?</th></tr></thead>
+        <tbody>
+          <tr><td><code>type Order = {...}</code>, <code>interface Order {...}</code></td><td>Nothing</td><td>No. <code>value instanceof Order</code> does not compile.</td></tr>
+          <tr><td>Annotations such as <code>total: number</code></td><td>Nothing</td><td>No</td></tr>
+          <tr><td><code>value as Order</code>, <code>value!</code></td><td>Only <code>value</code></td><td>No check happens</td></tr>
+          <tr><td>Generic parameters such as <code>&lt;T&gt;</code></td><td>Nothing</td><td>No. Inside a function, <code>T</code> has no value.</td></tr>
+          <tr><td><code>class Order {...}</code></td><td>A JavaScript class</td><td>Yes, with <code>instanceof</code>. Plain objects from JSON are never instances.</td></tr>
+          <tr><td><code>enum Status {...}</code></td><td>A JavaScript object</td><td>Yes, but it is not plain erasable syntax. A union such as <code>"pending" | "paid"</code> needs no output.</td></tr>
+          <tr><td><code>typeof</code>, <code>in</code>, <code>Array.isArray</code></td><td>The same JavaScript</td><td>Yes. These are the checks TypeScript uses to narrow types.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where outside data enters</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Source</th><th>What TypeScript assumes</th><th>What can arrive</th></tr></thead>
+        <tbody>
+          <tr><td>Request body in Express</td><td><code>any</code></td><td>Any JSON, or nothing</td></tr>
+          <tr><td>Query string and route parameters</td><td><code>string</code></td><td>Always strings: <code>?page=2</code> gives <code>"2"</code></td></tr>
+          <tr><td><code>process.env.PORT</code></td><td><code>string | undefined</code></td><td>A string, or missing</td></tr>
+          <tr><td><code>JSON.parse</code>, <code>response.json()</code></td><td><code>any</code>, <code>Promise&lt;any&gt;</code></td><td>Anything another system sends</td></tr>
+          <tr><td>Database rows</td><td>The type you write on the query</td><td>The <code>pg</code> driver returns <code>numeric</code> and <code>bigint</code> columns as strings</td></tr>
+          <tr><td>Messages from a queue, <code>localStorage</code>, files</td><td><code>any</code> or <code>string</code></td><td>Data written by an older version of your app</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ways to run TypeScript</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Way</th><th>Checks types?</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>tsc</code>, then <code>node dist/server.js</code></td><td>Yes, at build time</td><td>The classic setup. The build fails on a type error.</td></tr>
+          <tr><td><code>node src/server.ts</code></td><td>No</td><td>Node.js 22.18 and later and Node.js 24 remove types and run the file. Only erasable syntax works: no <code>enum</code>, no <code>namespace</code>, no constructor parameter properties.</td></tr>
+          <tr><td><code>tsx</code>, esbuild, swc</td><td>No</td><td>Fast tools that remove types without checking them.</td></tr>
+          <tr><td><code>tsc --noEmit</code> in CI and in the editor</td><td>Yes</td><td>Needed with every tool that only removes types.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>With Node.js running <code>.ts</code> files, set <code>"erasableSyntaxOnly": true</code> in <code>tsconfig.json</code> (TypeScript 5.8 and later). The compiler then reports syntax that Node.js cannot strip.</p>
+  </section>
+
+  <section>
+    <h2>How C# differs</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>TypeScript</th><th>C#</th></tr></thead>
+        <tbody>
+          <tr><td>Types while the program runs</td><td>Gone</td><td>Kept. Every object knows its type, and reflection can read it.</td></tr>
+          <tr><td>A cast to the wrong type</td><td>No error. The wrong value continues.</td><td><code>InvalidCastException</code> at the cast</td></tr>
+          <tr><td>JSON with a string where a number is expected</td><td>Accepted, unless you validate</td><td><code>System.Text.Json</code> throws a <code>JsonException</code> by default</td></tr>
+          <tr><td>Generics</td><td>Removed</td><td>Kept: <code>List&lt;int&gt;</code> and <code>List&lt;string&gt;</code> are different types at runtime</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>C# still needs validation for rules such as "quantity must be positive", but it catches wrong types by itself. In TypeScript, a schema library does both.</p>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Request body fails validation</td><td>Route, the paths and codes of the failed fields, request ID. Not the values: they can hold personal data.</td><td>warn</td></tr>
+          <tr><td>Metric: validation failures per route</td><td>A sudden rise often means a client released a change</td><td>Alert on a large rise</td></tr>
+          <tr><td>Configuration fails validation at startup</td><td>Which variables are missing or wrong. Never their values.</td><td>fatal, then exit</td></tr>
+          <tr><td>Response from another service fails validation</td><td>Service name, endpoint, failed paths, request ID</td><td>error: the contract changed</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 400" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">At compile time, the source goes through the type checker and comes out as JavaScript without types. At runtime, Node.js runs that JavaScript. Outside data enters and either passes a schema check or is only cast with as before your code uses it.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="15" y="15" width="420" height="370" rx="10"/>
+        <text class="t-label" x="225" y="36">COMPILE TIME: TYPES EXIST</text>
+        <rect class="frame" x="475" y="15" width="430" height="370" rx="10"/>
+        <text class="t-label" x="690" y="36">RUNTIME: ONLY JAVASCRIPT</text>
+
+        <g class="node" id="n-source" tabindex="0" role="button" aria-label="Show the TypeScript source" data-title="Source: types and code" data-node="source">
+          <rect class="shape tone-teal" x="40" y="55" width="370" height="70" rx="6"/>
+          <text class="t-name" x="225" y="82">Source</text>
+          <text class="t-kind" x="225" y="100">src/orders.ts: types and code</text>
+        </g>
+        <g class="node" id="n-checker" tabindex="0" role="button" aria-label="Show the type checker output" data-title="Type checker: tsc --noEmit" data-node="checker">
+          <rect class="shape tone-teal" x="40" y="170" width="370" height="70" rx="6"/>
+          <text class="t-name" x="225" y="197">Type checker</text>
+          <text class="t-kind" x="225" y="215">reports mismatches, runs nothing</text>
+        </g>
+        <g class="node" id="n-emit" tabindex="0" role="button" aria-label="Show the JavaScript output" data-title="JavaScript output: types removed" data-node="emit">
+          <rect class="shape tone-neutral" x="40" y="290" width="370" height="70" rx="6"/>
+          <text class="t-name" x="225" y="317">JavaScript output</text>
+          <text class="t-kind" x="225" y="335">dist/orders.js: types removed</text>
+        </g>
+
+        <g class="node" id="n-runtime" tabindex="0" role="button" aria-label="Show how to run TypeScript" data-title="Node.js: running the code" data-node="runtime">
+          <rect class="shape tone-neutral" x="500" y="55" width="380" height="70" rx="6"/>
+          <text class="t-name" x="690" y="82">Node.js</text>
+          <text class="t-kind" x="690" y="100">runs JavaScript, knows no types</text>
+        </g>
+        <g class="node" id="n-input" tabindex="0" role="button" aria-label="Show outside data" data-title="Outside data: requests and environment" data-node="input">
+          <rect class="shape tone-amber" x="500" y="175" width="170" height="70" rx="6"/>
+          <text class="t-name" x="585" y="202">Outside data</text>
+          <text class="t-kind" x="585" y="220">body, env, JSON</text>
+        </g>
+        <g class="node" id="n-validate" tabindex="0" role="button" aria-label="Show the schema check" data-title="Schema check with Zod" data-node="validate">
+          <rect class="shape tone-blue" x="710" y="150" width="170" height="60" rx="6"/>
+          <text class="t-name" x="795" y="175">Schema check</text>
+          <text class="t-kind" x="795" y="193">runs while the app runs</text>
+        </g>
+        <g class="node" id="n-cast" tabindex="0" role="button" aria-label="Show a cast with as" data-title="Cast with as: no check" data-node="cast">
+          <rect class="shape tone-amber" x="710" y="230" width="170" height="60" rx="6"/>
+          <text class="t-name" x="795" y="255">Cast with as</text>
+          <text class="t-kind" x="795" y="273">checks nothing</text>
+        </g>
+        <g class="node" id="n-handler" tabindex="0" role="button" aria-label="Show the code that trusts the type" data-title="Your code: trusts the type" data-node="handler">
+          <rect class="shape tone-neutral" x="500" y="315" width="380" height="50" rx="6"/>
+          <text class="t-name" x="690" y="336">Your code</text>
+          <text class="t-kind" x="690" y="353">trusts the type</text>
+        </g>
+
+        <path class="flow" id="a-source-checker" d="M225,125 L225,168" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-checker-emit" d="M225,240 L225,288" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-emit-runtime" d="M410,325 L455,325 L455,90 L498,90" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-source-runtime" d="M410,70 L498,70" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-runtime-input" d="M585,125 L585,173" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-input-validate" d="M670,195 L708,182" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-input-cast" d="M670,225 L708,258" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-validate-handler" d="M880,180 L897,180 L897,340 L882,340" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-cast-handler" d="M795,290 L795,313" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-type-error" x="320" y="268">TS2322 BEFORE THE APP RUNS</text>
+        <text class="ghost-label" id="t-400" x="795" y="142">400: FIELD ERRORS</text>
+        <text class="ghost-label" id="t-wrong-total" x="690" y="380">25 + "4.99" = "254.99"</text>
+        <text class="ghost-label" id="t-enum" x="690" y="142">ENUM: CANNOT BE STRIPPED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="compile-error" aria-pressed="true">A type error before running</button>
+        <button type="button" data-flow="erasure" aria-pressed="false">Types are removed</button>
+        <button type="button" data-flow="cast" aria-pressed="false">Wrong data passes a cast</button>
+        <button type="button" data-flow="validate" aria-pressed="false">Validate where data enters</button>
+        <button type="button" data-flow="strip" aria-pressed="false">Node.js runs a .ts file</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="compile-error" hidden>
+        <li data-highlight="n-source">In your code, an order is created with <code>total: "12.50"</code>, a string. The <code>Order</code> type says <code>total: number</code>.</li>
+        <li data-highlight="n-source a-source-checker n-checker">The type checker compares the value with the type. It never runs the code.</li>
+        <li data-highlight="n-checker t-type-error"><code>tsc</code> reports <code>error TS2322: Type 'string' is not assignable to type 'number'.</code> with the file and line. The build stops.</li>
+        <li data-highlight="n-source">You fix the value. This mistake never reached a user, because the compiler could see the value.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="erasure" hidden>
+        <li data-highlight="n-source">The source has a type <code>Order</code>, a function with annotated parameters, and a union type for the status.</li>
+        <li data-highlight="n-source a-source-checker n-checker a-checker-emit n-emit">After checking, <code>tsc</code> writes <code>dist/orders.js</code>. The <code>type</code> line is gone, and so are all the annotations.</li>
+        <li data-highlight="n-emit a-emit-runtime n-runtime">Node.js runs the JavaScript. Nothing in it says that <code>total</code> must be a number.</li>
+        <li data-highlight="n-runtime">That is why code such as <code>if (value instanceof Order)</code> cannot work for a type: there is no <code>Order</code> at runtime.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="cast" hidden>
+        <li data-highlight="n-runtime a-runtime-input n-input">A client sends an order with <code>"shippingFee": "4.99"</code>. The fee is a string, not a number.</li>
+        <li data-highlight="n-input a-input-cast n-cast">The handler writes <code>const order = req.body as NewOrder</code>. The compiler accepts it, and at runtime the line does nothing.</li>
+        <li data-highlight="n-cast a-cast-handler n-handler t-wrong-total">The items cost 25, and the code adds the fee with <code>+</code>. With a string, <code>+</code> joins text: <code>25 + "4.99"</code> is <code>"254.99"</code>. No error is thrown.</li>
+        <li data-highlight="n-handler">The wrong total is saved, or a later line throws with a message far from the cause. The type said <code>number</code> the whole time.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="validate" hidden>
+        <li data-highlight="n-runtime a-runtime-input n-input">The same request arrives, with the fee as a string.</li>
+        <li data-highlight="n-input a-input-validate n-validate">The handler calls <code>NewOrderSchema.safeParse(req.body)</code>. This code runs and checks each field.</li>
+        <li data-highlight="n-validate t-400">The check fails on <code>shippingFee</code>: expected a number, got a string. The API answers 400 with those paths, and logs them at warn with the request ID.</li>
+        <li data-highlight="n-validate a-validate-handler n-handler">For a correct body, <code>safeParse</code> returns the data with the type <code>NewOrder</code>, which Zod derives from the schema. From here the type is true.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="strip" hidden>
+        <li data-highlight="n-source a-source-runtime n-runtime">You run <code>node src/server.ts</code> on Node.js 24. Node.js replaces each type annotation with spaces and runs the rest.</li>
+        <li data-highlight="n-runtime">No type checking happens. A type error in the file does not stop it from running.</li>
+        <li data-highlight="n-runtime t-enum">The file has an <code>enum</code>, which needs generated JavaScript. Node.js stops: <code>TypeScript enum is not supported in strip-only mode</code>.</li>
+        <li data-highlight="n-checker n-source">Use a union of strings instead, set <code>erasableSyntaxOnly</code> so the compiler warns earlier, and keep <code>tsc --noEmit</code> in CI.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Type checking</span>
+      <span class="chip tone-neutral">JavaScript</span>
+      <span class="chip tone-amber">Unchecked data</span>
+      <span class="chip tone-blue">Runtime check</span>
+      <span>Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">orders-api/</div>
+      <button type="button" class="tree-row" data-file="src/orders.ts"><span class="path">├─ src/orders.ts</span><span class="chip tone-teal">Source</span></button>
+      <button type="button" class="tree-row" data-file="tsc-output.txt"><span class="path">├─ tsc-output.txt</span><span class="chip tone-teal">Checker</span></button>
+      <button type="button" class="tree-row" data-file="dist/orders.js"><span class="path">├─ dist/orders.js</span><span class="chip tone-neutral">Output</span></button>
+      <button type="button" class="tree-row" data-file="package.json"><span class="path">├─ package.json</span><span class="chip tone-neutral">Running</span></button>
+      <button type="button" class="tree-row" data-file="requests.http"><span class="path">├─ requests.http</span><span class="chip tone-amber">Outside data</span></button>
+      <button type="button" class="tree-row" data-file="src/config.ts"><span class="path">├─ src/config.ts</span><span class="chip tone-amber">Outside data</span></button>
+      <button type="button" class="tree-row" data-file="src/create-order-unsafe.ts"><span class="path">├─ src/create-order-unsafe.ts</span><span class="chip tone-amber">Cast</span></button>
+      <button type="button" class="tree-row" data-file="src/order-schema.ts"><span class="path">├─ src/order-schema.ts</span><span class="chip tone-blue">Schema</span></button>
+      <button type="button" class="tree-row" data-file="src/create-order.ts"><span class="path">├─ src/create-order.ts</span><span class="chip tone-blue">Schema</span></button>
+      <button type="button" class="tree-row" data-file="src/order-total.ts"><span class="path">└─ src/order-total.ts</span><span class="chip tone-neutral">Your code</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Mistakes found only in production</strong><span>Wrong property names, missing arguments and wrong types fail the build instead.</span></li>
+        <li><strong>Unclear function contracts</strong><span>Parameter and return types show what a function expects and gives back.</span></li>
+        <li><strong>Risky renames</strong><span>The editor renames a property everywhere it is used, and the compiler reports what it missed.</span></li>
+        <li><strong>No cost at runtime</strong><span>Types are removed, so the program is exactly as fast as plain JavaScript.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>False confidence about outside data</strong><span>A type on a request body looks safe but checks nothing at runtime.</span></li>
+        <li><strong>Escape hatches</strong><span><code>any</code>, <code>as</code> and <code>!</code> silence the compiler, and errors return at runtime.</span></li>
+        <li><strong>Two definitions of one shape</strong><span>Without a schema library you write the type and the validation separately, and they drift apart.</span></li>
+        <li><strong>A build step</strong><span>Code needs <code>tsc</code> or a tool that strips types, and type checking needs its own step in CI.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="source">
+      <div class="file-head"><span class="chip tone-teal">Source</span><span class="name">src/orders.ts</span><span class="why">The status is a union of strings, not an <code>enum</code>, so the file contains only erasable syntax. The last line has the mistake from the first flow: the compiler sees the literal value and reports it.</span></div>
+<pre><code>export type OrderStatus = "pending" | "paid";
+
+export type Order = {
+  id: string;
+  total: number;
+  status: OrderStatus;
+};
+
+export function addShipping(order: Order): number {
+  return order.total + 4.99;
+}
+
+const order: Order = { id: "o-1", total: "12.50", status: "paid" };</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="validate">
+      <div class="file-head"><span class="chip tone-blue">Schema</span><span class="name">src/order-schema.ts</span><span class="why">One definition gives both the runtime check and the type. <code>z.infer</code> turns the schema into a TypeScript type, so the two cannot drift apart. Examples use Zod 4.</span></div>
+<pre><code>import { z } from "zod";
+
+export const NewOrderSchema = z.object({
+  customerId: z.string().min(1),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().min(1),
+        quantity: z.number().int().positive(),
+        unitPrice: z.number().nonnegative(),
+      }),
+    )
+    .min(1),
+  shippingFee: z.number().nonnegative(),
+});
+
+export type NewOrder = z.infer&lt;typeof NewOrderSchema&gt;;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="validate">
+      <div class="file-head"><span class="chip tone-blue">Schema</span><span class="name">src/create-order.ts</span><span class="why"><code>safeParse</code> returns a result instead of throwing. Failed fields are logged by path and error code, with the request ID that <code>req.log</code>, from pino-http, carries. The values are not logged, because they can hold personal data. After the check, <code>result.data</code> has the type <code>NewOrder</code>.</span></div>
+<pre><code>import type { Request, Response } from "express";
+import { NewOrderSchema } from "./order-schema.js";
+import { orderTotal } from "./order-total.js";
+
+export function createOrder(req: Request, res: Response) {
+  const result = NewOrderSchema.safeParse(req.body);
+  if (!result.success) {
+    const failedFields = result.error.issues.map((issue) =&gt; ({
+      path: issue.path.map(String).join("."),
+      code: issue.code,
+    }));
+    req.log.warn({ route: "POST /orders", failedFields }, "request body failed validation");
+    return res.status(400).json({ errors: failedFields });
+  }
+
+  const total = orderTotal(result.data);
+  res.status(201).json({ total });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="cast">
+      <div class="file-head"><span class="chip tone-amber">Cast</span><span class="name">src/create-order-unsafe.ts</span><span class="why">The version to avoid. <code>req.body</code> is <code>any</code>, and <code>as NewOrder</code> only tells the compiler to believe it. With the first request from <code>requests.http</code>, <code>orderTotal</code> returns the string <code>"254.99"</code> instead of the number 29.99, and no error is thrown.</span></div>
+<pre><code>import type { Request, Response } from "express";
+import type { NewOrder } from "./order-schema.js";
+import { orderTotal } from "./order-total.js";
+
+export function createOrderUnsafe(req: Request, res: Response) {
+  const order = req.body as NewOrder;
+  const total = orderTotal(order);
+  res.status(201).json({ total });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="handler">
+      <div class="file-head"><span class="chip tone-neutral">Your code</span><span class="name">src/order-total.ts</span><span class="why">This function is correct for every value that matches <code>NewOrder</code>. It has no reason to check types again. It is only safe because every caller passes data that went through the schema.</span></div>
+<pre><code>import type { NewOrder } from "./order-schema.js";
+
+export function orderTotal(order: NewOrder): number {
+  const itemsTotal = order.items.reduce((total, item) =&gt; total + item.quantity * item.unitPrice, 0);
+  return itemsTotal + order.shippingFee;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="input">
+      <div class="file-head"><span class="chip tone-amber">Outside data</span><span class="name">src/config.ts</span><span class="why">Environment variables are outside data too. <code>z.coerce.number()</code> turns <code>"3000"</code> into <code>3000</code>. If a variable is missing or wrong, the app logs which ones and exits at startup, instead of failing later on the first request. The values are never logged, since some are secrets.</span></div>
+<pre><code>import { z } from "zod";
+import pino from "pino";
+
+const ConfigSchema = z.object({
+  PORT: z.coerce.number().int().default(3000),
+  DATABASE_URL: z.string().url(),
+  NODE_ENV: z.enum(["development", "test", "production"]),
+});
+
+const result = ConfigSchema.safeParse(process.env);
+if (!result.success) {
+  const invalidVariables = result.error.issues.map((issue) =&gt; issue.path.map(String).join("."));
+  pino().fatal({ invalidVariables }, "configuration is invalid, exiting");
+  process.exit(1);
+}
+
+export const config = result.data;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="emit">
+      <div class="file-head"><span class="chip tone-neutral">Output</span><span class="name">dist/orders.js</span><span class="why">What <code>tsc</code> writes for <code>src/orders.ts</code> once the mistake is fixed. Both type definitions are gone. The parameter <code>order</code> has no type: this function accepts anything.</span></div>
+<pre><code>export function addShipping(order) {
+    return order.total + 4.99;
+}
+const order = { id: "o-1", total: 12.5, status: "paid" };</code></pre>
+    </div>
+  </div>
+
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="runtime">
+      <div class="file-head"><span class="chip tone-neutral">Running</span><span class="name">package.json</span><span class="why"><code>dev</code> runs the source directly on Node.js 24, without type checking. <code>typecheck</code> is the type check, run in CI and before each commit. <code>build</code> and <code>start</code> are the compiled setup.</span></div>
+<pre><code>{
+  "name": "orders-api",
+  "type": "module",
+  "engines": { "node": "&gt;=24" },
+  "scripts": {
+    "dev": "node --watch src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-none">
+    <div class="file" data-lang="any" data-node="checker">
+      <div class="file-head"><span class="chip tone-teal">Checker</span><span class="name">tsc-output.txt</span><span class="why">Real output from <code>tsc --noEmit</code> for <code>src/orders.ts</code>. File, line and column, the error code, and the message. The second error comes from a file with an <code>enum</code> when <code>erasableSyntaxOnly</code> is on.</span></div>
+<pre><code>$ npx tsc --noEmit
+src/orders.ts(13,35): error TS2322: Type 'string' is not assignable to type 'number'.
+src/status.ts(1,6): error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.
+
+Found 2 errors in 2 files.</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="input">
+      <div class="file-head"><span class="chip tone-amber">Outside data</span><span class="name">requests.http</span><span class="why">Two requests for an editor's HTTP client. The first sends the fee as a string, which a client can do after reading it from a form field. TypeScript cannot see this request.</span></div>
+<pre><code>POST http://localhost:3000/orders
+Content-Type: application/json
+
+{ "customerId": "c-42", "items": [{ "productId": "p-7", "quantity": 2, "unitPrice": 12.5 }], "shippingFee": "4.99" }
+
+###
+
+POST http://localhost:3000/orders
+Content-Type: application/json
+
+{ "customerId": "c-42", "items": [{ "productId": "p-7", "quantity": 2, "unitPrice": 12.5 }], "shippingFee": 4.99 }</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

@@ -44,6 +44,14 @@ What each category covers: [javascript/README.md](javascript/README.md)
 | Fastify | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/fastify/) | [index.html](javascript/web/fastify/index.html) |
 | CommonJS and ES Modules | Modules | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/modules/commonjs-and-es-modules/) | [index.html](javascript/modules/commonjs-and-es-modules/index.html) |
 
+## TypeScript
+
+What each category covers: [typescript/README.md](typescript/README.md)
+
+| Topic | Category | Page | Source |
+|---|---|---|---|
+| Compile Time and Runtime | Compiling | [open](https://hermanyhho.github.io/dev-knowledgebase/typescript/compiling/compile-time-and-runtime/) | [index.html](typescript/compiling/compile-time-and-runtime/index.html) |
+
 ## .NET
 
 What each category covers: [dotnet/README.md](dotnet/README.md)
