@@ -410,4 +410,8 @@ window.glossaryTerms = [
   { forms: ["inherits", "inheritance"], definition: "A class taking the members of another class, its base class, so it can be used wherever the base class is expected." },
   { forms: ["pattern matching"], definition: "In C#, checking a value's type or shape in an is expression or switch, and assigning it to a typed variable in the same step." },
   { forms: ["switch expression"], definition: "C# syntax that returns a value from the first matching pattern: result switch { Paid p => ..., _ => ... }." },
+  { forms: ["source generators", "source generator"], definition: "C# code that runs during the build and adds more C# code to the project, for example classes created from a schema." },
+  { forms: ["DTO", "DTOs"], definition: "Data transfer object: a class or type that only carries data between layers or over the network, with no behaviour." },
+  { forms: ["lib.es5.d.ts"], definition: "A declaration file that ships with TypeScript and describes the built-in JavaScript objects and utility types." },
+  { forms: ["signature", "signatures"], definition: "A function's name, parameter types and return type, without its body." },
 ];

@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generics and Utility Types</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">TypeScript</a> / Type system</div>
+    <h1>Generics and Utility Types</h1>
+    <p class="aka">Writing a function or type once for many types, and building new types from existing ones.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A <strong>generic</strong> function has a type parameter, written in angle brackets: <code>findById&lt;T&gt;(items: T[], id: string): T | undefined</code>. When you call it with a list of orders, the compiler sets <code>T</code> to <code>Order</code>, and the result is <code>Order | undefined</code>. The same function works for customers, products or anything else, and the link between what goes in and what comes out is kept.</p>
+    <p>A <strong>constraint</strong> limits what <code>T</code> can be. <code>T extends { id: string }</code> means: any type, as long as it has a string <code>id</code>. Inside the function you can then read <code>item.id</code>.</p>
+    <p><strong>Utility types</strong> are generic types that ship with TypeScript and build a new type from another. <code>Omit&lt;Order, "id"&gt;</code> is an order without its ID, which is what a create request contains. Deriving types this way keeps them in step when <code>Order</code> changes.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Type parameter</span></td><td>A placeholder for a type, filled in at each use.</td><td><code>T</code> in <code>findById&lt;T&gt;</code></td></tr>
+          <tr><td><span class="chip tone-teal">Type argument</span></td><td>The type used for the parameter at one call. Usually inferred.</td><td><code>Order</code></td></tr>
+          <tr><td><span class="chip tone-teal">Inference</span></td><td>The compiler working out a type from the values you pass, so you do not write it.</td><td><code>findById(orders, "o-1")</code></td></tr>
+          <tr><td><span class="chip tone-amber">Constraint</span></td><td><code>T extends X</code>: the type argument must fit <code>X</code>.</td><td><code>T extends { id: string }</code></td></tr>
+          <tr><td><span class="chip tone-amber"><code>keyof</code></span></td><td>The union of a type's property names.</td><td><code>keyof Order</code> is <code>"id" | "status" | ...</code></td></tr>
+          <tr><td><span class="chip tone-amber">Indexed access type</span></td><td><code>T[K]</code>: the type of property <code>K</code> of <code>T</code>.</td><td><code>Order["status"]</code></td></tr>
+          <tr><td><span class="chip tone-blue">Mapped type</span></td><td>A type that goes over each property of another type and changes it.</td><td><code>Partial&lt;T&gt;</code></td></tr>
+          <tr><td><span class="chip tone-blue">Conditional type</span></td><td><code>A extends B ? X : Y</code>: a type chosen by a test on types.</td><td><code>ReturnType&lt;F&gt;</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> use a type parameter only when the output type depends on the input type. Derive related types from one source type instead of writing them again.</div>
+  </section>
+
+  <section>
+    <h2>Utility types you will use most</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Utility type</th><th>Result</th><th>Typical use</th></tr></thead>
+        <tbody>
+          <tr><td><code>Partial&lt;T&gt;</code></td><td>Every property optional</td><td>A patch request that changes some fields</td></tr>
+          <tr><td><code>Required&lt;T&gt;</code></td><td>Every property required</td><td>Settings after defaults are filled in</td></tr>
+          <tr><td><code>Readonly&lt;T&gt;</code></td><td>Every property read-only, one level deep</td><td>Values that must not be changed after creation</td></tr>
+          <tr><td><code>Pick&lt;T, K&gt;</code></td><td>Only the listed properties</td><td>A summary shown in a list</td></tr>
+          <tr><td><code>Omit&lt;T, K&gt;</code></td><td>All properties except the listed ones</td><td>A create request without <code>id</code> and <code>createdAt</code></td></tr>
+          <tr><td><code>Record&lt;K, V&gt;</code></td><td>An object with a property for every key in <code>K</code></td><td>A label for every status, checked for completeness</td></tr>
+          <tr><td><code>ReturnType&lt;F&gt;</code></td><td>The return type of a function type</td><td>The type of a config object built by a function</td></tr>
+          <tr><td><code>Awaited&lt;T&gt;</code></td><td>The value a promise resolves to</td><td><code>Awaited&lt;ReturnType&lt;typeof loadOrders&gt;&gt;</code></td></tr>
+          <tr><td><code>NonNullable&lt;T&gt;</code></td><td><code>T</code> without <code>null</code> and <code>undefined</code></td><td>After a check that the value exists</td></tr>
+          <tr><td><code>Exclude&lt;T, U&gt;</code>, <code>Extract&lt;T, U&gt;</code></td><td>Union members that do not fit, or fit, <code>U</code></td><td><code>Exclude&lt;OrderStatus, "pending"&gt;</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How the built-in types are written</h2>
+    <p>Utility types are ordinary TypeScript, defined in <code>lib.es5.d.ts</code>. Reading them explains mapped and conditional types.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Type</th><th>Definition</th><th>How to read it</th></tr></thead>
+        <tbody>
+          <tr><td><code>Partial</code></td><td><code>{ [P in keyof T]?: T[P] }</code></td><td>For each property name <code>P</code> of <code>T</code>, an optional property with the same type</td></tr>
+          <tr><td><code>Pick</code></td><td><code>{ [P in K]: T[P] }</code> with <code>K extends keyof T</code></td><td>Only the names in <code>K</code>, which must be names of <code>T</code></td></tr>
+          <tr><td><code>Exclude</code></td><td><code>T extends U ? never : T</code></td><td>Applied to each union member: drop it if it fits <code>U</code></td></tr>
+          <tr><td><code>ReturnType</code></td><td><code>T extends (...args: any) =&gt; infer R ? R : any</code></td><td>If <code>T</code> is a function, capture its return type as <code>R</code></td></tr>
+          <tr><td><code>NonNullable</code></td><td><code>T &amp; {}</code></td><td><code>{}</code> is every value except <code>null</code> and <code>undefined</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>When not to use a generic</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Sign</th><th>Problem</th><th>Instead</th></tr></thead>
+        <tbody>
+          <tr><td><code>T</code> appears only once, in one parameter</td><td>It links nothing</td><td><code>unknown</code> or the concrete type</td></tr>
+          <tr><td>The function is only called with one type</td><td>Harder to read for no gain</td><td>The concrete type. Add the generic when a second type needs it.</td></tr>
+          <tr><td>A generic return type that the caller chooses: <code>parse&lt;T&gt;(json: string): T</code></td><td>The same as a cast: nothing checks <code>T</code></td><td>Return <code>unknown</code>, or take a schema and return its type</td></tr>
+          <tr><td>Conditional types several levels deep</td><td>Error messages become pages long</td><td>Simpler types, even if some repeat</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How C# differs</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>TypeScript</th><th>C#</th></tr></thead>
+        <tbody>
+          <tr><td>Constraints</td><td><code>T extends { id: string }</code>, any shape</td><td><code>where T : IEntity, new()</code>: interfaces, base classes, <code>class</code>, <code>struct</code>, a constructor</td></tr>
+          <tr><td>Type argument at runtime</td><td>Gone</td><td>Kept. <code>typeof(T)</code> works inside the method.</td></tr>
+          <tr><td>Building types from types</td><td>Mapped and conditional types, <code>keyof</code></td><td>Not available. Source generators or separate DTO classes instead.</td></tr>
+          <tr><td>Inference</td><td>From arguments and from the expected type</td><td>From method arguments only</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <p>A generic helper is a common way to add logging to every operation once, without losing each operation's return type.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Generic timing wrapper, success</td><td>Operation name, duration, request ID. Not the result: the wrapper does not know what <code>T</code> contains, and it may hold personal data.</td><td>debug, or info for slow operations</td></tr>
+          <tr><td>Generic timing wrapper, failure</td><td>Operation name, duration, <code>outcome: "failed"</code>, request ID. Then rethrow. The caller that handles the error logs it, once.</td><td>debug</td></tr>
+          <tr><td>Metric: duration per operation name</td><td>From the same wrapper</td><td>Alert on p95 over the target</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 400" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">On the left, a call to the generic function findById: the compiler infers T from the argument, checks the constraint, and gives back T or undefined. On the right, four types are derived from the Order type with Omit, Partial and Pick, Record, and Awaited with ReturnType.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="10" y="10" width="300" height="380" rx="10"/>
+        <text class="t-label" x="160" y="30">A GENERIC FUNCTION</text>
+        <rect class="frame" x="340" y="10" width="570" height="380" rx="10"/>
+        <text class="t-label" x="625" y="30">TYPES DERIVED FROM ONE SOURCE</text>
+
+        <g class="node" id="n-call" tabindex="0" role="button" aria-label="Show the generic function" data-title="Call: findById" data-node="call">
+          <rect class="shape tone-neutral" x="30" y="45" width="260" height="70" rx="6"/>
+          <text class="t-name" x="160" y="70">Call</text>
+          <text class="t-item" x="160" y="92">findById(orders, "o-1")</text>
+        </g>
+        <g class="node" id="n-infer" tabindex="0" role="button" aria-label="Show inference examples" data-title="Inference: T = Order" data-node="infer">
+          <rect class="shape tone-teal" x="30" y="160" width="260" height="70" rx="6"/>
+          <text class="t-name" x="160" y="185">Inference</text>
+          <text class="t-item" x="160" y="207">T = Order</text>
+        </g>
+        <g class="node" id="n-constraint" tabindex="0" role="button" aria-label="Show constraints" data-title="Constraint: T extends { id: string }" data-node="constraint">
+          <rect class="shape tone-amber" x="30" y="275" width="260" height="90" rx="6"/>
+          <text class="t-name" x="160" y="300">Constraint</text>
+          <text class="t-item" x="160" y="322">T extends { id: string }</text>
+          <text class="t-kind" x="160" y="342">result: Order | undefined</text>
+        </g>
+
+        <g class="node" id="n-order" tabindex="0" role="button" aria-label="Show the Order type" data-title="Order: the source type" data-node="order">
+          <rect class="shape tone-blue" x="500" y="45" width="250" height="80" rx="6"/>
+          <text class="t-name" x="625" y="70">Order</text>
+          <text class="t-item" x="625" y="92">id, customerId, status,</text>
+          <text class="t-item" x="625" y="110">total, createdAt</text>
+        </g>
+        <g class="node" id="n-omit" tabindex="0" role="button" aria-label="Show the create request type" data-title="NewOrder: Omit" data-node="omit">
+          <rect class="shape tone-blue" x="360" y="175" width="260" height="80" rx="6"/>
+          <text class="t-name" x="490" y="198">NewOrder</text>
+          <text class="t-item" x="490" y="220">Omit&lt;Order,</text>
+          <text class="t-item" x="490" y="238">"id" | "createdAt"&gt;</text>
+        </g>
+        <g class="node" id="n-partial" tabindex="0" role="button" aria-label="Show the patch type and how Partial is written" data-title="OrderPatch: Partial and Pick" data-node="partial">
+          <rect class="shape tone-blue" x="635" y="175" width="260" height="80" rx="6"/>
+          <text class="t-name" x="765" y="198">OrderPatch</text>
+          <text class="t-item" x="765" y="220">Partial&lt;Pick&lt;Order,</text>
+          <text class="t-item" x="765" y="238">"status" | "total"&gt;&gt;</text>
+        </g>
+        <g class="node" id="n-record" tabindex="0" role="button" aria-label="Show the status labels" data-title="Status labels: Record" data-node="record">
+          <rect class="shape tone-blue" x="360" y="290" width="260" height="80" rx="6"/>
+          <text class="t-name" x="490" y="313">statusLabels</text>
+          <text class="t-item" x="490" y="335">Record&lt;OrderStatus,</text>
+          <text class="t-item" x="490" y="353">string&gt;</text>
+        </g>
+        <g class="node" id="n-awaited" tabindex="0" role="button" aria-label="Show ReturnType, Awaited and a generic logging wrapper" data-title="LoadedOrders: Awaited and ReturnType" data-node="awaited">
+          <rect class="shape tone-blue" x="635" y="290" width="260" height="80" rx="6"/>
+          <text class="t-name" x="765" y="313">LoadedOrders</text>
+          <text class="t-item" x="765" y="335">Awaited&lt;ReturnType&lt;</text>
+          <text class="t-item" x="765" y="353">typeof loadOrders&gt;&gt;</text>
+        </g>
+
+        <path class="flow" id="a-call-infer" d="M160,115 L160,158" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-infer-constraint" d="M160,230 L160,273" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-constraint-call" d="M290,320 L300,320 L300,80 L292,80" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-omit" d="M560,125 L500,173" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-partial" d="M690,125 L750,173" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-record" d="M520,125 L420,150 L420,288" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-awaited" d="M730,125 L860,150 L860,288" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-order-call" d="M500,85 L320,85 L320,100 L292,100" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-number" x="160" y="262">number[]: NO id, TS2322</text>
+        <text class="ghost-label" id="t-missing" x="490" y="385">MISSING "shipped": TS2741</text>
+        <text class="ghost-label" id="t-new-field" x="625" y="150">NEW FIELD: DERIVED TYPES UPDATE</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="infer" aria-pressed="true">Call a generic function</button>
+        <button type="button" data-flow="constraint" aria-pressed="false">Break the constraint</button>
+        <button type="button" data-flow="derive" aria-pressed="false">Add a field to Order</button>
+        <button type="button" data-flow="record" aria-pressed="false">Add a status</button>
+        <button type="button" data-flow="awaited" aria-pressed="false">Type of a function's result</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="infer" hidden>
+        <li data-highlight="n-order a-order-call n-call">You call <code>findById(orders, "o-1")</code>, where <code>orders</code> is an <code>Order[]</code>. You do not write a type argument.</li>
+        <li data-highlight="n-call a-call-infer n-infer">The parameter is <code>items: T[]</code> and the argument is <code>Order[]</code>, so the compiler infers <code>T = Order</code>.</li>
+        <li data-highlight="n-infer a-infer-constraint n-constraint">It checks the constraint: <code>Order</code> has <code>id: string</code>, so it fits <code>{ id: string }</code>.</li>
+        <li data-highlight="n-constraint a-constraint-call n-call">The return type <code>T | undefined</code> becomes <code>Order | undefined</code>. The caller must check for <code>undefined</code>, then has a full <code>Order</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="constraint" hidden>
+        <li data-highlight="n-call">Someone calls <code>findById([10, 20], "o-1")</code>.</li>
+        <li data-highlight="n-call a-call-infer n-infer">The compiler tries <code>T</code> from the list of numbers.</li>
+        <li data-highlight="n-infer a-infer-constraint n-constraint t-number">A number has no <code>id</code>. The call fails: <code>TS2322: Type 'number' is not assignable to type '{ id: string; }'</code>.</li>
+        <li data-highlight="n-constraint">Without the constraint, <code>item.id</code> inside the function would not compile, because <code>T</code> could be anything.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="derive" hidden>
+        <li data-highlight="n-order t-new-field">You add <code>currency: string</code> to <code>Order</code>.</li>
+        <li data-highlight="n-order a-order-omit n-omit"><code>NewOrder</code> is <code>Order</code> minus two fields, so it now requires <code>currency</code> too. Every place that creates an order without one fails to compile.</li>
+        <li data-highlight="n-order a-order-partial n-partial"><code>OrderPatch</code> picks only <code>status</code> and <code>total</code>, so it does not change. Patching the currency is not allowed until you add it there.</li>
+        <li data-highlight="n-omit n-partial">If the request types had been written out by hand, they would have missed the new field without any error.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="record" hidden>
+        <li data-highlight="n-order">The status union gets a third member: <code>"shipped"</code>.</li>
+        <li data-highlight="n-order a-order-record n-record"><code>statusLabels</code> has the type <code>Record&lt;OrderStatus, string&gt;</code>: it must have a property for every status.</li>
+        <li data-highlight="n-record t-missing">It has labels for <code>pending</code> and <code>paid</code> only. The compiler reports <code>TS2741: Property 'shipped' is missing</code>.</li>
+        <li data-highlight="n-record">You add the label. A plain object type such as <code>{ [status: string]: string }</code> would not have noticed.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="awaited" hidden>
+        <li data-highlight="n-awaited"><code>loadOrders</code> is an <code>async</code> function. Its return type is inferred, and nobody wrote it down.</li>
+        <li data-highlight="n-order a-order-awaited n-awaited"><code>ReturnType&lt;typeof loadOrders&gt;</code> gives <code>Promise&lt;Order[]&gt;</code>. <code>Awaited</code> removes the promise: <code>Order[]</code>.</li>
+        <li data-highlight="n-awaited">A cache or a test can now use <code>LoadedOrders</code>, and it follows any change to <code>loadOrders</code>.</li>
+        <li data-highlight="n-awaited">The same file shows <code>withTiming&lt;T&gt;</code>: a generic wrapper that logs the duration of any async operation and returns its result with the original type.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Call</span>
+      <span class="chip tone-teal">Inference</span>
+      <span class="chip tone-amber">Constraint</span>
+      <span class="chip tone-blue">Types</span>
+      <span>Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">orders-api/</div>
+      <button type="button" class="tree-row" data-file="src/order.ts"><span class="path">├─ src/order.ts</span><span class="chip tone-blue">Source type</span></button>
+      <button type="button" class="tree-row" data-file="src/find-by-id.ts"><span class="path">├─ src/find-by-id.ts</span><span class="chip tone-neutral">Generic function</span></button>
+      <button type="button" class="tree-row" data-file="src/inference-examples.ts"><span class="path">├─ src/inference-examples.ts</span><span class="chip tone-teal">Inference</span></button>
+      <button type="button" class="tree-row" data-file="src/constraints.ts"><span class="path">├─ src/constraints.ts</span><span class="chip tone-amber">Constraint</span></button>
+      <button type="button" class="tree-row" data-file="src/order-requests.ts"><span class="path">├─ src/order-requests.ts</span><span class="chip tone-blue">Derived</span></button>
+      <button type="button" class="tree-row" data-file="src/how-utility-types-are-written.ts"><span class="path">├─ src/how-utility-types-are-written.ts</span><span class="chip tone-blue">Derived</span></button>
+      <button type="button" class="tree-row" data-file="src/status-labels.ts"><span class="path">├─ src/status-labels.ts</span><span class="chip tone-blue">Derived</span></button>
+      <button type="button" class="tree-row" data-file="src/with-timing.ts"><span class="path">└─ src/with-timing.ts</span><span class="chip tone-blue">Derived</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>The same code for each type</strong><span>One generic function or class replaces copies for orders, customers and products.</span></li>
+        <li><strong>Losing the type through a helper</strong><span>A generic helper returns the same type it received, instead of <code>any</code>.</span></li>
+        <li><strong>Types that drift apart</strong><span>Request, patch and summary types derived from one source change with it.</span></li>
+        <li><strong>Incomplete maps</strong><span><code>Record</code> over a union fails the build when a key is missing.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Harder to read</strong><span>Signatures with several type parameters and constraints take time to understand.</span></li>
+        <li><strong>Long error messages</strong><span>Errors inside derived and conditional types can span many lines.</span></li>
+        <li><strong>False safety</strong><span>A generic return type the caller picks, such as <code>parse&lt;T&gt;()</code>, checks nothing.</span></li>
+        <li><strong>Nothing at runtime</strong><span>Code cannot read <code>T</code>, so it cannot create or check a <code>T</code> by itself.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="order">
+      <div class="file-head"><span class="chip tone-blue">Source type</span><span class="name">src/order.ts</span><span class="why">The one place where the shape of an order is written. Every other order type on this page is derived from it.</span></div>
+<pre><code>export type OrderStatus = "pending" | "paid" | "shipped";
+
+export type Order = {
+  id: string;
+  customerId: string;
+  status: OrderStatus;
+  total: number;
+  createdAt: Date;
+};</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="call">
+      <div class="file-head"><span class="chip tone-neutral">Generic function</span><span class="name">src/find-by-id.ts</span><span class="why"><code>T</code> appears in the parameter and in the return type, which is why it is generic: the result has the same type as the list items. The constraint makes <code>item.id</code> allowed.</span></div>
+<pre><code>import type { Order } from "./order.js";
+
+export function findById&lt;T extends { id: string }&gt;(items: T[], id: string): T | undefined {
+  return items.find((item) =&gt; item.id === id);
+}
+
+declare const orders: Order[];
+
+const order = findById(orders, "o-1");
+if (order) {
+  console.log(order.status, order.total);
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="infer">
+      <div class="file-head"><span class="chip tone-teal">Inference</span><span class="name">src/inference-examples.ts</span><span class="why">Hover over each variable in an editor to see the inferred type. The explicit type argument is rarely needed, mostly when the compiler cannot infer it, such as an empty array. <code>pairWith</code> infers two parameters at once.</span></div>
+<pre><code>import type { Order } from "./order.js";
+import { findById } from "./find-by-id.js";
+
+declare const orders: Order[];
+
+const inferred = findById(orders, "o-1");
+const explicit = findById&lt;Order&gt;([], "o-1");
+
+function pairWith&lt;First, Second&gt;(first: First, second: Second): [First, Second] {
+  return [first, second];
+}
+
+const pair = pairWith("o-1", 42);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="constraint">
+      <div class="file-head"><span class="chip tone-amber">Constraint</span><span class="name">src/constraints.ts</span><span class="why">The first call fails because a number has no <code>id</code>. <code>K extends keyof T</code> allows only real property names, so a typo such as <code>"totl"</code> fails with <code>TS2345: Argument of type '"totl"' is not assignable to parameter of type '"id" | "total"'</code>. The return type <code>T[K]</code> is the type of that property.</span></div>
+<pre><code>import { findById } from "./find-by-id.js";
+
+findById([10, 20], "o-1");
+
+function getProperty&lt;T, K extends keyof T&gt;(object: T, key: K): T[K] {
+  return object[key];
+}
+
+const order = { id: "o-1", total: 10 };
+const total = getProperty(order, "total");
+const typo = getProperty(order, "totl");</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="omit">
+      <div class="file-head"><span class="chip tone-blue">Derived</span><span class="name">src/order-requests.ts</span><span class="why">The create request is an order without the fields the server sets. The patch allows changing only status and total, each optional. The list summary picks three fields. All three change when <code>Order</code> changes.</span></div>
+<pre><code>import type { Order } from "./order.js";
+
+export type NewOrder = Omit&lt;Order, "id" | "createdAt"&gt;;
+
+export type OrderPatch = Partial&lt;Pick&lt;Order, "status" | "total"&gt;&gt;;
+
+export type OrderSummary = Pick&lt;Order, "id" | "status" | "total"&gt;;
+
+export type ShippableStatus = Exclude&lt;Order["status"], "pending"&gt;;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="partial">
+      <div class="file-head"><span class="chip tone-blue">Derived</span><span class="name">src/how-utility-types-are-written.ts</span><span class="why">Copies of the built-in definitions, with a <code>My</code> prefix so they do not clash. A mapped type goes over property names with <code>in keyof</code>. A conditional type tests with <code>extends</code>, and <code>infer</code> captures a part of the type being tested.</span></div>
+<pre><code>type MyPartial&lt;T&gt; = { [P in keyof T]?: T[P] };
+
+type MyReadonly&lt;T&gt; = { readonly [P in keyof T]: T[P] };
+
+type MyPick&lt;T, K extends keyof T&gt; = { [P in K]: T[P] };
+
+type MyRecord&lt;K extends keyof any, V&gt; = { [P in K]: V };
+
+type MyExclude&lt;T, U&gt; = T extends U ? never : T;
+
+type MyOmit&lt;T, K extends keyof any&gt; = MyPick&lt;T, MyExclude&lt;keyof T, K&gt;&gt;;
+
+type MyReturnType&lt;T extends (...args: any) =&gt; any&gt; = T extends (...args: any) =&gt; infer R ? R : any;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="record">
+      <div class="file-head"><span class="chip tone-blue">Derived</span><span class="name">src/status-labels.ts</span><span class="why"><code>Record&lt;OrderStatus, string&gt;</code> requires one property per status. With <code>"shipped"</code> in the union and no label for it, the build fails with <code>TS2741: Property 'shipped' is missing in type '{ pending: string; paid: string; }' but required in type 'Record&lt;OrderStatus, string&gt;'</code>.</span></div>
+<pre><code>import type { OrderStatus } from "./order.js";
+
+export const statusLabels: Record&lt;OrderStatus, string&gt; = {
+  pending: "Waiting for payment",
+  paid: "Paid",
+  shipped: "On its way",
+};</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="awaited">
+      <div class="file-head"><span class="chip tone-blue">Derived</span><span class="name">src/with-timing.ts</span><span class="why"><code>LoadedOrders</code> follows the return type of <code>loadOrders</code>. <code>withTiming</code> works for any async operation and returns the same <code>T</code> it received. It logs the name, duration and outcome with the request logger, which carries the request ID. It does not log the result, because it cannot know what <code>T</code> contains. It rethrows errors without logging them, so the caller that handles the error logs it once.</span></div>
+<pre><code>import type { Logger } from "pino";
+import type { Order } from "./order.js";
+
+export async function loadOrders(customerId: string): Promise&lt;Order[]&gt; {
+  return [];
+}
+
+export type LoadedOrders = Awaited&lt;ReturnType&lt;typeof loadOrders&gt;&gt;;
+
+export async function withTiming&lt;T&gt;(requestLogger: Logger, operationName: string, operation: () =&gt; Promise&lt;T&gt;): Promise&lt;T&gt; {
+  const startedAt = performance.now();
+  try {
+    const result = await operation();
+    requestLogger.debug({ operationName, durationMs: Math.round(performance.now() - startedAt) }, "operation finished");
+    return result;
+  } catch (error) {
+    requestLogger.debug({ operationName, durationMs: Math.round(performance.now() - startedAt), outcome: "failed" }, "operation finished");
+    throw error;
+  }
+}
+
+declare const requestLogger: Logger;
+const orders = await withTiming(requestLogger, "loadOrders", () =&gt; loadOrders("c-42"));</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
