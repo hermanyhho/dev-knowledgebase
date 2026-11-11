@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TypeScript Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">TypeScript</div>
+    <h1>TypeScript Overview</h1>
+    <p class="aka">JavaScript with types that are checked before the program runs. The key ideas, each with its own detail page.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>TypeScript adds type annotations to JavaScript. The compiler, <code>tsc</code>, checks that values match their types, then removes the types and outputs plain JavaScript. Node.js and browsers run only that JavaScript.</p>
+    <p>Four ideas explain almost every surprise: types do not exist at runtime, types are compared by shape, types can be generic and derived from each other, and <code>tsconfig.json</code> decides how files and imports are found.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>Key idea</th><th>Common mistake</th></tr></thead>
+        <tbody>
+          <tr><td><a href="compiling/compile-time-and-runtime/">Compile time and runtime</a></td><td>Types are checked, then removed. Data from outside, such as a request body, is not checked unless your code checks it.</td><td>Trusting <code>req.body as Order</code></td></tr>
+          <tr><td><a href="type-system/structural-typing-and-narrowing/">Structural typing and narrowing</a></td><td>A value fits a type if it has the right properties. After a check such as <code>if (x !== undefined)</code>, the compiler knows the narrower type.</td><td>Optional fields instead of a union of states</td></tr>
+          <tr><td><a href="type-system/generics-and-utility-types/">Generics and utility types</a></td><td>A type parameter keeps the link between input and output types. <code>Omit</code>, <code>Pick</code>, <code>Partial</code> build new types from one source.</td><td>Writing related types by hand, so they drift apart</td></tr>
+          <tr><td><a href="compiling/tsconfig-and-module-resolution/">tsconfig and module resolution</a></td><td><code>tsconfig.json</code> sets strictness and output. With <code>"module": "nodenext"</code>, imports are checked with the same rules Node.js uses.</td><td><code>paths</code> aliases that compile but fail at runtime</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> trust types only for values your own code created; validate outside data once where it enters. Turn on <code>strict</code>, and run <code>tsc --noEmit</code> in CI.</div>
+  </section>
+
+  <section>
+    <h2>How TypeScript compares with C#</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>TypeScript</th><th>C#</th></tr></thead>
+        <tbody>
+          <tr><td>Types at runtime</td><td>Removed</td><td>Kept</td></tr>
+          <tr><td>When types match</td><td>Same shape</td><td>Same declared type or base type</td></tr>
+          <tr><td>Union types</td><td>Built in: <code>"paid" | "pending"</code></td><td>Not available</td></tr>
+          <tr><td>Wrong JSON type</td><td>Accepted unless validated</td><td>Deserialization throws</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log</th></tr></thead>
+        <tbody>
+          <tr><td>Validation of a request body</td><td>Route, failed field paths and codes, request ID. Not the values.</td></tr>
+          <tr><td>Configuration at startup</td><td>Names of missing or invalid variables, then exit. Never their values.</td></tr>
+          <tr><td>CI</td><td><code>tsc --noEmit</code> output. A type error fails the build.</td></tr>
+          <tr><td>Stack traces</td><td>Turn on <code>sourceMap</code> and run Node.js with <code>--enable-source-maps</code>, so errors point at <code>.ts</code> lines.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 300" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">Source files go through the type checker, which compares shapes, narrows unions and fills in generics, guided by tsconfig.json. The output is JavaScript without types, which Node.js runs. Outside data reaches the running program and must be validated there.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="15" y="15" width="560" height="270" rx="10"/>
+        <text class="t-label" x="295" y="34">COMPILE TIME</text>
+        <rect class="frame" x="600" y="15" width="305" height="270" rx="10"/>
+        <text class="t-label" x="752" y="34">RUNTIME</text>
+
+        <g class="node" id="n-tsconfig" tabindex="0" role="button" aria-label="Show tsconfig.json" data-title="tsconfig.json" data-node="tsconfig">
+          <rect class="shape tone-neutral" x="35" y="50" width="200" height="60" rx="6"/>
+          <text class="t-name" x="135" y="75">tsconfig.json</text>
+          <text class="t-kind" x="135" y="93">strictness, output, imports</text>
+        </g>
+        <g class="node" id="n-shapes" tabindex="0" role="button" aria-label="Show a union and narrowing" data-title="Shapes and narrowing" data-node="shapes">
+          <rect class="shape tone-teal" x="270" y="50" width="285" height="60" rx="6"/>
+          <text class="t-name" x="412" y="75">Shapes and narrowing</text>
+          <text class="t-kind" x="412" y="93">switch on status narrows a union</text>
+        </g>
+        <g class="node" id="n-generics" tabindex="0" role="button" aria-label="Show generics and utility types" data-title="Generics and utility types" data-node="generics">
+          <rect class="shape tone-teal" x="270" y="140" width="285" height="60" rx="6"/>
+          <text class="t-name" x="412" y="165">Generics and utility types</text>
+          <text class="t-kind" x="412" y="183">T in, T out; Omit&lt;Order, "id"&gt;</text>
+        </g>
+        <g id="p-output">
+          <rect class="shape tone-neutral" x="270" y="225" width="285" height="45" rx="6"/>
+          <text class="t-name" x="412" y="245">JavaScript output</text>
+          <text class="t-kind" x="412" y="261">every type removed</text>
+        </g>
+        <g class="node" id="n-runtime" tabindex="0" role="button" aria-label="Show validation of outside data" data-title="Runtime: validate outside data" data-node="runtime">
+          <rect class="shape tone-amber" x="620" y="140" width="265" height="70" rx="6"/>
+          <text class="t-name" x="752" y="167">Outside data</text>
+          <text class="t-kind" x="752" y="185">checked by a schema, such as Zod</text>
+        </g>
+
+        <path class="flow" id="a-tsconfig-shapes" d="M235,80 L268,80" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-shapes-generics" d="M412,110 L412,138" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-generics-output" d="M412,200 L412,223" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-output-runtime" d="M555,247 L590,247 L590,175 L618,175" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-unchecked" x="752" y="240">NO TYPES HERE: VALIDATE</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="build" aria-pressed="true">From source to running code</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="build" hidden>
+        <li data-highlight="n-tsconfig a-tsconfig-shapes n-shapes"><code>tsc</code> reads <code>tsconfig.json</code>, then checks each file. Objects are compared by shape, and each <code>case</code> of a <code>switch</code> narrows a union.</li>
+        <li data-highlight="n-generics">Generic functions get their type parameters from the arguments. Derived types such as <code>Omit&lt;Order, "id"&gt;</code> follow the source type.</li>
+        <li data-highlight="n-generics a-generics-output p-output">With no errors, <code>tsc</code> writes JavaScript. Every type is gone.</li>
+        <li data-highlight="p-output a-output-runtime n-runtime t-unchecked">At runtime a request body arrives. Nothing checks its type unless a schema does, at the point where it enters.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Type checking</span>
+      <span class="chip tone-neutral">Settings and output</span>
+      <span class="chip tone-amber">Unchecked data</span>
+      <span>Click a box to see a short example. Each topic's name in the first table links to its detail page.</span>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Mistakes found in production</strong><span>Wrong property names and types fail the build instead.</span></li>
+        <li><strong>Unclear contracts</strong><span>Function signatures show what goes in and comes out.</span></li>
+        <li><strong>Forgotten cases</strong><span>A new member of a union fails every <code>switch</code> that does not handle it.</span></li>
+        <li><strong>No runtime cost</strong><span>Types are removed, so the program runs as plain JavaScript.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>False confidence</strong><span>Types say nothing about data from outside.</span></li>
+        <li><strong>Escape hatches</strong><span><code>any</code>, <code>as</code> and <code>!</code> silence the compiler.</span></li>
+        <li><strong>A build step and settings</strong><span><code>tsconfig.json</code> options interact, and import rules surprise newcomers.</span></li>
+        <li><strong>Complex types</strong><span>Deep generic and conditional types give long error messages.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="tsconfig">
+      <div class="file-head"><span class="chip tone-neutral">Settings</span><span class="name">tsconfig.json</span><span class="why">A starting point for a Node.js service. <code>nodenext</code> makes imports follow Node.js rules; <code>strict</code> turns on the main checks.</span></div>
+<pre><code>{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="shapes">
+      <div class="file-head"><span class="chip tone-teal">Narrowing</span><span class="name">payment-result.ts</span><span class="why">Each state is its own object type with a fixed <code>status</code>. Inside each <code>case</code>, only that state's fields exist. If a fourth status is added, <code>assertNever</code> fails to compile.</span></div>
+<pre><code>type PaymentResult =
+  | { status: "succeeded"; receiptUrl: string }
+  | { status: "declined"; reason: string };
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${JSON.stringify(value)}`);
+}
+
+function messageFor(result: PaymentResult): string {
+  switch (result.status) {
+    case "succeeded":
+      return `Paid. Receipt: ${result.receiptUrl}`;
+    case "declined":
+      return `Declined: ${result.reason}`;
+    default:
+      return assertNever(result);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="generics">
+      <div class="file-head"><span class="chip tone-teal">Generics</span><span class="name">generics.ts</span><span class="why"><code>findById</code> returns the same type as its list items. <code>NewOrder</code> is derived from <code>Order</code>, so a new field in <code>Order</code> appears in it too.</span></div>
+<pre><code>type Order = { id: string; customerId: string; total: number; createdAt: Date };
+
+function findById&lt;T extends { id: string }&gt;(items: T[], id: string): T | undefined {
+  return items.find((item) =&gt; item.id === id);
+}
+
+type NewOrder = Omit&lt;Order, "id" | "createdAt"&gt;;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="runtime">
+      <div class="file-head"><span class="chip tone-amber">Runtime</span><span class="name">order-schema.ts</span><span class="why">The schema checks the data while the program runs, and <code>z.infer</code> gives the matching type, so the check and the type cannot differ.</span></div>
+<pre><code>import { z } from "zod";
+
+export const NewOrderSchema = z.object({
+  customerId: z.string().min(1),
+  total: z.number().nonnegative(),
+});
+
+export type NewOrder = z.infer&lt;typeof NewOrderSchema&gt;;
+
+const result = NewOrderSchema.safeParse(JSON.parse('{"customerId":"c-42","total":"12.50"}'));
+console.log(result.success);</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../assets/topic.js"></script>
+</body>
+</html>
