@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NestJS Request Lifecycle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Web</div>
+    <h1>NestJS Request Lifecycle</h1>
+    <p class="aka">The fixed order of steps an HTTP request passes through in NestJS, and which step to use for what. Examples use NestJS 12.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>In <a href="../express/">Express</a>, everything that runs before a route handler is middleware. NestJS splits that work into five kinds of steps, each with one job: <strong>middleware</strong>, <strong>guards</strong>, <strong>interceptors</strong>, <strong>pipes</strong> and <strong>exception filters</strong>. They always run in the same order.</p>
+    <p>Each step is a class that Nest creates with <a href="../nestjs-modules-and-providers/">dependency injection</a>, so a guard can use a service to check a token. Each can be attached to the whole app, one controller, one route method, or one parameter.</p>
+    <p>The order below was measured in a NestJS 12 app that recorded each step.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Middleware</span></td><td>A function that runs before Nest picks the route. It sees the raw request.</td><td>Sets the request ID</td></tr>
+          <tr><td><span class="chip tone-amber">Guard</span></td><td>A class whose <code>canActivate</code> returns true or false: may this request reach the handler?</td><td><code>RolesGuard</code></td></tr>
+          <tr><td><span class="chip tone-teal">Interceptor</span></td><td>A class that runs code before the handler and can change or time the result after it.</td><td><code>RequestLogInterceptor</code></td></tr>
+          <tr><td><span class="chip tone-blue">Pipe</span></td><td>A class that validates or converts one handler argument.</td><td><code>ValidationPipe</code>, <code>ParseIntPipe</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Handler</span></td><td>The controller method for the route.</td><td><code>OrdersController.create</code></td></tr>
+          <tr><td><span class="chip tone-amber">Exception filter</span></td><td>A class that turns a thrown exception into an HTTP response.</td><td><code>AllExceptionsFilter</code></td></tr>
+          <tr><td><span class="chip tone-neutral"><code>ExecutionContext</code></span></td><td>An object passed to guards and interceptors with the request, the controller class and the handler method.</td><td><code>context.getHandler()</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Observable</span></td><td>An RxJS stream. An interceptor receives the handler's result as one, and can add steps to it.</td><td><code>next.handle().pipe(tap(...))</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> put each concern in its own step. Who may call: a guard. Is the input valid: a pipe. Timing and response shape for every route: an interceptor. How errors look: one global exception filter.</div>
+  </section>
+
+  <section>
+    <h2>The steps in order</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Order</th><th>Step</th><th>Can stop the request?</th><th>Use it for</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Middleware</td><td>Yes, by not calling <code>next()</code> or by answering</td><td>Request ID, CORS, body size limits</td></tr>
+          <tr><td>2</td><td>Guards</td><td>Yes: <code>false</code> gives 403</td><td>Authentication and roles</td></tr>
+          <tr><td>3</td><td>Interceptors, before</td><td>Yes, by returning without calling the handler</td><td>Start a timer, return a cached response</td></tr>
+          <tr><td>4</td><td>Pipes</td><td>Yes: a failed check gives 400</td><td>Validate the body, convert <code>"7"</code> to <code>7</code></td></tr>
+          <tr><td>5</td><td>Handler</td><td>It answers</td><td>The work of the route</td></tr>
+          <tr><td>6</td><td>Interceptors, after</td><td>No, but can change the result</td><td>Log duration, wrap the response</td></tr>
+          <tr><td>On any exception</td><td>Exception filter</td><td>It answers</td><td>One error format for the whole API</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the client gets when a step fails</h2>
+    <p>Measured in the same app. The bodies come from Nest's built-in exceptions.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Failure</th><th>Steps that ran</th><th>Response</th></tr></thead>
+        <tbody>
+          <tr><td>Guard returns <code>false</code></td><td>middleware, guard, filter</td><td>403 <code>Forbidden resource</code></td></tr>
+          <tr><td><code>ParseIntPipe</code> gets <code>"abc"</code></td><td>middleware, guard, interceptor before, pipe, filter</td><td>400 <code>Validation failed (numeric string is expected)</code></td></tr>
+          <tr><td>Handler throws <code>NotFoundException</code></td><td>... handler, filter. The interceptor's after step does not run.</td><td>404 with the exception's message</td></tr>
+          <tr><td>Handler throws a plain <code>Error</code></td><td>... handler, filter</td><td>500 <code>Internal server error</code>. The message is not sent to the client.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where to attach each step</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Level</th><th>How</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>Whole app, with injection</td><td><code>{ provide: APP_GUARD, useClass: RolesGuard }</code> in a module. Same for <code>APP_PIPE</code>, <code>APP_INTERCEPTOR</code>, <code>APP_FILTER</code>.</td><td>The class can inject services</td></tr>
+          <tr><td>Whole app, without injection</td><td><code>app.useGlobalPipes(new ValidationPipe())</code> in <code>main.ts</code></td><td>Created by you, so no injection</td></tr>
+          <tr><td>One controller</td><td><code>@UseGuards(RolesGuard)</code> on the class</td><td>Every route in it</td></tr>
+          <tr><td>One route</td><td><code>@UseInterceptors(CacheInterceptor)</code> on the method</td><td></td></tr>
+          <tr><td>One parameter</td><td><code>@Param("id", ParseIntPipe)</code></td><td>Pipes only</td></tr>
+          <tr><td>Middleware</td><td><code>configure(consumer)</code> in a module: <code>consumer.apply(RequestContextMiddleware).forRoutes("*path")</code></td><td>Not attached with decorators</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How it compares with ASP.NET Core</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>NestJS</th><th><a href="../../../dotnet/web/aspnet-core/">ASP.NET Core</a></th></tr></thead>
+        <tbody>
+          <tr><td>Middleware</td><td>Middleware in the pipeline in <code>Program.cs</code></td></tr>
+          <tr><td>Guard</td><td>Authorization: <code>[Authorize(Roles = "admin")]</code> and policies</td></tr>
+          <tr><td>Interceptor</td><td>Action filter, or endpoint filter in minimal APIs</td></tr>
+          <tr><td>Pipe</td><td>Model binding and validation</td></tr>
+          <tr><td>Exception filter</td><td>Exception filter, or <code>UseExceptionHandler</code> with <code>ProblemDetails</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Middleware</td><td>Take the request ID from <code>x-request-id</code> or create one, store it in <code>AsyncLocalStorage</code>, return it in the response header</td><td>Nothing logged here</td></tr>
+          <tr><td>Interceptor, after</td><td>One line per successful request: method, route, status, duration, request ID</td><td>info</td></tr>
+          <tr><td>Exception filter, 4xx</td><td>Status, route, message, request ID. No stack: the client made the mistake.</td><td>warn</td></tr>
+          <tr><td>Exception filter, 5xx</td><td>Status, route, error with stack, request ID. Logged here only, once.</td><td>error, alert on rate</td></tr>
+          <tr><td>Guard rejections</td><td>Count of 401 and 403 per route</td><td>Alert on a sudden rise</td></tr>
+          <tr><td>Never</td><td><code>Authorization</code> and <code>Cookie</code> headers, passwords, full request bodies</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 380" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A request passes through middleware, a guard, an interceptor, a pipe and the handler. The result returns through the interceptor to the client. Any exception goes to the exception filter, which sends the error response.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <g class="node" id="n-client" tabindex="0" role="button" aria-label="Show example requests and responses" data-title="Client: requests and responses" data-node="client">
+          <rect class="shape tone-neutral" x="15" y="50" width="110" height="70" rx="6"/>
+          <text class="t-name" x="70" y="80">Client</text>
+          <text class="t-kind" x="70" y="98">HTTP request</text>
+        </g>
+        <g class="node" id="n-middleware" tabindex="0" role="button" aria-label="Show the request ID middleware" data-title="Middleware: request ID" data-node="middleware">
+          <rect class="shape tone-neutral" x="155" y="50" width="120" height="70" rx="6"/>
+          <text class="t-name" x="215" y="76">Middleware</text>
+          <text class="t-kind" x="215" y="94">1. request ID</text>
+        </g>
+        <g class="node" id="n-guard" tabindex="0" role="button" aria-label="Show the roles guard" data-title="Guard: roles" data-node="guard">
+          <rect class="shape tone-amber" x="300" y="50" width="110" height="70" rx="6"/>
+          <text class="t-name" x="355" y="76">Guard</text>
+          <text class="t-kind" x="355" y="94">2. may it pass?</text>
+        </g>
+        <g class="node" id="n-interceptor" tabindex="0" role="button" aria-label="Show the logging interceptor" data-title="Interceptor: timing and log line" data-node="interceptor">
+          <rect class="shape tone-teal" x="435" y="50" width="150" height="70" rx="6"/>
+          <text class="t-name" x="510" y="76">Interceptor</text>
+          <text class="t-kind" x="510" y="94">3. before, 6. after</text>
+        </g>
+        <g class="node" id="n-pipe" tabindex="0" role="button" aria-label="Show the validation pipe" data-title="Pipe: validation" data-node="pipe">
+          <rect class="shape tone-blue" x="610" y="50" width="120" height="70" rx="6"/>
+          <text class="t-name" x="670" y="76">Pipe</text>
+          <text class="t-kind" x="670" y="94">4. validate input</text>
+        </g>
+        <g class="node" id="n-handler" tabindex="0" role="button" aria-label="Show the controller" data-title="Handler: the controller" data-node="handler">
+          <rect class="shape tone-neutral" x="755" y="50" width="150" height="70" rx="6"/>
+          <text class="t-name" x="830" y="76">Handler</text>
+          <text class="t-kind" x="830" y="94">5. the route's work</text>
+        </g>
+        <g class="node" id="n-filter" tabindex="0" role="button" aria-label="Show the exception filter" data-title="Exception filter: error responses" data-node="filter">
+          <rect class="shape tone-amber" x="300" y="260" width="430" height="60" rx="6"/>
+          <text class="t-name" x="515" y="285">Exception filter</text>
+          <text class="t-kind" x="515" y="303">turns any exception into a response, logs it once</text>
+        </g>
+
+        <g class="state-item" id="s-request-id"><rect class="slot tone-neutral" x="160" y="128" width="110" height="24" rx="4"/><text class="t-item" x="215" y="144">requestId r-1</text></g>
+
+        <path class="flow" id="a-client-middleware" d="M125,85 L153,85" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-middleware-guard" d="M275,85 L298,85" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-guard-interceptor" d="M410,85 L433,85" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-interceptor-pipe" d="M585,85 L608,85" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-pipe-handler" d="M730,85 L753,85" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-handler-interceptor" d="M830,120 L830,175 L540,175 L540,122" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-interceptor-client" d="M480,120 L480,205 L90,205 L90,122" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-guard-filter" d="M355,120 L355,258" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-pipe-filter" d="M670,120 L670,258" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-handler-filter" d="M870,120 L870,290 L732,290" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-filter-client" d="M300,300 L50,300 L50,122" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-403" x="515" y="345">403: Forbidden resource</text>
+        <text class="ghost-label" id="t-400" x="515" y="345">400: items.0.quantity must be an integer number</text>
+        <text class="ghost-label" id="t-500" x="515" y="345">500: Internal server error, stack logged</text>
+        <text class="ghost-label" id="t-201" x="300" y="225">201 CREATED, x-request-id: r-1</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="success" aria-pressed="true">A successful request</button>
+        <button type="button" data-flow="guard" aria-pressed="false">The guard says no</button>
+        <button type="button" data-flow="pipe" aria-pressed="false">Invalid body</button>
+        <button type="button" data-flow="error" aria-pressed="false">An unexpected error</button>
+        <button type="button" data-flow="cache" aria-pressed="false">Interceptor answers from cache</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="success" hidden>
+        <li data-highlight="n-client a-client-middleware n-middleware" data-show="s-request-id">An admin sends <code>POST /orders</code>. The middleware creates request ID <code>r-1</code> and stores it in <code>AsyncLocalStorage</code> for the rest of the request.</li>
+        <li data-highlight="n-middleware a-middleware-guard n-guard" data-show="s-request-id">The guard reads the roles required by <code>@Roles("admin")</code> on the method and compares them with the user's roles. They match.</li>
+        <li data-highlight="n-guard a-guard-interceptor n-interceptor" data-show="s-request-id">The interceptor notes the start time and calls <code>next.handle()</code>.</li>
+        <li data-highlight="n-interceptor a-interceptor-pipe n-pipe" data-show="s-request-id"><code>ValidationPipe</code> turns the JSON body into a <code>CreateOrderDto</code> and checks its rules. It passes.</li>
+        <li data-highlight="n-pipe a-pipe-handler n-handler" data-show="s-request-id">The handler creates the order and returns it.</li>
+        <li data-highlight="n-handler a-handler-interceptor n-interceptor a-interceptor-client n-client t-201" data-show="s-request-id">The result passes back through the interceptor, which logs method, route, status 201, duration and <code>r-1</code>. The client gets the order and the <code>x-request-id</code> header.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="guard" hidden>
+        <li data-highlight="n-client a-client-middleware n-middleware" data-show="s-request-id">A user without the admin role sends <code>POST /orders</code>.</li>
+        <li data-highlight="n-middleware a-middleware-guard n-guard" data-show="s-request-id">The guard finds no <code>admin</code> role and returns <code>false</code>.</li>
+        <li data-highlight="n-guard a-guard-filter n-filter t-403" data-show="s-request-id">Nest throws <code>ForbiddenException</code>. The interceptor, pipe and handler never run. The filter answers 403 <code>Forbidden resource</code> and logs it at warn.</li>
+        <li data-highlight="n-filter a-filter-client n-client" data-show="s-request-id">Because the interceptor did not run, its log line is missing for this request. The filter's line, with the same request ID, covers it.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="pipe" hidden>
+        <li data-highlight="n-client a-client-middleware n-middleware a-middleware-guard n-guard a-guard-interceptor n-interceptor" data-show="s-request-id">An admin sends an order with <code>"quantity": "two"</code>. Middleware, guard and interceptor run as usual.</li>
+        <li data-highlight="n-interceptor a-interceptor-pipe n-pipe" data-show="s-request-id"><code>ValidationPipe</code> checks the body with the rules on <code>CreateOrderDto</code>. <code>@IsInt()</code> fails.</li>
+        <li data-highlight="n-pipe a-pipe-filter n-filter t-400" data-show="s-request-id">The pipe throws <code>BadRequestException</code> with every failed rule. The handler never runs. The filter answers 400 and logs the field names at warn.</li>
+        <li data-highlight="n-filter a-filter-client n-client" data-show="s-request-id">The client gets the list of messages and can show them next to the form fields.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="error" hidden>
+        <li data-highlight="n-client a-client-middleware n-middleware a-middleware-guard n-guard a-guard-interceptor n-interceptor a-interceptor-pipe n-pipe a-pipe-handler n-handler" data-show="s-request-id">A valid request reaches the handler. The database connection fails, and the handler throws a plain <code>Error</code>.</li>
+        <li data-highlight="n-handler a-handler-filter n-filter t-500" data-show="s-request-id">The interceptor's after step is skipped. The filter sees an exception that is not an <code>HttpException</code>, so it answers 500 <code>Internal server error</code> without the real message.</li>
+        <li data-highlight="n-filter" data-show="s-request-id">The filter logs the error with its stack and request ID <code>r-1</code> at error level. This is the only place it is logged.</li>
+        <li data-highlight="n-filter a-filter-client n-client" data-show="s-request-id">The response body includes <code>r-1</code>. A support request with that ID leads straight to the log line.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="cache" hidden>
+        <li data-highlight="n-client a-client-middleware n-middleware a-middleware-guard n-guard" data-show="s-request-id">A client sends <code>GET /orders/7</code>. Middleware and guard run.</li>
+        <li data-highlight="n-guard a-guard-interceptor n-interceptor" data-show="s-request-id">A cache interceptor finds the response for this URL in its cache.</li>
+        <li data-highlight="n-interceptor a-interceptor-client n-client" data-show="s-request-id">It returns the cached value without calling <code>next.handle()</code>. The pipe and handler do not run.</li>
+        <li data-highlight="n-guard n-interceptor">The guard ran first, so a cached response is never given to a caller who may not see it. Interceptors cannot skip guards.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Request and handler</span>
+      <span class="chip tone-amber">Can reject</span>
+      <span class="chip tone-teal">Wraps the handler</span>
+      <span class="chip tone-blue">Checks input</span>
+      <span>Numbers give the order of the steps. Arrows back to the client carry the response. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">orders-api/</div>
+      <button type="button" class="tree-row" data-file="src/app.module.ts"><span class="path">├─ src/app.module.ts</span><span class="chip tone-neutral">Setup</span></button>
+      <button type="button" class="tree-row" data-file="src/request-context.ts"><span class="path">├─ src/request-context.ts</span><span class="chip tone-neutral">Middleware</span></button>
+      <button type="button" class="tree-row" data-file="src/auth/roles.guard.ts"><span class="path">├─ src/auth/roles.guard.ts</span><span class="chip tone-amber">Guard</span></button>
+      <button type="button" class="tree-row" data-file="src/request-log.interceptor.ts"><span class="path">├─ src/request-log.interceptor.ts</span><span class="chip tone-teal">Interceptor</span></button>
+      <button type="button" class="tree-row" data-file="src/orders/create-order.dto.ts"><span class="path">├─ src/orders/create-order.dto.ts</span><span class="chip tone-blue">Pipe</span></button>
+      <button type="button" class="tree-row" data-file="src/orders/orders.controller.ts"><span class="path">├─ src/orders/orders.controller.ts</span><span class="chip tone-neutral">Handler</span></button>
+      <button type="button" class="tree-row" data-file="src/all-exceptions.filter.ts"><span class="path">├─ src/all-exceptions.filter.ts</span><span class="chip tone-amber">Filter</span></button>
+      <button type="button" class="tree-row" data-file="requests.http"><span class="path">└─ requests.http</span><span class="chip tone-neutral">Client</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Checks repeated in every handler</strong><span>Authorization and validation run before the handler, declared with one decorator.</span></li>
+        <li><strong>Unclear order of middleware</strong><span>The order of the five steps is fixed, whatever order you register them in.</span></li>
+        <li><strong>Different error formats</strong><span>One global filter decides how every error response looks and where it is logged.</span></li>
+        <li><strong>Untestable cross-cutting code</strong><span>Guards, pipes and interceptors are classes with injected services, testable on their own.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Five concepts to learn</strong><span>Express has one: middleware. Choosing the right step takes practice.</span></li>
+        <li><strong>Logic spread over decorators</strong><span>What happens on a route depends on decorators at app, controller and method level.</span></li>
+        <li><strong>RxJS in interceptors</strong><span>The after step uses RxJS operators, another library to understand.</span></li>
+        <li><strong>Steps that do not run</strong><span>A rejected or failed request skips later steps, so logging must not rely on all of them.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="middleware">
+      <div class="file-head"><span class="chip tone-neutral">Middleware</span><span class="name">src/request-context.ts</span><span class="why">The middleware runs the rest of the request inside <code>requestContext.run</code>. Every later step, and every <code>await</code> in them, can read the ID with <code>currentRequestId()</code>. A client or gateway can send its own <code>x-request-id</code>, so one ID covers several services.</span></div>
+<pre><code>import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
+import { Injectable, type NestMiddleware } from "@nestjs/common";
+import type { NextFunction, Request, Response } from "express";
+
+const requestContext = new AsyncLocalStorage&lt;{ requestId: string }&gt;();
+
+export function currentRequestId(): string | undefined {
+  return requestContext.getStore()?.requestId;
+}
+
+@Injectable()
+export class RequestContextMiddleware implements NestMiddleware {
+  use(req: Request, res: Response, next: NextFunction) {
+    const requestId = req.header("x-request-id") ?? randomUUID();
+    res.setHeader("x-request-id", requestId);
+    requestContext.run({ requestId }, next);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="middleware">
+      <div class="file-head"><span class="chip tone-neutral">Setup</span><span class="name">src/app.module.ts</span><span class="why">The guard, pipe, interceptor and filter are registered for the whole app as providers, so Nest creates them with injection. The middleware is registered in <code>configure</code>. <code>"*path"</code> matches every route.</span></div>
+<pre><code>import { type MiddlewareConsumer, Module, ValidationPipe } from "@nestjs/common";
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
+import { AllExceptionsFilter } from "./all-exceptions.filter.js";
+import { RolesGuard } from "./auth/roles.guard.js";
+import { OrdersController } from "./orders/orders.controller.js";
+import { RequestContextMiddleware } from "./request-context.js";
+import { RequestLogInterceptor } from "./request-log.interceptor.js";
+
+@Module({
+  controllers: [OrdersController],
+  providers: [
+    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_INTERCEPTOR, useClass: RequestLogInterceptor },
+    { provide: APP_PIPE, useValue: new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }) },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
+  ],
+})
+export class AppModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestContextMiddleware).forRoutes("*path");
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="guard">
+      <div class="file-head"><span class="chip tone-amber">Guard</span><span class="name">src/auth/roles.guard.ts</span><span class="why"><code>Roles</code> is a decorator that stores a list of roles on a method. The guard reads it from the handler in the <code>ExecutionContext</code>. Routes without <code>@Roles</code> pass. <code>req.user</code> is set earlier by the authentication step, for example a JWT guard.</span></div>
+<pre><code>import { type CanActivate, type ExecutionContext, Injectable } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+
+export const Roles = Reflector.createDecorator&lt;string[]&gt;();
+
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private readonly reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.get(Roles, context.getHandler());
+    if (!requiredRoles) return true;
+
+    const user = context.switchToHttp().getRequest().user as { roles: string[] } | undefined;
+    return requiredRoles.some((role) =&gt; user?.roles.includes(role));
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="interceptor">
+      <div class="file-head"><span class="chip tone-teal">Interceptor</span><span class="name">src/request-log.interceptor.ts</span><span class="why">Code before <code>next.handle()</code> runs before the handler; the <code>tap</code> callback runs after it, with the result. This writes one line per successful request. Failed requests skip <code>tap</code>, so the exception filter logs those.</span></div>
+<pre><code>import { type CallHandler, type ExecutionContext, Injectable, Logger, type NestInterceptor } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { tap } from "rxjs";
+import { currentRequestId } from "./request-context.js";
+
+@Injectable()
+export class RequestLogInterceptor implements NestInterceptor {
+  private readonly logger = new Logger("Request");
+
+  intercept(context: ExecutionContext, next: CallHandler) {
+    const startedAt = performance.now();
+    const http = context.switchToHttp();
+    const req = http.getRequest&lt;Request&gt;();
+
+    return next.handle().pipe(
+      tap(() =&gt; {
+        this.logger.log({
+          message: "request finished",
+          method: req.method,
+          route: req.route?.path,
+          status: http.getResponse&lt;Response&gt;().statusCode,
+          durationMs: Math.round(performance.now() - startedAt),
+          requestId: currentRequestId(),
+        });
+      }),
+    );
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="pipe">
+      <div class="file-head"><span class="chip tone-blue">Pipe</span><span class="name">src/orders/create-order.dto.ts</span><span class="why">The global <code>ValidationPipe</code> turns the body into this class and checks each decorator, using the <code>class-validator</code> and <code>class-transformer</code> packages. <code>whitelist</code> with <code>forbidNonWhitelisted</code> rejects fields the class does not declare. A failure gives 400 with one message per failed rule, such as <code>items.0.quantity must be an integer number</code>. Tested with NestJS 12 and class-validator.</span></div>
+<pre><code>import { Type } from "class-transformer";
+import { ArrayMinSize, IsInt, IsString, Min, ValidateNested } from "class-validator";
+
+export class OrderItemDto {
+  @IsString()
+  productId!: string;
+
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+}
+
+export class CreateOrderDto {
+  @IsString()
+  customerId!: string;
+
+  @ValidateNested({ each: true })
+  @Type(() =&gt; OrderItemDto)
+  @ArrayMinSize(1)
+  items!: OrderItemDto[];
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="handler">
+      <div class="file-head"><span class="chip tone-neutral">Handler</span><span class="name">src/orders/orders.controller.ts</span><span class="why">By the time the method runs, the guard has checked the role and the pipe has checked the body. <code>ParseIntPipe</code> on the route parameter turns <code>"7"</code> into <code>7</code>. Throwing <code>NotFoundException</code> gives a 404 through the filter.</span></div>
+<pre><code>import { Body, Controller, Get, NotFoundException, Param, ParseIntPipe, Post } from "@nestjs/common";
+import { Roles } from "../auth/roles.guard.js";
+import { CreateOrderDto } from "./create-order.dto.js";
+
+@Controller("orders")
+export class OrdersController {
+  private readonly orders = new Map&lt;number, CreateOrderDto&gt;();
+
+  @Post()
+  @Roles(["admin"])
+  create(@Body() order: CreateOrderDto) {
+    const orderId = this.orders.size + 1;
+    this.orders.set(orderId, order);
+    return { orderId, ...order };
+  }
+
+  @Get(":orderId")
+  findOne(@Param("orderId", ParseIntPipe) orderId: number) {
+    const order = this.orders.get(orderId);
+    if (!order) throw new NotFoundException(`Order ${orderId} does not exist.`);
+    return order;
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="filter">
+      <div class="file-head"><span class="chip tone-amber">Filter</span><span class="name">src/all-exceptions.filter.ts</span><span class="why"><code>@Catch()</code> with no argument catches everything. <code>HttpException</code>s keep their status and message, and are logged at warn without a stack. Anything else becomes a 500 with a fixed message, and the real error is logged at error with its stack. The request ID goes into the log and the response.</span></div>
+<pre><code>import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, Logger } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { currentRequestId } from "./request-context.js";
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  private readonly logger = new Logger("Errors");
+
+  catch(exception: unknown, host: ArgumentsHost) {
+    const http = host.switchToHttp();
+    const req = http.getRequest&lt;Request&gt;();
+    const requestId = currentRequestId();
+    const logFields = { method: req.method, path: req.path, requestId };
+
+    if (exception instanceof HttpException) {
+      const status = exception.getStatus();
+      this.logger.warn({ message: "request rejected", status, reason: exception.message, ...logFields });
+      return http.getResponse&lt;Response&gt;().status(status).json({ ...this.bodyOf(exception), requestId });
+    }
+
+    this.logger.error({ message: "request failed", ...logFields }, (exception as Error)?.stack);
+    http.getResponse&lt;Response&gt;().status(500).json({ statusCode: 500, message: "Internal server error", requestId });
+  }
+
+  private bodyOf(exception: HttpException) {
+    const response = exception.getResponse();
+    return typeof response === "string" ? { statusCode: exception.getStatus(), message: response } : response;
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-none">
+    <div class="file" data-lang="any" data-node="client">
+      <div class="file-head"><span class="chip tone-neutral">Client</span><span class="name">requests.http</span><span class="why">Requests for an editor's HTTP client, each followed by the status and the steps that ran, as measured in a NestJS 12 test app with a step recorder.</span></div>
+<pre><code>GET http://localhost:3000/orders/7
+x-user: admin
+# 200, middleware &gt; guard &gt; interceptor before &gt; pipe &gt; handler &gt; interceptor after
+
+###
+GET http://localhost:3000/orders/7
+# 403 Forbidden resource, middleware &gt; guard &gt; filter
+
+###
+GET http://localhost:3000/orders/abc
+x-user: admin
+# 400 Validation failed (numeric string is expected), middleware &gt; guard &gt; interceptor before &gt; pipe &gt; filter
+
+###
+GET http://localhost:3000/orders/404
+x-user: admin
+# 404 Order 404 does not exist., middleware &gt; guard &gt; interceptor before &gt; pipe &gt; handler &gt; filter</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NestJS Modules and Providers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">JavaScript</a> / Web</div>
+    <h1>NestJS Modules and Providers</h1>
+    <p class="aka">How a NestJS app is split into modules, and how Nest creates each class and passes it the objects it needs. Examples use NestJS 12.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>NestJS is a framework for Node.js servers, written in TypeScript. It runs on top of <a href="../express/">Express</a> by default, or <a href="../fastify/">Fastify</a>, and adds a fixed structure: modules, controllers and providers.</p>
+    <p>A <strong>provider</strong> is a class, usually a service, that does work for others. You never write <code>new OrdersService(...)</code>. You list the class in a module, and write the classes it needs as constructor parameters. At startup Nest reads those parameter types, creates every object in the right order and passes each one its dependencies. This is <strong>dependency injection</strong>, and the part of Nest that does it is the <strong>IoC container</strong>.</p>
+    <p>A <strong>module</strong> groups the controllers and providers of one feature. A provider is private to its module unless the module exports it, and another module can only use it after importing that module.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Module</span></td><td>A class with <code>@Module()</code> that lists its controllers, providers, imports and exports.</td><td><code>OrdersModule</code></td></tr>
+          <tr><td><span class="chip tone-blue">Provider</span></td><td>Anything Nest can create and inject, most often a class with <code>@Injectable()</code>.</td><td><code>OrdersService</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Controller</span></td><td>A class with <code>@Controller()</code> whose methods handle HTTP routes.</td><td><code>OrdersController</code></td></tr>
+          <tr><td><span class="chip tone-amber">Dependency injection</span></td><td>A class receives the objects it needs from outside, instead of creating them.</td><td><code>constructor(private readonly paymentsService: PaymentsService)</code></td></tr>
+          <tr><td><span class="chip tone-amber">IoC container</span></td><td>The part of Nest that creates providers and injects them. IoC means inversion of control: the framework creates your objects.</td><td>Runs at startup</td></tr>
+          <tr><td><span class="chip tone-amber">Injection token</span></td><td>The key Nest uses to find a provider. A class is its own token; other providers use a string or symbol.</td><td><code>PAYMENT_GATEWAY</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Decorator</span></td><td>A function written as <code>@Name()</code> above a class or method. Nest uses decorators to store information about your classes.</td><td><code>@Injectable()</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Scope</span></td><td>How long a provider instance lives: the whole app, one request, or one injection.</td><td><code>Scope.REQUEST</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> one module per feature. Export only the providers that other modules need, and depend on a token instead of a class when you want to swap the implementation in tests.</div>
+  </section>
+
+  <section>
+    <h2>What Nest does at startup</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>1. Scan</td><td>Starting at <code>AppModule</code>, Nest follows every <code>imports</code> list and collects all modules.</td></tr>
+          <tr><td>2. Read the parameters</td><td>For each provider and controller, it reads the constructor parameter types. TypeScript stored them in the compiled JavaScript as <code>design:paramtypes</code> metadata.</td></tr>
+          <tr><td>3. Check visibility</td><td>Each dependency must be a provider in the same module, or exported by an imported module. If not, startup fails.</td></tr>
+          <tr><td>4. Create</td><td>It creates providers without dependencies first, then the ones that use them. Each default-scope provider is created once.</td></tr>
+          <tr><td>5. Map routes</td><td>It registers each controller method as a route on Express or Fastify, and logs the list.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ways to register a provider</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Form</th><th>Nest provides</th><th>Use it for</th></tr></thead>
+        <tbody>
+          <tr><td><code>OrdersService</code></td><td>A new <code>OrdersService</code></td><td>Most services</td></tr>
+          <tr><td><code>{ provide: PAYMENT_GATEWAY, useClass: CardGateway }</code></td><td>A <code>CardGateway</code> under that token</td><td>Choosing an implementation</td></tr>
+          <tr><td><code>{ provide: PAYMENT_GATEWAY, useValue: fakeGateway }</code></td><td>The object as it is</td><td>Tests and constants</td></tr>
+          <tr><td><code>{ provide: PAYMENT_GATEWAY, useFactory: (config) =&gt; ..., inject: [ConfigService] }</code></td><td>What the function returns</td><td>Objects built from configuration, such as a client with an API key</td></tr>
+          <tr><td><code>{ provide: "LegacyPayments", useExisting: PaymentsService }</code></td><td>The same instance under a second token</td><td>Old names during a rename</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Provider scopes</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Scope</th><th>Instances</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td><code>DEFAULT</code></td><td>One for the whole app</td><td>None per request. Use it unless you have a reason not to.</td></tr>
+          <tr><td><code>REQUEST</code></td><td>A new one for each HTTP request</td><td>Every class that injects it also becomes request-scoped, up to the controller. In a test, two requests created two services and two controllers.</td></tr>
+          <tr><td><code>TRANSIENT</code></td><td>A new one for each class that injects it</td><td>No sharing between consumers</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>To read per-request data such as the user or the request ID in a default-scope service, pass it as a method argument, or use <code>AsyncLocalStorage</code> instead of a request-scoped provider.</p>
+  </section>
+
+  <section>
+    <h2>How it compares with ASP.NET Core</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>NestJS</th><th><a href="../../../dotnet/web/aspnet-core/">ASP.NET Core</a></th></tr></thead>
+        <tbody>
+          <tr><td>Where you register</td><td>In each module's <code>@Module()</code></td><td>In <code>Program.cs</code>: <code>builder.Services.AddScoped&lt;OrdersService&gt;()</code></td></tr>
+          <tr><td>Lifetimes</td><td><code>DEFAULT</code>, <code>REQUEST</code>, <code>TRANSIENT</code></td><td>Singleton, scoped, transient</td></tr>
+          <tr><td>How it knows the parameter types</td><td>Metadata that the TypeScript compiler writes, because types are removed at runtime</td><td>Reflection: .NET keeps the types</td></tr>
+          <tr><td>Visibility between features</td><td>Module exports and imports</td><td>None: every registered service can be injected anywhere</td></tr>
+          <tr><td>A short-lived service inside a long-lived one</td><td>The long-lived one becomes request-scoped too</td><td>An error at startup in development (scope validation)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Common mistakes</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Mistake</th><th>What you see</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>The provider is not exported, or its module is not imported</td><td>Startup fails: <code>Nest can't resolve dependencies of the OrdersService (?)</code></td><td>Add it to <code>exports</code> and import the module</td></tr>
+          <tr><td>Running the code with a tool that drops decorator metadata, such as tsx or esbuild</td><td>The dependency is <code>undefined</code>. The first request fails with <code>TypeError: Cannot read properties of undefined</code>.</td><td>Build with <code>tsc</code> or swc, which write the metadata</td></tr>
+          <tr><td>Importing a type with <code>import type</code> for a constructor parameter</td><td>Same as above: there is no class at runtime to read</td><td>Import the class with a normal import</td></tr>
+          <tr><td>Two modules that import each other</td><td>A circular dependency error at startup</td><td>Move the shared part into a third module. <code>forwardRef</code> is a last resort.</td></tr>
+          <tr><td>A request-scoped provider deep in the graph</td><td>Slower requests: many objects created per request</td><td>Keep providers in the default scope</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Startup</td><td>Nest logs each module as it is initialized and each mapped route. A dependency error stops the app with the class and module named.</td><td>The error is fatal: the process exits</td></tr>
+          <tr><td>Log format</td><td><code>new ConsoleLogger({ json: true })</code> writes one JSON object per line, which log platforms can read</td><td></td></tr>
+          <tr><td>In each service</td><td><code>new Logger(OrdersService.name)</code> adds the class name to every line</td><td></td></tr>
+          <tr><td>Request ID</td><td>Store it in <code>AsyncLocalStorage</code> in a middleware and add it to each log line. See the <a href="../nestjs-request-lifecycle/">request lifecycle</a> page.</td><td></td></tr>
+          <tr><td>Metric: startup time</td><td>A slow factory provider, such as one that connects to a database, delays readiness</td><td>Alert if over the probe timeout</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 440" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">main.ts starts AppModule, which imports OrdersModule and PaymentsModule. The IoC container creates the providers. PaymentsModule exports PaymentsService, which is injected into OrdersService, which is injected into OrdersController. A PAYMENT_GATEWAY provider built by a factory is injected into PaymentsService.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="20" y="120" width="420" height="305" rx="10"/>
+        <text class="t-label" x="230" y="140">ORDERSMODULE</text>
+        <rect class="frame" x="480" y="120" width="420" height="305" rx="10"/>
+        <text class="t-label" x="690" y="140">PAYMENTSMODULE</text>
+
+        <g class="node" id="n-main" tabindex="0" role="button" aria-label="Show main.ts" data-title="main.ts: starting the app" data-node="main">
+          <rect class="shape tone-neutral" x="20" y="20" width="200" height="60" rx="6"/>
+          <text class="t-name" x="120" y="45">main.ts</text>
+          <text class="t-kind" x="120" y="63">NestFactory.create</text>
+        </g>
+        <g class="node" id="n-app-module" tabindex="0" role="button" aria-label="Show AppModule" data-title="AppModule" data-node="app-module">
+          <rect class="shape tone-teal" x="260" y="20" width="400" height="60" rx="6"/>
+          <text class="t-name" x="460" y="45">AppModule</text>
+          <text class="t-kind" x="460" y="63">imports OrdersModule, PaymentsModule, ConfigModule</text>
+        </g>
+        <g class="node" id="n-container" tabindex="0" role="button" aria-label="Show the metadata Nest reads" data-title="IoC container: reading metadata" data-node="container">
+          <rect class="shape tone-amber" x="700" y="20" width="200" height="60" rx="6"/>
+          <text class="t-name" x="800" y="45">IoC container</text>
+          <text class="t-kind" x="800" y="63">creates and injects</text>
+        </g>
+
+        <g class="node" id="n-orders-module" tabindex="0" role="button" aria-label="Show OrdersModule" data-title="OrdersModule" data-node="orders-module">
+          <rect class="shape tone-teal" x="40" y="155" width="380" height="50" rx="6"/>
+          <text class="t-name" x="230" y="176">@Module</text>
+          <text class="t-kind" x="230" y="193">imports PaymentsModule</text>
+        </g>
+        <g class="node" id="n-controller" tabindex="0" role="button" aria-label="Show OrdersController" data-title="OrdersController" data-node="controller">
+          <rect class="shape tone-neutral" x="40" y="225" width="380" height="60" rx="6"/>
+          <text class="t-name" x="230" y="250">OrdersController</text>
+          <text class="t-kind" x="230" y="268">POST /orders/:id/pay</text>
+        </g>
+        <g class="node" id="n-orders-service" tabindex="0" role="button" aria-label="Show OrdersService" data-title="OrdersService" data-node="orders-service">
+          <rect class="shape tone-blue" x="40" y="320" width="380" height="70" rx="6"/>
+          <text class="t-name" x="230" y="347">OrdersService</text>
+          <text class="t-kind" x="230" y="365">needs PaymentsService</text>
+        </g>
+
+        <g class="node" id="n-payments-module" tabindex="0" role="button" aria-label="Show PaymentsModule" data-title="PaymentsModule" data-node="payments-module">
+          <rect class="shape tone-teal" x="500" y="155" width="380" height="50" rx="6"/>
+          <text class="t-name" x="690" y="176">@Module</text>
+          <text class="t-kind" x="690" y="193">exports PaymentsService</text>
+        </g>
+        <g class="node" id="n-payments-service" tabindex="0" role="button" aria-label="Show PaymentsService" data-title="PaymentsService" data-node="payments-service">
+          <rect class="shape tone-blue" x="500" y="225" width="380" height="60" rx="6"/>
+          <text class="t-name" x="690" y="250">PaymentsService</text>
+          <text class="t-kind" x="690" y="268">needs PAYMENT_GATEWAY</text>
+        </g>
+        <g class="node" id="n-gateway" tabindex="0" role="button" aria-label="Show the PAYMENT_GATEWAY provider and a test" data-title="PAYMENT_GATEWAY: factory provider" data-node="gateway">
+          <rect class="shape tone-blue" x="500" y="320" width="380" height="70" rx="6"/>
+          <text class="t-name" x="690" y="347">PAYMENT_GATEWAY</text>
+          <text class="t-kind" x="690" y="365">useFactory, built from ConfigService</text>
+        </g>
+
+        <path class="flow" id="a-main-app" d="M220,50 L258,50" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-container" d="M660,50 L698,50" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-orders" d="M360,80 L260,153" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-payments" d="M560,80 L660,153" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-orders-imports-payments" d="M420,180 L498,180" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-gateway-payments" d="M690,320 L690,287" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-payments-orders" d="M500,262 L460,262 L460,355 L422,355" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-service-controller" d="M230,320 L230,287" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-not-exported" x="460" y="104">NOT EXPORTED: NEST CAN'T RESOLVE</text>
+        <text class="ghost-label" id="t-undefined" x="300" y="306">NO METADATA: undefined</text>
+        <text class="ghost-label" id="t-per-request" x="230" y="412">NEW INSTANCES PER REQUEST</text>
+        <text class="ghost-label" id="t-fake" x="690" y="412">REPLACED BY A FAKE IN TESTS</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="startup" aria-pressed="true">Startup builds the objects</button>
+        <button type="button" data-flow="not-exported" aria-pressed="false">A provider that is not exported</button>
+        <button type="button" data-flow="metadata" aria-pressed="false">Running without metadata</button>
+        <button type="button" data-flow="scope" aria-pressed="false">Request scope spreads</button>
+        <button type="button" data-flow="test" aria-pressed="false">Swap a provider in a test</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="startup" hidden>
+        <li data-highlight="n-main a-main-app n-app-module"><code>main.ts</code> calls <code>NestFactory.create(AppModule)</code>.</li>
+        <li data-highlight="n-app-module a-app-orders n-orders-module a-app-payments n-payments-module">Nest follows the <code>imports</code> of <code>AppModule</code> and finds <code>OrdersModule</code> and <code>PaymentsModule</code>.</li>
+        <li data-highlight="n-app-module a-app-container n-container">The container reads each constructor's parameter types from the metadata that <code>tsc</code> wrote. <code>OrdersService</code> needs <code>PaymentsService</code>; <code>PaymentsService</code> needs <code>PAYMENT_GATEWAY</code>.</li>
+        <li data-highlight="n-gateway a-gateway-payments n-payments-service">It creates the classes without dependencies first: the gateway from its factory, then <code>PaymentsService</code> with the gateway.</li>
+        <li data-highlight="n-payments-service a-payments-orders n-orders-service a-service-controller n-controller">Then <code>OrdersService</code> with <code>PaymentsService</code>, then <code>OrdersController</code>. Each is created once and shared.</li>
+        <li data-highlight="n-controller">Nest maps the controller's routes on Express and logs <code>Nest application successfully started</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="not-exported" hidden>
+        <li data-highlight="n-payments-module">Someone removes <code>PaymentsService</code> from the <code>exports</code> of <code>PaymentsModule</code>.</li>
+        <li data-highlight="n-orders-module a-orders-imports-payments n-payments-module"><code>OrdersModule</code> still imports <code>PaymentsModule</code>, but now sees none of its providers.</li>
+        <li data-highlight="n-orders-service n-container t-not-exported">Startup stops: <code>Nest can't resolve dependencies of the OrdersService (?). Please make sure that the argument PaymentsService at index [0] is available in the OrdersModule module.</code></li>
+        <li data-highlight="n-payments-module a-payments-orders n-orders-service">The <code>?</code> marks the parameter that failed. Exporting the service again fixes it.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="metadata" hidden>
+        <li data-highlight="n-main">The app is started with <code>tsx src/main.ts</code> to skip the build. tsx uses esbuild, which removes types but does not write decorator metadata.</li>
+        <li data-highlight="n-container">The container finds no parameter types for <code>OrdersController</code>. It does not fail. It passes <code>undefined</code>.</li>
+        <li data-highlight="n-controller t-undefined">The app starts. The first request fails with <code>TypeError: Cannot read properties of undefined (reading 'pay')</code> and a 500 response.</li>
+        <li data-highlight="n-container">Build with <code>tsc</code>, or with swc, which writes the metadata. Node.js type stripping cannot run Nest code either, because decorators with metadata are not erasable syntax.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="scope" hidden>
+        <li data-highlight="n-orders-service"><code>OrdersService</code> is changed to <code>@Injectable({ scope: Scope.REQUEST })</code> to read the current user.</li>
+        <li data-highlight="n-orders-service a-service-controller n-controller t-per-request"><code>OrdersController</code> injects it, so the controller can no longer be shared either. Nest creates both for every request.</li>
+        <li data-highlight="n-payments-service">Providers that <code>OrdersService</code> uses, such as <code>PaymentsService</code>, keep their default scope. Only consumers are affected.</li>
+        <li data-highlight="n-orders-service">Measured in a small app: after 2 requests, 2 services and 2 controllers had been created. Pass the user as a method argument instead.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="test" hidden>
+        <li data-highlight="n-gateway">In production, <code>PAYMENT_GATEWAY</code> is a client for the card provider, built from configuration.</li>
+        <li data-highlight="n-gateway t-fake">The test builds <code>OrdersModule</code> with <code>Test.createTestingModule</code> and replaces the token with <code>overrideProvider(PAYMENT_GATEWAY).useValue(fakeGateway)</code>.</li>
+        <li data-highlight="n-gateway a-gateway-payments n-payments-service a-payments-orders n-orders-service">The container injects the fake into <code>PaymentsService</code>. Nothing else changes.</li>
+        <li data-highlight="n-orders-service">The test calls <code>OrdersService</code> and checks what the fake received. No network call is made.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Modules</span>
+      <span class="chip tone-blue">Providers</span>
+      <span class="chip tone-neutral">Entry and controllers</span>
+      <span class="chip tone-amber">Container</span>
+      <span>Arrows between providers point from a provider to the class it is injected into. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">orders-api/</div>
+      <button type="button" class="tree-row" data-file="src/main.ts"><span class="path">├─ src/main.ts</span><span class="chip tone-neutral">Entry</span></button>
+      <button type="button" class="tree-row" data-file="src/app.module.ts"><span class="path">├─ src/app.module.ts</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/orders/orders.module.ts"><span class="path">├─ src/orders/orders.module.ts</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/orders/orders.controller.ts"><span class="path">├─ src/orders/orders.controller.ts</span><span class="chip tone-neutral">Controller</span></button>
+      <button type="button" class="tree-row" data-file="src/orders/orders.service.ts"><span class="path">├─ src/orders/orders.service.ts</span><span class="chip tone-blue">Provider</span></button>
+      <button type="button" class="tree-row" data-file="src/payments/payments.module.ts"><span class="path">├─ src/payments/payments.module.ts</span><span class="chip tone-teal">Module</span></button>
+      <button type="button" class="tree-row" data-file="src/payments/payments.service.ts"><span class="path">├─ src/payments/payments.service.ts</span><span class="chip tone-blue">Provider</span></button>
+      <button type="button" class="tree-row" data-file="src/payments/payment-gateway.provider.ts"><span class="path">├─ src/payments/payment-gateway.provider.ts</span><span class="chip tone-blue">Provider</span></button>
+      <button type="button" class="tree-row" data-file="src/orders/orders.service.spec.ts"><span class="path">├─ src/orders/orders.service.spec.ts</span><span class="chip tone-blue">Test</span></button>
+      <button type="button" class="tree-row" data-file="tsconfig.json"><span class="path">├─ tsconfig.json</span><span class="chip tone-amber">Metadata</span></button>
+      <button type="button" class="tree-row" data-file="dist/orders/orders.service.js"><span class="path">└─ dist/orders/orders.service.js</span><span class="chip tone-amber">Metadata</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Wiring objects by hand</strong><span>Nest creates every service in the right order and passes it what it needs.</span></li>
+        <li><strong>Code that is hard to test</strong><span>A test replaces one provider with a fake and leaves the rest as it is.</span></li>
+        <li><strong>A large app with no structure</strong><span>Modules give each feature a boundary, and exports decide what others may use.</span></li>
+        <li><strong>Every team doing it differently</strong><span>Nest projects share one layout, so a developer can move between them.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Depends on compiler metadata</strong><span>Tools that skip decorator metadata, and Node.js type stripping, break injection.</span></li>
+        <li><strong>Errors at startup</strong><span>A missing export stops the whole app, and the message must be read carefully.</span></li>
+        <li><strong>More code per feature</strong><span>A module, a controller and a service, each with decorators, for even a small endpoint.</span></li>
+        <li><strong>Hidden costs</strong><span>One request-scoped provider can make a chain of classes request-scoped.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="main">
+      <div class="file-head"><span class="chip tone-neutral">Entry</span><span class="name">src/main.ts</span><span class="why">NestJS 12 is published as ES modules, so the project uses <code>"type": "module"</code> and top-level <code>await</code>. The JSON logger writes one object per line for the log platform. <code>enableShutdownHooks</code> lets providers close connections on <code>SIGTERM</code>.</span></div>
+<pre><code>import { ConsoleLogger } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "./app.module.js";
+
+const app = await NestFactory.create(AppModule, {
+  logger: new ConsoleLogger({ json: true }),
+});
+app.enableShutdownHooks();
+await app.listen(Number(process.env.PORT ?? 3000));</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="app-module">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/app.module.ts</span><span class="why">The root module lists the feature modules. <code>ConfigModule.forRoot</code> is a dynamic module: a function that returns a module configured for this app. <code>isGlobal</code> makes <code>ConfigService</code> injectable everywhere without importing it again. It comes from the <code>@nestjs/config</code> package.</span></div>
+<pre><code>import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
+import { OrdersModule } from "./orders/orders.module.js";
+import { PaymentsModule } from "./payments/payments.module.js";
+
+@Module({
+  imports: [ConfigModule.forRoot({ isGlobal: true }), OrdersModule, PaymentsModule],
+})
+export class AppModule {}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="orders-module">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/orders/orders.module.ts</span><span class="why">The orders feature: its controller, its service, and the module it needs. <code>OrdersService</code> is not exported, so no other module can inject it.</span></div>
+<pre><code>import { Module } from "@nestjs/common";
+import { PaymentsModule } from "../payments/payments.module.js";
+import { OrdersController } from "./orders.controller.js";
+import { OrdersService } from "./orders.service.js";
+
+@Module({
+  imports: [PaymentsModule],
+  controllers: [OrdersController],
+  providers: [OrdersService],
+})
+export class OrdersModule {}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="controller">
+      <div class="file-head"><span class="chip tone-neutral">Controller</span><span class="name">src/orders/orders.controller.ts</span><span class="why">The controller only handles HTTP: it reads the route parameter and calls the service. <code>private readonly</code> in the constructor declares the property and assigns it. Nest knows to pass an <code>OrdersService</code> because of the parameter's type.</span></div>
+<pre><code>import { Controller, Param, Post } from "@nestjs/common";
+import { OrdersService } from "./orders.service.js";
+
+@Controller("orders")
+export class OrdersController {
+  constructor(private readonly ordersService: OrdersService) {}
+
+  @Post(":orderId/pay")
+  pay(@Param("orderId") orderId: string) {
+    return this.ordersService.pay(orderId);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="orders-service">
+      <div class="file-head"><span class="chip tone-blue">Provider</span><span class="name">src/orders/orders.service.ts</span><span class="why"><code>PaymentsService</code> is imported as a normal import, not <code>import type</code>, because Nest needs the class at runtime. The logger adds <code>OrdersService</code> as the context of every line.</span></div>
+<pre><code>import { Injectable, Logger } from "@nestjs/common";
+import { PaymentsService } from "../payments/payments.service.js";
+
+@Injectable()
+export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
+  constructor(private readonly paymentsService: PaymentsService) {}
+
+  async pay(orderId: string) {
+    const payment = await this.paymentsService.charge(orderId);
+    this.logger.log({ message: "order paid", orderId, paymentId: payment.id });
+    return { orderId, paymentId: payment.id };
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="payments-module">
+      <div class="file-head"><span class="chip tone-teal">Module</span><span class="name">src/payments/payments.module.ts</span><span class="why"><code>exports</code> is the public part of the module. <code>PaymentsService</code> is exported. The gateway is not: other modules use payments only through the service.</span></div>
+<pre><code>import { Module } from "@nestjs/common";
+import { paymentGatewayProvider } from "./payment-gateway.provider.js";
+import { PaymentsService } from "./payments.service.js";
+
+@Module({
+  providers: [PaymentsService, paymentGatewayProvider],
+  exports: [PaymentsService],
+})
+export class PaymentsModule {}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="payments-service">
+      <div class="file-head"><span class="chip tone-blue">Provider</span><span class="name">src/payments/payments.service.ts</span><span class="why">The gateway is an interface, which does not exist at runtime, so Nest cannot find it by type. <code>@Inject(PAYMENT_GATEWAY)</code> names the token instead.</span></div>
+<pre><code>import { Inject, Injectable } from "@nestjs/common";
+import { PAYMENT_GATEWAY, type PaymentGateway } from "./payment-gateway.provider.js";
+
+@Injectable()
+export class PaymentsService {
+  constructor(@Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway) {}
+
+  charge(orderId: string) {
+    return this.gateway.charge({ orderId, idempotencyKey: `order-${orderId}` });
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="gateway">
+      <div class="file-head"><span class="chip tone-blue">Provider</span><span class="name">src/payments/payment-gateway.provider.ts</span><span class="why">A factory provider. Nest calls the function once at startup with the services listed in <code>inject</code>, and provides what it returns under the token. <code>getOrThrow</code> stops startup if the key is missing.</span></div>
+<pre><code>import type { FactoryProvider } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+
+export const PAYMENT_GATEWAY = Symbol("PAYMENT_GATEWAY");
+
+export type PaymentGateway = {
+  charge(request: { orderId: string; idempotencyKey: string }): Promise&lt;{ id: string }&gt;;
+};
+
+export const paymentGatewayProvider: FactoryProvider&lt;PaymentGateway&gt; = {
+  provide: PAYMENT_GATEWAY,
+  inject: [ConfigService],
+  useFactory: (config: ConfigService): PaymentGateway =&gt; {
+    const apiKey = config.getOrThrow&lt;string&gt;("CARD_PROVIDER_API_KEY");
+    return {
+      async charge(request) {
+        const response = await fetch("https://payments.example.com/charges", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Idempotency-Key": request.idempotencyKey },
+          body: JSON.stringify({ orderId: request.orderId }),
+        });
+        return (await response.json()) as { id: string };
+      },
+    };
+  },
+};</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="gateway">
+      <div class="file-head"><span class="chip tone-blue">Test</span><span class="name">src/orders/orders.service.spec.ts</span><span class="why">The test builds the real <code>OrdersModule</code> and replaces only the gateway token with a fake. Uses <code>@nestjs/testing</code> and <code>node:test</code>. <code>ConfigModule</code> is added because the real factory provider is still registered before it is replaced.</span></div>
+<pre><code>import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { ConfigModule } from "@nestjs/config";
+import { Test } from "@nestjs/testing";
+import { PAYMENT_GATEWAY } from "../payments/payment-gateway.provider.js";
+import { OrdersModule } from "./orders.module.js";
+import { OrdersService } from "./orders.service.js";
+
+describe("when an order is paid", () =&gt; {
+  it("should charge the gateway once with the order's idempotency key", async () =&gt; {
+    const charges: { orderId: string; idempotencyKey: string }[] = [];
+    const fakeGateway = { charge: async (request: { orderId: string; idempotencyKey: string }) =&gt; (charges.push(request), { id: "pay-1" }) };
+    const testingModule = await Test.createTestingModule({ imports: [ConfigModule.forRoot(), OrdersModule] })
+      .overrideProvider(PAYMENT_GATEWAY)
+      .useValue(fakeGateway)
+      .compile();
+
+    await testingModule.get(OrdersService).pay("o-1");
+
+    assert.deepEqual(charges, [{ orderId: "o-1", idempotencyKey: "order-o-1" }]);
+  });
+});</code></pre>
+    </div>
+  </div>
+
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="container">
+      <div class="file-head"><span class="chip tone-amber">Metadata</span><span class="name">tsconfig.json</span><span class="why"><code>experimentalDecorators</code> turns on the decorator style Nest uses. <code>emitDecoratorMetadata</code> makes <code>tsc</code> write each constructor's parameter types into the output. Without it, Nest cannot know what to inject.</span></div>
+<pre><code>{
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "nodenext",
+    "strict": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="container">
+      <div class="file-head"><span class="chip tone-amber">Metadata</span><span class="name">dist/orders/orders.service.js</span><span class="why">Part of what <code>tsc</code> writes, shortened. The line with <code>"design:paramtypes"</code> stores <code>[PaymentsService]</code>: the constructor needs one <code>PaymentsService</code>. This is the only reason Nest knows the type after TypeScript removed it.</span></div>
+<pre><code>let OrdersService = OrdersService_1 = class OrdersService {
+    paymentsService;
+    logger = new Logger(OrdersService_1.name);
+    constructor(paymentsService) {
+        this.paymentsService = paymentsService;
+    }
+};
+OrdersService = OrdersService_1 = __decorate([
+    Injectable(),
+    __metadata("design:paramtypes", [PaymentsService])
+], OrdersService);</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

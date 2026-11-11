@@ -419,4 +419,10 @@ window.glossaryTerms = [
   { forms: ["linter", "linters"], definition: "A tool, such as ESLint, that reads code and reports likely mistakes and style problems without running it." },
   { forms: ["test runner", "test runners"], definition: "A tool, such as Vitest or node --test, that finds test files, runs them and reports which tests failed." },
   { forms: ["source map", "source maps"], definition: "A file that maps positions in generated JavaScript back to the original source lines, so errors point at the code you wrote." },
+  { forms: ["RxJS"], definition: "A JavaScript library for streams of values over time, called observables, with operators such as map and tap to change them." },
+  { forms: ["AsyncLocalStorage"], definition: "A Node.js class that keeps a value, such as a request ID, available to all code and every await that runs inside one call to run()." },
+  { forms: ["probe timeout", "probe"], definition: "A Kubernetes check, such as a readiness probe, that calls the app and marks it not ready if no answer arrives in time.", onlyOn: ["nestjs-modules-and-providers"] },
+  { forms: ["model binding"], definition: "In ASP.NET Core, the step that reads route values, query strings and the body and turns them into the action method's parameters." },
+  { forms: ["ProblemDetails"], definition: "A standard JSON format for HTTP error responses (RFC 9457), with fields such as status, title and detail. ASP.NET Core can produce it." },
+  { forms: ["minimal APIs", "minimal API"], definition: "The ASP.NET Core style that maps routes to functions in Program.cs, such as app.MapGet(...), without controller classes." },
 ];
