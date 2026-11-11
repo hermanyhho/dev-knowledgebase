@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reliability Patterns</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../">System design</a> / Reliability</div>
+    <h1>Reliability Patterns</h1>
+    <p class="aka">How a service keeps working when the services it calls are slow, failing, or called too often.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Every call over the network can fail, hang or arrive twice. Without protection, one slow dependency makes your requests wait, threads and connections fill up, and your service fails too. Five patterns limit the damage.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Pattern</th><th>Key point</th><th>Without it</th></tr></thead>
+        <tbody>
+          <tr><td>Timeout</td><td>Give every outgoing call a maximum time, shorter than your own request's deadline.</td><td>A hanging dependency holds your request open for minutes</td></tr>
+          <tr><td>Retry with backoff</td><td>Retry failures that are likely temporary, such as a 503 or a timeout, a few times, waiting longer each time with a random part.</td><td>One network blip fails the user's request</td></tr>
+          <tr><td>Idempotency key</td><td>The caller sends a unique key with each operation; the server remembers it and does the work only once.</td><td>A retried payment charges the card twice</td></tr>
+          <tr><td>Circuit breaker</td><td>After many failures, stop calling the dependency for a while and fail at once. Then let one test call through.</td><td>Retries pile onto a service that is already down</td></tr>
+          <tr><td>Rate limit</td><td>Allow each client a number of requests per time window. Answer 429 above it.</td><td>One client's traffic slows everyone</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> every outgoing call gets a timeout. Retry only temporary errors, only a few times, with random backoff, and only operations that are safe to repeat or carry an idempotency key.</div>
+  </section>
+
+  <section>
+    <h2>What to retry</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Response</th><th>Retry?</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Timeout, connection reset</td><td>Yes, if idempotent</td><td>The request may or may not have been processed</td></tr>
+          <tr><td>502, 503, 504</td><td>Yes</td><td>The service or a proxy in front of it is temporarily unavailable</td></tr>
+          <tr><td>429 Too Many Requests</td><td>Yes, after the <code>Retry-After</code> time</td><td>The server told you when</td></tr>
+          <tr><td>400, 401, 403, 404, 422</td><td>No</td><td>The same request will fail the same way</td></tr>
+          <tr><td>500</td><td>Usually no</td><td>Often a bug that a retry repeats</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Retry at one layer only. If the browser, the gateway and your service each retry 3 times, one failure becomes 27 calls.</p>
+  </section>
+
+  <section>
+    <h2>Circuit breaker states</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>State</th><th>Calls</th><th>Moves to</th></tr></thead>
+        <tbody>
+          <tr><td>Closed</td><td>Pass through normally</td><td>Open, when the failure rate passes a limit, such as 50% of the last 20 calls</td></tr>
+          <tr><td>Open</td><td>Fail at once, without calling the dependency</td><td>Half-open, after a wait such as 30 seconds</td></tr>
+          <tr><td>Half-open</td><td>A few test calls go through</td><td>Closed if they succeed, open again if they fail</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th></tr></thead>
+        <tbody>
+          <tr><td>Each retry</td><td>Dependency, attempt number, status or error, request ID, at warn. The final failure once, at error.</td></tr>
+          <tr><td>Timeouts</td><td>Count per dependency. A rise means the dependency is slowing down.</td></tr>
+          <tr><td>Circuit breaker</td><td>Every state change, at warn when it opens. Alert on open.</td></tr>
+          <tr><td>Rate limiter</td><td>429 responses per client ID, not per IP address alone. Never the API key itself.</td></tr>
+          <tr><td>Idempotency</td><td>Repeated keys that returned a stored result, at info</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 300" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A client calls the orders service through a rate limiter. The orders service calls the payment service with a timeout and retries, through a circuit breaker. The payment service stores idempotency keys so a repeated call does the work once.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="180" y="20" width="460" height="260" rx="10"/>
+        <text class="t-label" x="410" y="40">ORDERS SERVICE</text>
+
+        <g id="p-client">
+          <rect class="shape tone-neutral" x="15" y="115" width="140" height="70" rx="6"/>
+          <text class="t-name" x="85" y="143">Client</text>
+          <text class="t-kind" x="85" y="161">app or partner</text>
+        </g>
+        <g class="node" id="n-ratelimit" tabindex="0" role="button" aria-label="Show the rate limiter" data-title="Rate limiter" data-node="ratelimit">
+          <rect class="shape tone-amber" x="200" y="115" width="130" height="70" rx="6"/>
+          <text class="t-name" x="265" y="143">Rate limiter</text>
+          <text class="t-kind" x="265" y="161">100 per minute</text>
+        </g>
+        <g class="node" id="n-caller" tabindex="0" role="button" aria-label="Show timeout and retry code" data-title="Outgoing call: timeout and retry" data-node="caller">
+          <rect class="shape tone-teal" x="360" y="60" width="260" height="70" rx="6"/>
+          <text class="t-name" x="490" y="88">Outgoing call</text>
+          <text class="t-kind" x="490" y="106">timeout 2 s, 3 tries, backoff</text>
+        </g>
+        <g class="node" id="n-breaker" tabindex="0" role="button" aria-label="Show the circuit breaker" data-title="Circuit breaker" data-node="breaker">
+          <rect class="shape tone-blue" x="360" y="170" width="260" height="70" rx="6"/>
+          <text class="t-name" x="490" y="198">Circuit breaker</text>
+          <text class="t-kind" x="490" y="216">closed, open, half-open</text>
+        </g>
+        <g class="node" id="n-idempotency" tabindex="0" role="button" aria-label="Show idempotency key storage" data-title="Payment service: idempotency keys" data-node="idempotency">
+          <rect class="shape tone-neutral" x="680" y="100" width="225" height="100" rx="6"/>
+          <text class="t-name" x="792" y="128">Payment service</text>
+          <text class="t-kind" x="792" y="148">stores each idempotency key</text>
+          <text class="t-kind" x="792" y="164">with its result</text>
+        </g>
+
+        <path class="flow" id="a-client-limiter" d="M155,150 L198,150" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-limiter-caller" d="M330,140 L358,100" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-caller-breaker" d="M490,130 L490,168" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-breaker-payment" d="M620,205 L650,205 L650,150 L678,150" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-limiter-client" d="M200,170 L157,170" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-429" x="85" y="210">429, Retry-After: 30</text>
+        <text class="ghost-label" id="t-open" x="490" y="262">OPEN: FAIL AT ONCE</text>
+        <text class="ghost-label" id="t-once" x="792" y="225">SAME KEY: CHARGED ONCE</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="retry" aria-pressed="true">A payment times out</button>
+        <button type="button" data-flow="down" aria-pressed="false">The payment service is down</button>
+        <button type="button" data-flow="limit" aria-pressed="false">A client sends too much</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="retry" hidden>
+        <li data-highlight="n-caller a-caller-breaker n-breaker a-breaker-payment n-idempotency">The orders service charges order <code>o-1</code> with idempotency key <code>order-o-1</code>. The payment service charges the card, but the response is lost.</li>
+        <li data-highlight="n-caller">After 2 seconds the timeout ends the wait. The call may or may not have worked.</li>
+        <li data-highlight="n-caller a-caller-breaker n-breaker a-breaker-payment n-idempotency">After a short random wait, the same call is sent again, with the same key.</li>
+        <li data-highlight="n-idempotency t-once">The payment service finds the key, does not charge again, and returns the stored result. The customer is charged once.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="down" hidden>
+        <li data-highlight="n-caller a-caller-breaker n-breaker a-breaker-payment n-idempotency">The payment service stops answering. Calls time out and are retried.</li>
+        <li data-highlight="n-breaker t-open">More than half of the recent calls failed, so the breaker opens. New calls fail at once, without waiting 2 seconds each.</li>
+        <li data-highlight="n-breaker">The orders service answers "payment unavailable, try again later" quickly, and its own threads and connections stay free.</li>
+        <li data-highlight="n-breaker a-breaker-payment n-idempotency">After 30 seconds the breaker lets one test call through. It succeeds, so the breaker closes.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="limit" hidden>
+        <li data-highlight="p-client a-client-limiter n-ratelimit">A partner's script sends 500 requests per minute. The limit is 100 per client per minute.</li>
+        <li data-highlight="n-ratelimit a-limiter-client p-client t-429">Request 101 gets <code>429 Too Many Requests</code> with <code>Retry-After: 30</code>. It never reaches the service code.</li>
+        <li data-highlight="n-ratelimit a-limiter-caller n-caller">Other clients keep their own limits, so their requests are not slowed down.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-amber">Rate limiter</span>
+      <span class="chip tone-teal">Timeout and retry</span>
+      <span class="chip tone-blue">Circuit breaker</span>
+      <span class="chip tone-neutral">Clients and services</span>
+      <span>Click a box to see a short example.</span>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems these patterns solve</h2>
+      <ul>
+        <li><strong>Short network failures</strong><span>Retries hide brief errors from users.</span></li>
+        <li><strong>One failure spreading</strong><span>Timeouts and breakers stop a slow dependency from tying up your service.</span></li>
+        <li><strong>Duplicate side effects</strong><span>Idempotency keys make retries safe for payments and orders.</span></li>
+        <li><strong>Noisy clients</strong><span>Rate limits protect capacity for everyone else.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems they introduce</h2>
+      <ul>
+        <li><strong>More load during an outage</strong><span>Badly configured retries multiply traffic to a failing service.</span></li>
+        <li><strong>Settings to tune</strong><span>Timeouts, retry counts, breaker thresholds and limits need real numbers.</span></li>
+        <li><strong>Storage for keys</strong><span>Idempotency keys must be stored and expired.</span></li>
+        <li><strong>Errors users see</strong><span>An open breaker or a 429 is still a failure the client must handle.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="caller">
+      <div class="file-head"><span class="chip tone-teal">Timeout and retry</span><span class="name">src/charge-payment.ts</span><span class="why"><code>AbortSignal.timeout</code> ends each attempt after 2 seconds. Only timeouts and 502-504 are retried, at most 3 attempts, with a growing random wait. Every attempt sends the same <code>Idempotency-Key</code>. Retries are logged at warn; the caller logs the final failure.</span></div>
+<pre><code>import { setTimeout as wait } from "node:timers/promises";
+import type { Logger } from "pino";
+
+const retryableStatuses = new Set([502, 503, 504]);
+const maxAttempts = 3;
+
+export async function chargePayment(requestLogger: Logger, orderId: string, amount: number): Promise&lt;{ paymentId: string }&gt; {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const response = await fetch("https://payments.internal/charges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": `order-${orderId}` },
+        body: JSON.stringify({ orderId, amount }),
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (response.ok) return (await response.json()) as { paymentId: string };
+      if (!retryableStatuses.has(response.status) || attempt === maxAttempts) {
+        throw new Error(`Payment failed with status ${response.status}.`);
+      }
+      requestLogger.warn({ dependency: "payments", attempt, status: response.status }, "retrying payment");
+    } catch (error) {
+      const isTimeout = error instanceof DOMException &amp;&amp; error.name === "TimeoutError";
+      if (!isTimeout || attempt === maxAttempts) throw error;
+      requestLogger.warn({ dependency: "payments", attempt, reason: "timeout" }, "retrying payment");
+    }
+    await wait(Math.random() * 200 * 2 ** attempt);
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="breaker">
+      <div class="file-head"><span class="chip tone-blue">Circuit breaker</span><span class="name">src/payment-breaker.ts</span><span class="why">The <code>opossum</code> library wraps the call. When half of the calls in its window fail, it opens and rejects at once for 30 seconds, then lets a test call through. State changes are logged.</span></div>
+<pre><code>import CircuitBreaker from "opossum";
+import pino from "pino";
+import { chargePayment } from "./charge-payment.js";
+
+const logger = pino();
+
+export const paymentBreaker = new CircuitBreaker(chargePayment, {
+  errorThresholdPercentage: 50,
+  resetTimeout: 30_000,
+  volumeThreshold: 20,
+});
+
+paymentBreaker.on("open", () =&gt; logger.warn({ dependency: "payments" }, "circuit opened"));
+paymentBreaker.on("halfOpen", () =&gt; logger.info({ dependency: "payments" }, "circuit half-open"));
+paymentBreaker.on("close", () =&gt; logger.info({ dependency: "payments" }, "circuit closed"));</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="ratelimit">
+      <div class="file-head"><span class="chip tone-amber">Rate limiter</span><span class="name">src/rate-limit.ts</span><span class="why"><code>express-rate-limit</code> counts requests per client in a one-minute window and answers 429 with a <code>Retry-After</code> header above 100. The key is the client ID from authentication, so clients behind one IP address do not share a limit. With several servers, give it a Redis store so the count is shared.</span></div>
+<pre><code>import { rateLimit } from "express-rate-limit";
+
+export const perClientRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 100,
+  standardHeaders: "draft-8",
+  keyGenerator: (req) =&gt; req.auth?.clientId ?? req.ip ?? "unknown",
+});</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="caller">
+      <div class="file-head"><span class="chip tone-teal">Timeout and retry</span><span class="name">Program.cs</span><span class="why"><code>AddStandardResilienceHandler</code>, from <code>Microsoft.Extensions.Http.Resilience</code>, adds a total timeout, retries with random backoff for temporary errors, a circuit breaker and a timeout per attempt to every call of this client. The handler sets the idempotency key, so retries send the same one.</span></div>
+<pre><code>builder.Services.AddHttpClient&lt;PaymentClient&gt;(client =&gt; client.BaseAddress = new Uri("https://payments.internal"))
+    .AddStandardResilienceHandler(options =&gt;
+    {
+        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(2);
+        options.Retry.MaxRetryAttempts = 2;
+        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(10);
+        ResilienceSettings.ConfigureBreaker(options);
+    });
+
+public sealed class PaymentClient(HttpClient httpClient)
+{
+    public async Task&lt;PaymentResult&gt; ChargeAsync(string orderId, decimal amount, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/charges")
+        {
+            Content = JsonContent.Create(new { orderId, amount }),
+        };
+        request.Headers.Add("Idempotency-Key", $"order-{orderId}");
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync&lt;PaymentResult&gt;(cancellationToken))!;
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="breaker">
+      <div class="file-head"><span class="chip tone-blue">Circuit breaker</span><span class="name">ResilienceSettings.cs</span><span class="why">The breaker is part of the standard handler. These settings open it when half of at least 20 calls in 30 seconds fail, and keep it open for 30 seconds. Polly logs state changes through the app's logger.</span></div>
+<pre><code>public static class ResilienceSettings
+{
+    public static void ConfigureBreaker(HttpStandardResilienceOptions options)
+    {
+        options.CircuitBreaker.FailureRatio = 0.5;
+        options.CircuitBreaker.MinimumThroughput = 20;
+        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+        options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
+    }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="ratelimit">
+      <div class="file-head"><span class="chip tone-amber">Rate limiter</span><span class="name">RateLimiting.cs</span><span class="why">ASP.NET Core's built-in rate limiter. Each client ID gets 100 requests per minute; above that the response is 429. The partition key is the client ID claim, falling back to the IP address.</span></div>
+<pre><code>using System.Threading.RateLimiting;
+
+builder.Services.AddRateLimiter(options =&gt;
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create&lt;HttpContext, string&gt;(context =&gt;
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.FindFirst("client_id")?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ =&gt; new FixedWindowRateLimiterOptions { PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }));
+});
+
+app.UseRateLimiter();</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="idempotency">
+      <div class="file-head"><span class="chip tone-neutral">Payment service</span><span class="name">idempotency-keys.sql</span><span class="why">The payment service inserts the key in the same transaction as the charge. A second request with the same key hits the primary key, finds the stored result and returns it without charging. Old keys are deleted after 24 hours.</span></div>
+<pre><code>CREATE TABLE idempotency_keys (
+  idempotency_key text PRIMARY KEY,
+  response_status integer NOT NULL,
+  response_body   jsonb NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO idempotency_keys (idempotency_key, response_status, response_body)
+VALUES ('order-o-1', 201, '{"paymentId": "pay-9"}')
+ON CONFLICT (idempotency_key) DO NOTHING;
+
+SELECT response_status, response_body FROM idempotency_keys WHERE idempotency_key = 'order-o-1';
+
+DELETE FROM idempotency_keys WHERE created_at &lt; now() - interval '24 hours';</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="../../assets/topic.js"></script>
+</body>
+</html>

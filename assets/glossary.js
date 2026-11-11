@@ -457,4 +457,10 @@ window.glossaryTerms = [
   { forms: ["Round robin", "round robin"], definition: "Sending requests to servers in turn: first, second, third, then the first again." },
   { forms: ["cache-aside"], definition: "A caching pattern: the app reads the cache first, and on a miss reads the database and stores the result in the cache." },
   { forms: ["Stampede", "stampede"], definition: "Many requests missing the cache at the same moment, usually when a popular key expires, and all hitting the database." },
+  { forms: ["backoff"], definition: "Waiting longer between each retry, for example 200 ms, 400 ms, 800 ms, usually with a random part so clients do not retry at the same moment." },
+  { forms: ["idempotent"], definition: "An operation that has the same result whether it runs once or several times, such as setting a value. Adding to a balance is not." },
+  { forms: ["Retry-After"], definition: "An HTTP response header that tells the client how many seconds to wait, or until when, before trying again." },
+  { forms: ["429"], definition: "HTTP status 429 Too Many Requests: the client sent more requests than its rate limit allows." },
+  { forms: ["opossum"], definition: "A circuit breaker library for Node.js. It wraps an async function and stops calling it after too many failures." },
+  { forms: ["Polly"], definition: "The .NET library for resilience: retries, timeouts, circuit breakers and rate limiters. Microsoft.Extensions.Http.Resilience builds on it." },
 ];
