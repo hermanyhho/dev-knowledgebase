@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Next.js Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../">React</a> / Next.js</div>
+    <h1>Next.js Overview</h1>
+    <p class="aka">A React framework that renders components on the server, caches their results, and handles form submissions with server functions. Examples use Next.js 16 with the App Router and Cache Components.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Plain <a href="../">React</a> runs in the browser. Next.js runs React on the server too. Each folder in <code>app/</code> is a route, and its <code>page.tsx</code> is a component that can be <code>async</code> and read a database directly. The browser receives finished HTML first, then the JavaScript for the parts that need to be interactive.</p>
+    <p>Four ideas cover most of it: which components run where, which parts of a page are built ahead of time, how results are cached, and how the browser sends changes back.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Idea</th><th>Key point</th><th>Common mistake</th></tr></thead>
+        <tbody>
+          <tr><td>Server and Client Components</td><td>Components are Server Components by default: they run only on the server and their code never reaches the browser. <code>"use client"</code> at the top of a file marks components that need state, effects or click handlers.</td><td>Putting <code>"use client"</code> high in the tree, so most code ships to the browser</td></tr>
+          <tr><td>Static shell and streaming</td><td>At build time Next.js renders everything it can into a static shell. Parts that need the request, such as cookies, render per request inside <code>&lt;Suspense&gt;</code> and stream in.</td><td>Reading <code>cookies()</code> outside <code>&lt;Suspense&gt;</code>, which fails the build</td></tr>
+          <tr><td>Caching</td><td>Nothing is cached unless you say so. <code>"use cache"</code> in a function caches its result; <code>cacheLife</code> sets how long, <code>cacheTag</code> names it for invalidation.</td><td>Expecting <code>fetch</code> to be cached by default, as in Next.js 14</td></tr>
+          <tr><td>Server Actions and Proxy</td><td>A function with <code>"use server"</code> can be a form's <code>action</code>; the browser calls it with a POST. <code>proxy.ts</code>, formerly <code>middleware.ts</code>, runs before routes for redirects and headers.</td><td>Checking authorization only in Proxy. Every Server Action must check it itself.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> keep components on the server unless they need interaction, cache data explicitly with <code>"use cache"</code>, wrap request-specific parts in <code>&lt;Suspense&gt;</code>, and check authentication inside every Server Action.</div>
+  </section>
+
+  <section>
+    <h2>What the build reports</h2>
+    <p>Output of <code>next build</code> for a small test app with <code>cacheComponents: true</code>:</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Symbol</th><th>Meaning</th><th>Example route</th></tr></thead>
+        <tbody>
+          <tr><td><code>○ (Static)</code></td><td>Prerendered as static content</td><td><code>/about</code>; <code>/products</code> with <code>"use cache"</code> and <code>cacheLife("hours")</code>, shown with revalidate 1h, expire 1d</td></tr>
+          <tr><td><code>◐ (Partial Prerender)</code></td><td>Static HTML shell, with dynamic parts streamed from the server</td><td><code>/account</code>, which reads <code>cookies()</code> inside <code>&lt;Suspense&gt;</code></td></tr>
+          <tr><td><code>ƒ (Dynamic)</code></td><td>Rendered on demand</td><td><code>/account</code> in the same app without <code>cacheComponents</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Reading <code>cookies()</code> outside <code>&lt;Suspense&gt;</code> stopped the build with <code>Route "/account": Next.js encountered uncached or runtime data during prerendering.</code> The message lists the fixes: add <code>&lt;Suspense&gt;</code>, cache the data with <code>"use cache"</code>, or allow a blocking route.</p>
+  </section>
+
+  <section>
+    <h2>Changes from older versions</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Before</th><th>Next.js 16</th></tr></thead>
+        <tbody>
+          <tr><td><code>fetch</code> cached by default (version 14)</td><td>Nothing cached without <code>"use cache"</code></td></tr>
+          <tr><td><code>params</code>, <code>searchParams</code>, <code>cookies()</code> used directly</td><td>All are Promises and must be awaited</td></tr>
+          <tr><td><code>revalidateTag("products")</code></td><td><code>revalidateTag("products", "max")</code>, or <code>updateTag("products")</code> inside a Server Action</td></tr>
+          <tr><td><code>middleware.ts</code> exporting <code>middleware</code></td><td><code>proxy.ts</code> exporting <code>proxy</code>, running on Node.js</td></tr>
+          <tr><td><code>export const revalidate</code>, <code>dynamic</code> per route</td><td><code>"use cache"</code> with <code>cacheLife</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log</th></tr></thead>
+        <tbody>
+          <tr><td><code>instrumentation.ts</code>, <code>onRequestError</code></td><td>Every server error once, with the route and request path, sent to your error service</td></tr>
+          <tr><td>Server Actions</td><td>Action name, user ID, outcome and duration. Not the form values.</td></tr>
+          <tr><td><code>error.tsx</code></td><td>Shows a fallback in the browser. In production the message is hidden; log the <code>digest</code>, which matches the server log line.</td></tr>
+          <tr><td>Build</td><td>The route table: a route that changed from <code>○</code> to <code>ƒ</code> got slower</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 330" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A request passes Proxy, then a page made of Server Components. Cached data comes from a "use cache" function. The static shell is sent first and a Suspense part streams in. In the browser, Client Components become interactive, and a form calls a Server Action, which updates data and invalidates the cache tag.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="200" y="15" width="440" height="300" rx="10"/>
+        <text class="t-label" x="420" y="34">SERVER</text>
+        <rect class="frame" x="660" y="15" width="245" height="300" rx="10"/>
+        <text class="t-label" x="782" y="34">BROWSER</text>
+
+        <g class="node" id="n-proxy" tabindex="0" role="button" aria-label="Show proxy.ts" data-title="Proxy" data-node="proxy">
+          <rect class="shape tone-neutral" x="20" y="120" width="150" height="70" rx="6"/>
+          <text class="t-name" x="95" y="148">proxy.ts</text>
+          <text class="t-kind" x="95" y="166">redirects, headers</text>
+        </g>
+        <g class="node" id="n-page" tabindex="0" role="button" aria-label="Show the page" data-title="Page: Server Components" data-node="page">
+          <rect class="shape tone-teal" x="220" y="50" width="200" height="80" rx="6"/>
+          <text class="t-name" x="320" y="77">Page</text>
+          <text class="t-kind" x="320" y="95">Server Component,</text>
+          <text class="t-kind" x="320" y="111">async, reads data</text>
+        </g>
+        <g class="node" id="n-cache" tabindex="0" role="button" aria-label="Show a cached function" data-title="use cache" data-node="cache">
+          <rect class="shape tone-blue" x="440" y="50" width="180" height="80" rx="6"/>
+          <text class="t-name" x="530" y="77">"use cache"</text>
+          <text class="t-kind" x="530" y="95">cacheLife, cacheTag</text>
+          <text class="t-kind" x="530" y="111">"products"</text>
+        </g>
+        <g class="node" id="n-suspense" tabindex="0" role="button" aria-label="Show a streamed part" data-title="Suspense: per-request part" data-node="suspense">
+          <rect class="shape tone-teal" x="220" y="160" width="200" height="70" rx="6"/>
+          <text class="t-name" x="320" y="187">Suspense part</text>
+          <text class="t-kind" x="320" y="205">reads cookies, streams in</text>
+        </g>
+        <g class="node" id="n-action" tabindex="0" role="button" aria-label="Show a Server Action" data-title="Server Action" data-node="action">
+          <rect class="shape tone-amber" x="440" y="230" width="180" height="70" rx="6"/>
+          <text class="t-name" x="530" y="257">Server Action</text>
+          <text class="t-kind" x="530" y="275">checks auth, updateTag</text>
+        </g>
+        <g class="node" id="n-client" tabindex="0" role="button" aria-label="Show a Client Component" data-title="Client Component" data-node="client">
+          <rect class="shape tone-neutral" x="680" y="120" width="205" height="90" rx="6"/>
+          <text class="t-name" x="782" y="148">Client Component</text>
+          <text class="t-kind" x="782" y="166">"use client": state,</text>
+          <text class="t-kind" x="782" y="182">clicks, a form</text>
+        </g>
+
+        <path class="flow" id="a-proxy-page" d="M170,140 L218,100" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-page-cache" d="M420,90 L438,90" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-page-suspense" d="M320,130 L320,158" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-page-client" d="M380,50 L380,42 L650,42 L650,140 L678,140" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-suspense-client" d="M420,195 L678,195" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-client-action" d="M782,210 L782,265 L622,265" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-action-cache" d="M530,230 L530,132" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-shell" x="420" y="150">SHELL SENT FIRST</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="load" aria-pressed="true">Open a product page</button>
+        <button type="button" data-flow="submit" aria-pressed="false">Submit a form</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="load" hidden>
+        <li data-highlight="n-proxy a-proxy-page n-page">The request passes <code>proxy.ts</code>, which only redirects or sets headers, then reaches the page.</li>
+        <li data-highlight="n-page a-page-cache n-cache">The page reads products through a function marked <code>"use cache"</code>. The result was rendered at build time, so it is part of the static shell.</li>
+        <li data-highlight="n-page a-page-client n-client t-shell">The static shell, including a fallback for the personal part, is sent at once. The browser shows it and loads the JavaScript for Client Components only.</li>
+        <li data-highlight="n-page a-page-suspense n-suspense a-suspense-client n-client">The part inside <code>&lt;Suspense&gt;</code> reads the cookie, renders for this user, and streams into the page.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="submit" hidden>
+        <li data-highlight="n-client a-client-action n-action">The user submits a form. Its <code>action</code> is a Server Action, so the browser sends a POST to the server.</li>
+        <li data-highlight="n-action">The action checks that the user is logged in and allowed, validates the form data, and writes to the database.</li>
+        <li data-highlight="n-action a-action-cache n-cache"><code>updateTag("products")</code> expires every cached result tagged <code>products</code>.</li>
+        <li data-highlight="n-cache a-page-cache n-page a-page-client n-client">The same response re-renders the page with fresh data, so the user sees their change.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">Server Components</span>
+      <span class="chip tone-blue">Cache</span>
+      <span class="chip tone-amber">Server Action</span>
+      <span class="chip tone-neutral">Proxy and browser</span>
+      <span>Click a box to see a short example.</span>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Slow first load</strong><span>The browser gets HTML at once, often from a static shell.</span></li>
+        <li><strong>Large JavaScript bundles</strong><span>Server Components send no code to the browser.</span></li>
+        <li><strong>A separate API for every form</strong><span>Server Actions are called directly from forms.</span></li>
+        <li><strong>Choosing static or dynamic per page</strong><span>One page can be mostly static with small per-request parts.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Two environments in one codebase</strong><span>Each component runs on the server, in the browser, or both, and the rules differ.</span></li>
+        <li><strong>Caching rules to learn</strong><span>Cache scope, lifetime and invalidation decide when users see changes.</span></li>
+        <li><strong>Public endpoints you did not write</strong><span>Every Server Action can be called with a direct POST, so each needs its own auth check.</span></li>
+        <li><strong>Fast-moving APIs</strong><span>Caching, Proxy and request APIs changed in each major version.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-tsx">
+    <div class="file" data-lang="any" data-node="page">
+      <div class="file-head"><span class="chip tone-teal">Server Component</span><span class="name">app/products/page.tsx</span><span class="why">An <code>async</code> Server Component. It reads cached data and passes plain values to a Client Component. The personal part is wrapped in <code>&lt;Suspense&gt;</code>, so the rest of the page can be prerendered.</span></div>
+<pre><code>import { Suspense } from "react";
+import { AddToCartButton } from "./add-to-cart-button";
+import { getProducts } from "./products";
+import { RecentlyViewed } from "./recently-viewed";
+
+export default async function ProductsPage() {
+  const products = await getProducts();
+  return (
+    &lt;main&gt;
+      &lt;ul&gt;
+        {products.map((product) =&gt; (
+          &lt;li key={product.id}&gt;
+            {product.name} &lt;AddToCartButton productId={product.id} /&gt;
+          &lt;/li&gt;
+        ))}
+      &lt;/ul&gt;
+      &lt;Suspense fallback={&lt;p&gt;Loading your history...&lt;/p&gt;}&gt;
+        &lt;RecentlyViewed /&gt;
+      &lt;/Suspense&gt;
+    &lt;/main&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="suspense">
+      <div class="file-head"><span class="chip tone-teal">Per request</span><span class="name">app/products/recently-viewed.tsx</span><span class="why"><code>cookies()</code> returns a Promise and depends on the request, so this part renders per request. Outside <code>&lt;Suspense&gt;</code>, the build stops with an error.</span></div>
+<pre><code>import { cookies } from "next/headers";
+
+export async function RecentlyViewed() {
+  const viewed = (await cookies()).get("recently-viewed")?.value.split(",") ?? [];
+  return &lt;p&gt;You viewed {viewed.length} products recently.&lt;/p&gt;;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="client">
+      <div class="file-head"><span class="chip tone-neutral">Client Component</span><span class="name">app/products/add-to-cart-button.tsx</span><span class="why"><code>"use client"</code> sends this component's code to the browser, so it can use state. Its props, here a string, must be serializable.</span></div>
+<pre><code>"use client";
+
+import { useState } from "react";
+
+export function AddToCartButton({ productId }: { productId: string }) {
+  const [added, setAdded] = useState(false);
+  return (
+    &lt;button onClick={() =&gt; setAdded(true)} disabled={added}&gt;
+      {added ? "Added" : "Add to cart"}
+    &lt;/button&gt;
+  );
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="cache">
+      <div class="file-head"><span class="chip tone-blue">Cache</span><span class="name">app/products/products.ts</span><span class="why"><code>"use cache"</code> caches the function's result. <code>cacheLife("hours")</code> refreshes it in the background after an hour; the build showed this route as static with revalidate 1h, expire 1d. <code>cacheTag</code> lets an action expire it. <code>db</code> is your database client.</span></div>
+<pre><code>import { cacheLife, cacheTag } from "next/cache";
+import { db } from "@/lib/db";
+
+export async function getProducts() {
+  "use cache";
+  cacheLife("hours");
+  cacheTag("products");
+  return db.product.findMany({ orderBy: { name: "asc" } });
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="action">
+      <div class="file-head"><span class="chip tone-amber">Server Action</span><span class="name">app/products/actions.ts</span><span class="why">Anyone can call a Server Action with a POST, so it checks the session itself. <code>updateTag</code> expires the cached products at once, and the response shows the new data. <code>auth</code> and <code>db</code> are your own modules.</span></div>
+<pre><code>"use server";
+
+import { updateTag } from "next/cache";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+
+export async function renameProduct(formData: FormData) {
+  const session = await auth();
+  if (!session?.user.isAdmin) throw new Error("Only admins can rename products.");
+
+  const productId = String(formData.get("productId"));
+  const name = String(formData.get("name")).trim();
+  if (name.length === 0) throw new Error("The name is empty.");
+
+  await db.product.update({ where: { id: productId }, data: { name } });
+  updateTag("products");
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="proxy">
+      <div class="file-head"><span class="chip tone-neutral">Proxy</span><span class="name">proxy.ts</span><span class="why">Formerly <code>middleware.ts</code>. It runs before matching routes, on Node.js. Here it only sends visitors without a session cookie to the login page: a quick check, not real authorization, which pages and actions must still do. The matcher skips static files.</span></div>
+<pre><code>import { NextResponse, type NextRequest } from "next/server";
+
+export function proxy(request: NextRequest) {
+  if (!request.cookies.has("session")) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/account/:path*", "/admin/:path*"],
+};</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
+<script src="../../assets/topic.js"></script>
+</body>
+</html>
