@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Infrastructure</a> / Containers</div>
+    <h1>Docker</h1>
+    <p class="aka">A tool that builds container images and runs them as containers. First released in 2013.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Docker packages an application with everything it needs to run: the runtime, system libraries and your code. That package is an <strong>image</strong>. A running copy of an image is a <strong>container</strong>.</p>
+    <p>A container is a normal Linux process. The Linux kernel gives it its own view of processes, network and files (<strong>namespaces</strong>), and caps the CPU and memory it can use (<strong>control groups</strong>, or cgroups). All containers on a machine share that machine's kernel. There is no second operating system inside.</p>
+    <p>You write the build steps in a <strong>Dockerfile</strong>, build the image once, store it in a <strong>registry</strong>, and run the same image on your laptop, in CI and in production.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal">Image</span></td><td>Read-only files plus settings such as the start command, user and port. Built from a Dockerfile.</td><td><code>shop-api:1.4.0</code></td></tr>
+          <tr><td><span class="chip tone-teal">Layer</span></td><td>One read-only set of file changes, made by one Dockerfile step. Images that use the same base share its layers on disk.</td><td><code>RUN npm ci</code></td></tr>
+          <tr><td><span class="chip tone-blue">Container</span></td><td>A process started from an image, with its own writable layer on top for the files it changes.</td><td><code>shop-app-1</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Dockerfile</span></td><td>A text file with the steps to build an image.</td><td><code>FROM</code>, <code>COPY</code>, <code>RUN</code>, <code>CMD</code></td></tr>
+          <tr><td><span class="chip tone-amber">Registry</span></td><td>A server that stores images. You push images to it and pull them from it.</td><td>Docker Hub, <code>ghcr.io</code></td></tr>
+          <tr><td><span class="chip tone-amber">Tag</span></td><td>A readable name for one version of an image. The owner can move it to a different image.</td><td><code>1.4.0</code>, <code>latest</code></td></tr>
+          <tr><td><span class="chip tone-amber">Digest</span></td><td>The SHA-256 hash of an image's contents. It always refers to the same image.</td><td><code>sha256:&lt;64 hex characters&gt;</code></td></tr>
+          <tr><td><span class="chip tone-amber">Volume</span></td><td>Storage that Docker manages on the host disk. It stays when the container is removed.</td><td><code>pgdata</code></td></tr>
+          <tr><td><span class="chip tone-amber">Bind mount</span></td><td>A folder on the host that appears inside the container.</td><td><code>./db/init</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Docker Compose</span></td><td>A tool that starts several containers, their network and volumes from one YAML file.</td><td><code>compose.yaml</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> build one image and run that same image in every environment. Settings and secrets come from environment variables when the container starts. Data that must be kept goes in a volume or an external database, never in the container.</div>
+  </section>
+
+  <section>
+    <h2>Containers compared with virtual machines</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Container</th><th>Virtual machine</th></tr></thead>
+        <tbody>
+          <tr><td>What runs inside</td><td>Your app's processes only</td><td>A full guest operating system</td></tr>
+          <tr><td>Kernel</td><td>The host's Linux kernel, shared by all containers</td><td>Its own kernel</td></tr>
+          <tr><td>Isolation</td><td>Namespaces and cgroups inside one kernel. A kernel bug can affect every container.</td><td>A hypervisor. Stronger separation.</td></tr>
+          <tr><td>Start time</td><td>Under a second: the time to start one process</td><td>Tens of seconds: the guest system boots</td></tr>
+          <tr><td>Size</td><td>Tens to hundreds of MB</td><td>Several GB</td></tr>
+          <tr><td>Operating system</td><td>Linux containers need a Linux kernel</td><td>Any system the hypervisor supports</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>macOS and Windows have no Linux kernel. Docker Desktop starts a small Linux virtual machine and runs every container inside it. On Windows it uses WSL 2. Published ports still appear on <code>localhost</code>. Bind mounts are slower, because files are shared from your machine into the virtual machine. An image built on an Apple silicon Mac is for <code>arm64</code>. Build with <code>--platform linux/amd64</code> for most cloud servers.</p>
+  </section>
+
+  <section>
+    <h2>Image layers and the build cache</h2>
+    <p>Each Dockerfile step that changes files (<code>RUN</code>, <code>COPY</code>, <code>ADD</code>) creates a layer. Docker caches every layer. On the next build it reuses a layer if the step and its input files have not changed. Once one layer changes, Docker builds that layer and every layer after it again.</p>
+    <p>So put the steps that change least at the top. Copy the dependency list and install packages first. Copy your source code after that.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Dockerfile order</th><th>After you change one source file</th></tr></thead>
+        <tbody>
+          <tr><td>1. <code>COPY package.json package-lock.json</code><br>2. <code>RUN npm ci</code><br>3. <code>COPY src</code></td><td>Steps 1 and 2 come from the cache. Only step 3 runs. The build takes seconds.</td></tr>
+          <tr><td>1. <code>COPY . .</code><br>2. <code>RUN npm ci</code></td><td>Step 1 changed, so step 2 runs again. Every code change downloads all packages.</td></tr>
+          <tr><td>1. <code>COPY ShopApi.csproj</code><br>2. <code>RUN dotnet restore</code><br>3. <code>COPY . .</code></td><td>The same pattern for .NET. Restore runs only when the project file changes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dockerfile instructions</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Instruction</th><th>What it does</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>FROM</code></td><td>The base image to start from. Starts a new build stage.</td><td><code>FROM node:24-slim</code></td></tr>
+          <tr><td><code>WORKDIR</code></td><td>Sets the folder for the next steps and for the running app. Creates it if missing.</td><td><code>WORKDIR /app</code></td></tr>
+          <tr><td><code>COPY</code></td><td>Copies files from the build context (the folder you build from) into the image. <code>--from=build</code> copies from an earlier stage.</td><td><code>COPY src ./src</code></td></tr>
+          <tr><td><code>RUN</code></td><td>Runs a command during the build and saves the changed files as a layer.</td><td><code>RUN npm ci</code></td></tr>
+          <tr><td><code>ENV</code></td><td>Sets an environment variable in the image and in every container started from it. Anyone with the image can read it.</td><td><code>ENV NODE_ENV=production</code></td></tr>
+          <tr><td><code>ARG</code></td><td>A variable for the build only. Its value is still visible in <code>docker history</code>.</td><td><code>ARG APP_VERSION</code></td></tr>
+          <tr><td><code>EXPOSE</code></td><td>Records the port the app listens on. It does not publish the port.</td><td><code>EXPOSE 3000</code></td></tr>
+          <tr><td><code>USER</code></td><td>The user for the next <code>RUN</code> steps and for the app.</td><td><code>USER node</code></td></tr>
+          <tr><td><code>CMD</code></td><td>The default start command. Arguments after the image name in <code>docker run</code> replace it.</td><td><code>CMD ["node", "dist/server.js"]</code></td></tr>
+          <tr><td><code>ENTRYPOINT</code></td><td>The program that always starts. Arguments from <code>docker run</code>, or from <code>CMD</code>, are added after it.</td><td><code>ENTRYPOINT ["dotnet", "ShopApi.dll"]</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Use <code>CMD</code> for a normal app. Use <code>ENTRYPOINT</code> when the image is one program, and <code>CMD</code> for its default arguments. Write both in the JSON array form, called the exec form. The section on signals explains why.</p>
+  </section>
+
+  <section>
+    <h2>Multi-stage builds</h2>
+    <p>Building an app needs tools that running it does not: the .NET SDK, or TypeScript and the dev dependencies. A multi-stage Dockerfile has several <code>FROM</code> lines. The first stage uses a large image with the build tools and compiles the app. The last stage starts from a small runtime image and copies only the build output with <code>COPY --from=build</code>. Only the last stage becomes the image you ship.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Image</th><th>Contains</th><th>Size, about</th></tr></thead>
+        <tbody>
+          <tr><td><code>node:24</code></td><td>Debian, Node.js, compilers and many tools</td><td>1.1 GB</td></tr>
+          <tr><td><code>node:24-slim</code></td><td>A minimal Debian and Node.js</td><td>250 MB</td></tr>
+          <tr><td><code>dotnet/sdk:10.0</code></td><td>The .NET SDK, compiler and runtime</td><td>900 MB</td></tr>
+          <tr><td><code>dotnet/aspnet:10.0</code></td><td>The ASP.NET Core runtime only</td><td>230 MB</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="caption">Sizes are rounded and uncompressed. Check your own with <code>docker image ls</code>. The .NET images come from <code>mcr.microsoft.com</code>. Read more about each runtime on the <a href="../../../javascript/node/how-nodejs-works/">Node.js</a> and <a href="../../../dotnet/runtime/how-dotnet-works/">.NET</a> pages.</p>
+  </section>
+
+  <section>
+    <h2>Tags and digests</h2>
+    <p>A tag is a name that the image owner can point at a different image at any time. <code>node:24</code> points to a new image after every Node.js 24 patch release. <code>latest</code> is only the default tag name. It does not mean newest, and it changes without notice.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Reference</th><th>Can it change later?</th><th>Use it for</th></tr></thead>
+        <tbody>
+          <tr><td><code>node:24-slim</code></td><td>Yes, with every patch release</td><td>Base images, with regular rebuilds to get security fixes</td></tr>
+          <tr><td><code>shop-api:latest</code></td><td>Yes, with every push</td><td>Nothing in production. You cannot tell which code runs.</td></tr>
+          <tr><td><code>shop-api:1.4.0</code></td><td>Only if someone pushes the same tag again</td><td>Your own releases. A git commit hash also works as a tag.</td></tr>
+          <tr><td><code>shop-api@sha256:&lt;digest&gt;</code></td><td>No</td><td>Deployments that must run the exact image that passed the tests</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where container data is stored</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Storage</th><th>Where it is</th><th>Deleted when</th><th>Use it for</th></tr></thead>
+        <tbody>
+          <tr><td>Writable layer</td><td>Inside the container, on top of the image layers</td><td>The container is removed</td><td>Temporary files only</td></tr>
+          <tr><td>Named volume</td><td>The host disk, managed by Docker</td><td>You run <code>docker volume rm</code> or <code>docker compose down -v</code></td><td>Database files</td></tr>
+          <tr><td>Bind mount</td><td>A host folder you choose</td><td>Never by Docker</td><td>Source code during development, config files</td></tr>
+          <tr><td>tmpfs mount</td><td>Memory</td><td>The container stops</td><td>Scratch files that must not be written to disk</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Some images, such as <code>postgres</code>, declare a <code>VOLUME</code>. If you do not name one, Docker creates an anonymous volume with a random name. A new container does not reuse it, so the data seems gone, and the old volume keeps using disk space. Always name the volume.</p>
+  </section>
+
+  <section>
+    <h2>Networking and published ports</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Topic</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>Publishing a port</td><td><code>-p 8080:3000</code> forwards port 8080 on the host to port 3000 in the container. Without <code>-p</code>, nothing outside Docker can reach the app.</td></tr>
+          <tr><td><code>EXPOSE</code></td><td>Documentation only. It publishes nothing.</td></tr>
+          <tr><td>Listen address</td><td>The app must listen on <code>0.0.0.0</code>, all network interfaces. An app that listens on <code>127.0.0.1</code> cannot be reached through the published port.</td></tr>
+          <tr><td>Names between containers</td><td>On a network you create, such as the one Compose creates, containers reach each other by service name: <code>db:5432</code>. Docker runs a DNS server for that network.</td></tr>
+          <tr><td><code>localhost</code></td><td>Inside a container, <code>localhost</code> is the container itself, not your laptop. Docker Desktop provides <code>host.docker.internal</code> for the host.</td></tr>
+          <tr><td>Database ports</td><td>The <code>db</code> and <code>cache</code> services need no <code>-p</code>. If a tool on your laptop must connect, publish with <code>127.0.0.1:5432:5432</code>, so the port is not open to your whole network.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Environment variables and secrets</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Do this</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Read settings from environment variables when the app starts</td><td>One image runs in every environment with different settings.</td></tr>
+          <tr><td>Pass them with <code>-e</code>, <code>--env-file</code> or <code>environment:</code> in Compose</td><td>They are set when the container starts, not stored in the image.</td></tr>
+          <tr><td>Never copy <code>.env</code> files, keys or certificates into an image. Never put secrets in <code>ENV</code> or <code>ARG</code>.</td><td>Anyone who can pull the image can read every layer and <code>docker history</code>. Deleting a file in a later step does not remove it from the earlier layer.</td></tr>
+          <tr><td>List <code>.env</code> in <code>.dockerignore</code></td><td>Otherwise <code>COPY . .</code> includes it.</td></tr>
+          <tr><td>For a secret the build needs, such as a private package token, use <code>RUN --mount=type=secret</code></td><td>The secret exists only during that one step and is not saved in a layer.</td></tr>
+          <tr><td>In production, let the platform provide secrets, for example <a href="../kubernetes/">Kubernetes</a> Secrets or a cloud secret manager</td><td>Environment variables appear in <code>docker inspect</code>, so limit who can run it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Signals, PID 1 and shutdown</h2>
+    <p><code>docker stop</code> sends <code>SIGTERM</code> to the process with PID 1 in the container. If that process has not exited after 10 seconds, Docker sends <code>SIGKILL</code>, which ends it at once. Kubernetes does the same with a 30-second default. What PID 1 is depends on how you write the start command.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Start command</th><th>PID 1</th><th>On <code>docker stop</code></th></tr></thead>
+        <tbody>
+          <tr><td><code>CMD ["node", "dist/server.js"]</code></td><td><code>node</code></td><td>Your <code>SIGTERM</code> handler runs. Clean shutdown, exit code 0.</td></tr>
+          <tr><td><code>CMD node dist/server.js</code></td><td>Can be <code>/bin/sh</code></td><td>The shell does not pass <code>SIGTERM</code> to your app. After 10 seconds <code>SIGKILL</code> ends both. Exit code 137.</td></tr>
+          <tr><td><code>CMD ["npm", "start"]</code></td><td><code>npm</code></td><td>An extra npm process runs between Docker and your app. Start <code>node</code> directly.</td></tr>
+          <tr><td>Node.js with no handler</td><td><code>node</code></td><td>The kernel does not apply the default "terminate" action to PID 1, so the signal is ignored until <code>SIGKILL</code>. .NET registers a handler for you.</td></tr>
+          <tr><td><code>docker run --init</code>, or <code>init: true</code> in Compose</td><td><code>tini</code>, a small init program</td><td>It passes signals to your app and cleans up exited child processes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>On <code>SIGTERM</code> the app stops accepting connections, finishes open requests, closes database and cache connections, then exits. Keep this shorter than the stop timeout. The example allows 8 seconds.</p>
+  </section>
+
+  <section>
+    <h2>Image size and security</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Practice</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Small runtime base: <code>-slim</code>, <code>-alpine</code>, or the chiseled .NET images</td><td>Fewer packages means fewer known vulnerabilities and faster pulls. Alpine uses musl instead of glibc, which breaks some native packages.</td></tr>
+          <tr><td>Multi-stage build</td><td>Compilers and dev dependencies are not in the final image.</td></tr>
+          <tr><td><code>.dockerignore</code></td><td>Keeps <code>node_modules</code>, <code>bin</code>, <code>obj</code>, <code>.git</code> and <code>.env</code> out of the build context. Builds are faster and secrets stay out.</td></tr>
+          <tr><td>Run as a non-root user: <code>USER node</code>, <code>USER $APP_UID</code></td><td>An attacker who controls the app is not root inside the container, which also limits what they can do if they break out of it.</td></tr>
+          <tr><td>Scan images in CI: <code>docker scout cves</code> or <code>trivy image</code></td><td>Lists known vulnerabilities (CVEs) in system packages and libraries.</td></tr>
+          <tr><td>Rebuild and redeploy regularly</td><td>Fixes in the base image reach your app only after you rebuild.</td></tr>
+          <tr><td>Set limits: <code>--memory 512m --cpus 1</code></td><td>cgroups enforce them. A container over its memory limit is killed, with exit code 137 and <code>OOMKilled</code> set to true.</td></tr>
+          <tr><td>Read-only root filesystem: <code>--read-only</code></td><td>The app cannot change its own files. Mount a tmpfs at <code>/tmp</code> if it needs scratch space.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Docker Compose for local development</h2>
+    <p><code>compose.yaml</code> describes the app, PostgreSQL and Redis in one file. Compose creates a network for them and a named volume for the database. <code>depends_on</code> with <code>condition: service_healthy</code> waits until the database and cache healthchecks pass before it starts the app. Without the condition, Compose waits only for the containers to start, and the app can try to connect before PostgreSQL accepts connections.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>docker compose up -d --build</code></td><td>Builds the app image and starts all services in the background</td></tr>
+          <tr><td><code>docker compose ps</code></td><td>Lists the services with their health status</td></tr>
+          <tr><td><code>docker compose logs -f app</code></td><td>Shows the app's output and keeps printing new lines</td></tr>
+          <tr><td><code>docker compose exec db psql -U shop</code></td><td>Runs a command inside a running container</td></tr>
+          <tr><td><code>docker compose down</code></td><td>Stops and removes the containers and the network. Volumes stay.</td></tr>
+          <tr><td><code>docker compose down -v</code></td><td>Also deletes the volumes. The database is empty on the next start.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Destination</td><td>Write logs to standard output and standard error. Docker collects both, and <code>docker logs</code> and log collectors read them. Log files inside the container are lost with it and fill its disk.</td></tr>
+          <tr><td>Format</td><td>One JSON object per line, so log tools can search by field. pino in Node.js, <code>AddJsonConsole</code> in .NET.</td></tr>
+          <tr><td>Request ID</td><td>Take <code>X-Request-Id</code> from the incoming request or create one. Add it to every log line for that request and return it in the response.</td></tr>
+          <tr><td>Startup and shutdown</td><td>Log the port and version at start. Log the signal, and whether shutdown finished or timed out. No secrets.</td></tr>
+          <tr><td>Log storage on the host</td><td>The default <code>json-file</code> driver has no size limit. Set <code>--log-opt max-size=10m --log-opt max-file=3</code>, or the same under <code>logging:</code> in Compose.</td></tr>
+          <tr><td>Health and resources</td><td>A <code>/health</code> endpoint for the platform to call. <code>docker stats</code> shows CPU and memory. Alert on restarts and on exit code 137.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 70 920 450" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A Dockerfile is built into an image of stacked layers. The image is pushed to a registry and pulled by a host. On the host, app, cache and db containers share one Linux kernel, talk over a Compose network, and the db stores its files in a named volume.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="272" y="176" width="630" height="336" rx="10"/>
+        <text class="t-label" x="600" y="197">HOST MACHINE OR LINUX VM</text>
+
+        <g class="node" id="n-dockerfile" tabindex="0" role="button" aria-label="Show the Dockerfile and .dockerignore" data-title="Dockerfile: build steps" data-node="dockerfile">
+          <rect class="shape tone-neutral" x="20" y="90" width="200" height="54" rx="6"/>
+          <text class="t-name" x="120" y="113">Dockerfile</text>
+          <text class="t-kind" x="120" y="131">build steps</text>
+        </g>
+
+        <g class="node" id="n-image" tabindex="0" role="button" aria-label="Show build and run commands" data-title="Image: build, inspect and run" data-node="image">
+          <rect class="shape tone-teal" x="20" y="184" width="200" height="172" rx="6"/>
+          <text class="t-name" x="120" y="206">Image</text>
+          <rect class="slot tone-teal" x="32" y="218" width="176" height="30" rx="4"/>
+          <text class="t-item" x="100" y="237">app code</text>
+          <rect class="slot tone-teal" x="32" y="254" width="176" height="30" rx="4"/>
+          <text class="t-item" x="100" y="273">dependencies</text>
+          <rect class="slot tone-teal" x="32" y="290" width="176" height="30" rx="4"/>
+          <text class="t-item" x="100" y="309">base image</text>
+          <text class="t-kind" x="120" y="342">shop-api:1.4.0</text>
+        </g>
+        <text class="state-item t-pill" id="s-new-app" x="176" y="237">NEW</text>
+        <text class="state-item t-pill" id="s-cached-deps" x="176" y="273">CACHED</text>
+        <text class="state-item t-pill" id="s-new-deps" x="176" y="273">NEW</text>
+        <text class="state-item t-pill" id="s-cached-base" x="176" y="309">CACHED</text>
+
+        <g class="node" id="n-compose" tabindex="0" role="button" aria-label="Show compose.yaml" data-title="compose.yaml: app, database and cache" data-node="compose">
+          <rect class="shape tone-neutral" x="20" y="402" width="200" height="54" rx="6"/>
+          <text class="t-name" x="120" y="425">compose.yaml</text>
+          <text class="t-kind" x="120" y="443">docker compose up</text>
+        </g>
+
+        <g class="node" id="n-registry" tabindex="0" role="button" aria-label="Show push and pull commands" data-title="Registry: push and pull" data-node="registry">
+          <rect class="shape tone-amber" x="330" y="90" width="220" height="54" rx="6"/>
+          <text class="t-name" x="440" y="113">Registry</text>
+          <text class="t-kind" x="440" y="131">Docker Hub, ghcr.io, ECR, ACR</text>
+        </g>
+
+        <g id="n-browser">
+          <rect class="shape tone-neutral" x="743" y="90" width="150" height="54" rx="6"/>
+          <text class="t-name" x="818" y="113">Browser or curl</text>
+          <text class="t-kind" x="818" y="131">localhost:8080</text>
+        </g>
+
+        <g class="node" id="n-volume" tabindex="0" role="button" aria-label="Show the volume demo" data-title="Volume: data that outlives the container" data-node="volume">
+          <rect class="shape tone-amber" x="288" y="214" width="124" height="70" rx="6"/>
+          <text class="t-name" x="350" y="238">pgdata</text>
+          <text class="t-kind" x="350" y="256">named volume</text>
+          <text class="t-kind" x="350" y="272">on the host disk</text>
+        </g>
+        <g class="node" id="n-db" tabindex="0" role="button" aria-label="Show the database init script" data-title="db container: PostgreSQL" data-node="db">
+          <rect class="shape tone-blue" x="448" y="214" width="130" height="70" rx="6"/>
+          <text class="t-name" x="513" y="244">db</text>
+          <text class="t-kind" x="513" y="264">postgres:17</text>
+        </g>
+        <g class="node" id="n-cache" tabindex="0" role="button" aria-label="Show the cache client code" data-title="cache container: Redis" data-node="cache">
+          <rect class="shape tone-blue" x="604" y="214" width="120" height="70" rx="6"/>
+          <text class="t-name" x="664" y="244">cache</text>
+          <text class="t-kind" x="664" y="264">redis:8</text>
+        </g>
+        <g class="node" id="n-app" tabindex="0" role="button" aria-label="Show the app entry file" data-title="app container: your API" data-node="app">
+          <rect class="shape tone-blue" x="750" y="214" width="136" height="70" rx="6"/>
+          <text class="t-name" x="818" y="238">app</text>
+          <text class="t-kind" x="818" y="256">your API</text>
+          <text class="t-kind" x="818" y="272">port 3000</text>
+        </g>
+        <g class="node" id="n-network" tabindex="0" role="button" aria-label="Show network inspection commands" data-title="Network: names and ports" data-node="network">
+          <rect class="shape tone-blue" x="448" y="322" width="352" height="48" rx="6"/>
+          <text class="t-name" x="624" y="342">network shop_default</text>
+          <text class="t-kind" x="624" y="359">DNS names: db, cache, app</text>
+        </g>
+        <g class="node" id="n-kernel" tabindex="0" role="button" aria-label="Show commands that inspect container processes" data-title="Linux kernel: one kernel, many containers" data-node="kernel">
+          <rect class="shape tone-neutral" x="288" y="430" width="598" height="60" rx="6"/>
+          <text class="t-name" x="587" y="455">Linux kernel, shared by all containers</text>
+          <text class="t-kind" x="587" y="474">namespaces isolate each container, cgroups limit CPU and memory</text>
+        </g>
+
+        <path class="flow" id="a-build" d="M120,144 L120,182" marker-end="url(#arrow)"/>
+        <text class="t-pill" id="l-build" x="168" y="168">docker build</text>
+        <path class="flow" id="a-push" d="M220,196 L328,126" marker-end="url(#arrow)"/>
+        <text class="t-pill" id="l-push" x="262" y="146">push</text>
+        <path class="flow" id="a-pull" d="M440,144 L440,174" marker-end="url(#arrow)"/>
+        <text class="t-pill" id="l-pull" x="464" y="164">pull</text>
+        <path class="flow" id="a-run" d="M220,300 L270,300" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-compose" d="M220,429 L270,429" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-port" d="M818,144 L818,212" marker-end="url(#arrow)"/>
+        <text class="t-pill" id="l-port" x="862" y="166">-p 8080:3000</text>
+        <path class="flow" id="a-db-volume" d="M448,249 L414,249" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-app-net" d="M790,284 L790,320" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-net-db" d="M513,320 L513,286" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-net-cache" d="M664,320 L664,286" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-kernel-app" d="M870,428 L870,286" marker-end="url(#arrow)"/>
+
+        <text class="ghost-label" id="t-sigterm" x="822" y="398">SIGTERM</text>
+        <text class="ghost-label" id="t-sigkill" x="800" y="416">SIGKILL AFTER 10 S</text>
+        <text class="ghost-label" id="t-file-gone" x="830" y="304">FILE GONE</text>
+        <text class="ghost-label" id="t-volume-gone" x="350" y="304">VOLUME DELETED</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="build" aria-pressed="true">Build and run</button>
+        <button type="button" data-flow="rebuild" aria-pressed="false">Rebuild after a code change</button>
+        <button type="button" data-flow="registry" aria-pressed="false">Push and pull</button>
+        <button type="button" data-flow="volume" aria-pressed="false">Data with and without a volume</button>
+        <button type="button" data-flow="stop" aria-pressed="false">docker stop</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="build" hidden>
+        <li data-highlight="n-dockerfile">You write a Dockerfile: a base image, the dependency install, your code and the start command.</li>
+        <li data-highlight="n-dockerfile a-build l-build n-image"><code>docker build -t shop-api:1.4.0 .</code> runs each step. Every step that changes files is saved as a read-only layer. The layers together are the image.</li>
+        <li data-highlight="n-image a-run n-app"><code>docker run</code> or <code>docker compose up</code> creates a container: the image layers plus a new writable layer. Then it starts the <code>CMD</code> process.</li>
+        <li data-highlight="n-app n-kernel">The app process runs on the host's Linux kernel like any other process. Namespaces give it its own process list, network and files. cgroups cap its memory and CPU.</li>
+        <li data-highlight="n-browser a-port l-port n-app">The browser calls <code>localhost:8080</code>. <code>-p 8080:3000</code> forwards the request to port 3000 in the app container.</li>
+        <li data-highlight="n-app a-app-net n-network a-net-db n-db">The app connects to <code>db:5432</code>. Docker's DNS server on the <code>shop_default</code> network returns the db container's address.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="rebuild" hidden>
+        <li data-highlight="n-dockerfile">You change one line in a source file and run <code>docker build</code> again.</li>
+        <li data-highlight="n-dockerfile a-build l-build n-image" data-show="s-cached-base"><code>FROM</code>: the base image is the same, so Docker reuses its layers.</li>
+        <li data-highlight="n-image" data-show="s-cached-base s-cached-deps">The dependency files (<code>package.json</code>, or the <code>.csproj</code>) did not change. Docker reuses the copy and the install layers. <code>npm ci</code> or <code>dotnet restore</code> does not run.</li>
+        <li data-highlight="n-image" data-show="s-cached-base s-cached-deps s-new-app">The source copy has a changed file, so Docker builds this layer and every layer after it again. The build takes seconds.</li>
+        <li data-highlight="n-dockerfile n-image" data-show="s-cached-base s-new-deps s-new-app">If the Dockerfile copied all source before the install step, every code change would run the install again. That is why the dependency files are copied first.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="registry" hidden>
+        <li data-highlight="n-image">The image is on the build machine, tagged <code>ghcr.io/example-org/shop-api:1.4.0</code>.</li>
+        <li data-highlight="n-image a-push l-push n-registry"><code>docker push</code> uploads each layer the registry does not have yet, then the image manifest. It prints the digest, <code>sha256:...</code>.</li>
+        <li data-highlight="n-registry">The tag <code>1.4.0</code> now points to that digest. Someone can push a different image with the same tag later. The digest always means these exact layers.</li>
+        <li data-highlight="n-registry a-pull l-pull">A server runs <code>docker pull</code> with the digest. It downloads only the layers it does not have. The base image layers are often there already.</li>
+        <li data-highlight="a-pull l-pull n-app"><code>docker run</code> starts a container from the pulled image. The server runs the same files that CI tested.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="volume" hidden>
+        <li data-highlight="n-app">A process in the app container writes <code>/tmp/report.csv</code>. No volume is mounted at <code>/tmp</code>, so the file goes into the container's writable layer.</li>
+        <li data-highlight="n-compose a-compose n-app t-file-gone"><code>docker compose down</code> removes the container and its writable layer. The next <code>up</code> starts a new container from the image. The file is gone.</li>
+        <li data-highlight="n-db a-db-volume n-volume">The db container mounts the named volume <code>pgdata</code> at <code>/var/lib/postgresql/data</code>. PostgreSQL writes its files to the host disk, outside the container.</li>
+        <li data-highlight="n-compose a-compose n-db a-db-volume n-volume"><code>docker compose down</code>, then <code>up</code>: a new db container mounts the same volume. The orders are still there.</li>
+        <li data-highlight="n-compose n-volume t-volume-gone"><code>docker compose down -v</code> also deletes the volume. Use it only when you want an empty database.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="stop" hidden>
+        <li data-highlight="n-kernel a-kernel-app n-app t-sigterm"><code>docker stop</code>: the kernel delivers <code>SIGTERM</code> to PID 1 in the app container. With the exec form of <code>CMD</code>, PID 1 is <code>node</code> or <code>dotnet</code> itself.</li>
+        <li data-highlight="n-app">The app's shutdown code runs. The server stops accepting new connections and lets open requests finish.</li>
+        <li data-highlight="n-app n-db n-cache">The app closes its database pool and Redis connection, logs that shutdown is complete, and exits with code 0. All of this takes less than 8 seconds.</li>
+        <li data-highlight="n-kernel a-kernel-app n-app t-sigterm">Now the same with the shell form, <code>CMD node dist/server.js</code>. PID 1 can be <code>/bin/sh</code>. The shell does not pass <code>SIGTERM</code> on, so the app never receives it.</li>
+        <li data-highlight="n-kernel a-kernel-app n-app t-sigkill">After 10 seconds Docker sends <code>SIGKILL</code>. The process ends at once, open requests fail, and the exit code is 137. The fix: exec form, or <code>--init</code>.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Files and host</span>
+      <span class="chip tone-teal">Image</span>
+      <span class="chip tone-amber">Registry and storage</span>
+      <span class="chip tone-blue">Containers and network</span>
+      <span>Arrows show what each command does. Click a box to see its code or commands.</span>
+    </div>
+    <p class="caption">On a Linux server the host frame is the server itself. On macOS and Windows it is the Linux virtual machine that Docker Desktop runs. The registry pull and the published port work the same in both cases.</p>
+
+    <h3>Files</h3>
+    <div class="tree" data-lang="ts" aria-label="TypeScript files">
+      <div class="tree-root">shop-api/</div>
+      <button type="button" class="tree-row" data-file="Dockerfile"><span class="path">├─ Dockerfile</span><span class="chip tone-teal">Build</span></button>
+      <button type="button" class="tree-row" data-file=".dockerignore"><span class="path">├─ .dockerignore</span><span class="chip tone-teal">Build</span></button>
+      <button type="button" class="tree-row" data-file="compose.yaml"><span class="path">├─ compose.yaml</span><span class="chip tone-neutral">Local setup</span></button>
+      <button type="button" class="tree-row" data-file=".env.example"><span class="path">├─ .env.example</span><span class="chip tone-neutral">Local setup</span></button>
+      <button type="button" class="tree-row" data-file="src/server.ts"><span class="path">├─ src/server.ts</span><span class="chip tone-blue">App</span></button>
+      <button type="button" class="tree-row" data-file="src/cache.ts"><span class="path">├─ src/cache.ts</span><span class="chip tone-blue">App</span></button>
+      <button type="button" class="tree-row" data-file="db/init/001-create-orders.sql"><span class="path">├─ db/init/001-create-orders.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="scripts/build-and-run.sh"><span class="path">├─ scripts/build-and-run.sh</span><span class="chip tone-neutral">Commands</span></button>
+      <button type="button" class="tree-row" data-file="scripts/publish-image.sh"><span class="path">├─ scripts/publish-image.sh</span><span class="chip tone-neutral">Commands</span></button>
+      <button type="button" class="tree-row" data-file="scripts/inspect-network.sh"><span class="path">├─ scripts/inspect-network.sh</span><span class="chip tone-neutral">Commands</span></button>
+      <button type="button" class="tree-row" data-file="scripts/volume-demo.sh"><span class="path">├─ scripts/volume-demo.sh</span><span class="chip tone-neutral">Commands</span></button>
+      <button type="button" class="tree-row" data-file="scripts/show-processes.sh"><span class="path">└─ scripts/show-processes.sh</span><span class="chip tone-neutral">Commands</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# files">
+      <div class="tree-root">ShopApi/</div>
+      <button type="button" class="tree-row" data-file="Dockerfile"><span class="path">├─ Dockerfile</span><span class="chip tone-teal">Build</span></button>
+      <button type="button" class="tree-row" data-file=".dockerignore"><span class="path">├─ .dockerignore</span><span class="chip tone-teal">Build</span></button>
+      <button type="button" class="tree-row" data-file="compose.yaml"><span class="path">├─ compose.yaml</span><span class="chip tone-neutral">Local setup</span></button>
+      <button type="button" class="tree-row" data-file=".env.example"><span class="path">├─ .env.example</span><span class="chip tone-neutral">Local setup</span></button>
+      <button type="button" class="tree-row" data-file="Program.cs"><span class="path">├─ Program.cs</span><span class="chip tone-blue">App</span></button>
+      <button type="button" class="tree-row" data-file="CacheSetup.cs"><span class="path">├─ CacheSetup.cs</span><span class="chip tone-blue">App</span></button>
+      <button type="button" class="tree-row" data-file="db/init/001-create-orders.sql"><span class="path">├─ db/init/001-create-orders.sql</span><span class="chip tone-amber">Database</span></button>
+      <button type="button" class="tree-row" data-file="scripts/build-and-run.sh"><span class="path">├─ scripts/build-and-run.sh</span><span class="chip tone-neutral">Commands</span></button>
+      <button type="button" class="tree-row" data-file="scripts/publish-image.sh"><span class="path">├─ scripts/publish-image.sh</span><span class="chip tone-neutral">Commands</span></button>
+      <button type="button" class="tree-row" data-file="scripts/inspect-network.sh"><span class="path">├─ scripts/inspect-network.sh</span><span class="chip tone-neutral">Commands</span></button>
+      <button type="button" class="tree-row" data-file="scripts/volume-demo.sh"><span class="path">├─ scripts/volume-demo.sh</span><span class="chip tone-neutral">Commands</span></button>
+      <button type="button" class="tree-row" data-file="scripts/show-processes.sh"><span class="path">└─ scripts/show-processes.sh</span><span class="chip tone-neutral">Commands</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Different setups on each machine</strong><span>The image contains the runtime version and system libraries, so laptops, CI and servers run the same files.</span></li>
+        <li><strong>Slow setup for new developers</strong><span><code>docker compose up</code> starts the app, database and cache with one command.</span></li>
+        <li><strong>Version conflicts on one server</strong><span>Two apps can use different Node.js or .NET versions on the same machine.</span></li>
+        <li><strong>Manual, uneven deploys</strong><span>A deploy pulls an image and starts a container. A rollback starts the previous tag.</span></li>
+        <li><strong>Idle server capacity</strong><span>Containers start in under a second and share one kernel, so one server runs many of them.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>More to learn</strong><span>Dockerfiles, layers, networks and volumes, and later an orchestrator such as <a href="../kubernetes/">Kubernetes</a>.</span></li>
+        <li><strong>Weaker isolation than virtual machines</strong><span>All containers share one kernel. A kernel vulnerability affects every container on the host.</span></li>
+        <li><strong>Images need regular rebuilds</strong><span>Base images get security fixes often. Your app gets them only when you rebuild and redeploy.</span></li>
+        <li><strong>Data loss by mistake</strong><span>Files in the writable layer are deleted with the container. Databases need named volumes and backups.</span></li>
+        <li><strong>Slower files on macOS and Windows</strong><span>Bind mounts share files into a Linux virtual machine, which slows file-heavy work such as <code>npm install</code>.</span></li>
+        <li><strong>Harder debugging in small images</strong><span>Chiseled .NET images have no shell, so <code>docker exec ... sh</code> does not work.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-docker">
+    <div class="file" data-lang="ts" data-node="dockerfile">
+      <div class="file-head"><span class="chip tone-teal">Build</span><span class="name">Dockerfile</span><span class="why">Two stages. The build stage installs all dependencies and compiles TypeScript. The final stage installs production dependencies only, copies the compiled <code>dist</code> folder, and runs as the <code>node</code> user. The dependency files are copied before the source so the install layer stays cached. <code>CMD</code> uses the exec form, so <code>node</code> is PID 1 and receives <code>SIGTERM</code>.</span></div>
+<pre><code>FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
+
+FROM node:24-slim
+ENV NODE_ENV=production
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY --from=build /app/dist ./dist
+USER node
+EXPOSE 3000
+CMD ["node", "dist/server.js"]</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="dockerfile">
+      <div class="file-head"><span class="chip tone-teal">Build</span><span class="name">Dockerfile</span><span class="why">Builds with the large <code>sdk</code> image and runs on the smaller <code>aspnet</code> image. The project file is copied and restored before the source so the restore layer stays cached. <code>ASPNETCORE_HTTP_PORTS</code> moves the app from the image default 8080 to 3000. <code>$APP_UID</code> is the non-root user the .NET images provide.</span></div>
+<pre><code>FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY ShopApi.csproj ./
+RUN dotnet restore
+COPY . ./
+RUN dotnet publish -c Release --no-restore -o /app
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+COPY --from=build /app ./
+ENV ASPNETCORE_HTTP_PORTS=3000
+USER $APP_UID
+EXPOSE 3000
+ENTRYPOINT ["dotnet", "ShopApi.dll"]</code></pre>
+    </div>
+  </div>
+
+  <div class="language-ignore">
+    <div class="file" data-lang="ts" data-node="dockerfile">
+      <div class="file-head"><span class="chip tone-teal">Build</span><span class="name">.dockerignore</span><span class="why">Files the build never sees. Local <code>node_modules</code> may hold packages built for macOS, and <code>.env</code> holds secrets.</span></div>
+<pre><code>node_modules
+dist
+.git
+.env
+*.log
+compose.yaml
+db
+scripts</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="dockerfile">
+      <div class="file-head"><span class="chip tone-teal">Build</span><span class="name">.dockerignore</span><span class="why">Files the build never sees. <code>COPY . ./</code> would otherwise send local <code>bin</code> and <code>obj</code> folders, which break <code>--no-restore</code>, and <code>.env</code>, which holds secrets.</span></div>
+<pre><code>**/bin/
+**/obj/
+.git
+.vs
+.env
+compose.yaml
+db
+scripts</code></pre>
+    </div>
+  </div>
+
+  <div class="language-yaml">
+    <div class="file" data-lang="ts" data-node="compose">
+      <div class="file-head"><span class="chip tone-neutral">Local setup</span><span class="name">compose.yaml</span><span class="why">The app, PostgreSQL and Redis. Only the app publishes a port. The app reaches the others by service name. <code>${POSTGRES_PASSWORD}</code> comes from <code>.env</code>, which git and the image never contain. The bind mount gives PostgreSQL the init script.</span></div>
+<pre><code>name: shop
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:3000"
+    environment:
+      DATABASE_URL: postgres://shop:${POSTGRES_PASSWORD}@db:5432/shop
+      REDIS_URL: redis://cache:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_DB: shop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cache:
+    image: redis:8
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="compose">
+      <div class="file-head"><span class="chip tone-neutral">Local setup</span><span class="name">compose.yaml</span><span class="why">The app, PostgreSQL and Redis. Only the app publishes a port. <code>ConnectionStrings__Shop</code> becomes <code>ConnectionStrings:Shop</code> in .NET configuration. <code>${POSTGRES_PASSWORD}</code> comes from <code>.env</code>, which git and the image never contain.</span></div>
+<pre><code>name: shop
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:3000"
+    environment:
+      ConnectionStrings__Shop: Host=db;Database=shop;Username=shop;Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Cache: "cache:6379"
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_DB: shop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  cache:
+    image: redis:8
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:</code></pre>
+    </div>
+  </div>
+
+  <div class="language-bash">
+    <div class="file" data-lang="any" data-node="compose">
+      <div class="file-head"><span class="chip tone-neutral">Local setup</span><span class="name">.env.example</span><span class="why">Committed to git as a list of the variables you need. Each developer copies it to <code>.env</code>, which is in <code>.gitignore</code> and <code>.dockerignore</code>. Compose reads <code>.env</code> by itself.</span></div>
+<pre><code>POSTGRES_PASSWORD=&lt;choose a local password&gt;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="image">
+      <div class="file-head"><span class="chip tone-neutral">Commands</span><span class="name">scripts/build-and-run.sh</span><span class="why">Builds the image, shows its size and one line per layer, then runs one container by hand with a published port and memory and CPU limits. <code>app.env</code> holds the settings for this run and stays out of git.</span></div>
+<pre><code>docker build -t shop-api:1.4.0 .
+
+docker image ls shop-api
+docker history shop-api:1.4.0
+
+docker run -d --name shop-api \
+  -p 8080:3000 \
+  --memory 512m --cpus 1 \
+  --env-file app.env \
+  shop-api:1.4.0
+
+docker logs -f shop-api
+docker stop shop-api
+docker rm shop-api</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="registry">
+      <div class="file-head"><span class="chip tone-neutral">Commands</span><span class="name">scripts/publish-image.sh</span><span class="why">Gives the image a registry name, pushes it, and reads its digest. The server pulls by digest, so it gets exactly the image that was pushed even if the tag moves later.</span></div>
+<pre><code>docker login ghcr.io
+
+docker tag shop-api:1.4.0 ghcr.io/example-org/shop-api:1.4.0
+docker push ghcr.io/example-org/shop-api:1.4.0
+
+docker buildx imagetools inspect ghcr.io/example-org/shop-api:1.4.0
+
+docker pull ghcr.io/example-org/shop-api@sha256:&lt;digest printed by the push&gt;</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="network">
+      <div class="file-head"><span class="chip tone-neutral">Commands</span><span class="name">scripts/inspect-network.sh</span><span class="why">Shows the network Compose created and that the names <code>db</code> and <code>cache</code> resolve inside the app container. From the host, port 8080 answers. Port 3000 is not published, so the last command fails to connect.</span></div>
+<pre><code>docker compose up -d
+
+docker network ls
+docker network inspect shop_default
+
+docker compose exec app getent hosts db cache
+
+curl -i http://localhost:8080/health
+curl -i http://localhost:3000/health</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="volume">
+      <div class="file-head"><span class="chip tone-neutral">Commands</span><span class="name">scripts/volume-demo.sh</span><span class="why">Three runs with the same small image. First block: the file is in the removed container's writable layer, so <code>cat</code> fails with "No such file or directory". Second block: the named volume keeps the file between containers. Third block: a bind mount writes the file into a folder on your machine.</span></div>
+<pre><code>docker run --name scratch-box alpine:3.22 sh -c 'echo "order 42" &gt; /notes.txt'
+docker rm scratch-box
+docker run --rm alpine:3.22 cat /notes.txt
+
+docker volume create notes
+docker run --rm -v notes:/data alpine:3.22 sh -c 'echo "order 42" &gt; /data/notes.txt'
+docker run --rm -v notes:/data alpine:3.22 cat /data/notes.txt
+
+docker run --rm -v "$PWD/exports:/data" alpine:3.22 sh -c 'echo "order 42" &gt; /data/notes.txt'
+cat exports/notes.txt</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="kernel">
+      <div class="file-head"><span class="chip tone-neutral">Commands</span><span class="name">scripts/show-processes.sh</span><span class="why"><code>docker compose top</code> lists the container's processes as the host sees them. <code>/proc/1/comm</code> shows which program is PID 1. On a Linux host both <code>uname -r</code> lines print the same kernel version. On macOS the second one prints the Docker Desktop VM's kernel. The last line shows whether the app was killed for using too much memory.</span></div>
+<pre><code>docker compose up -d
+
+docker compose top app
+docker compose exec app cat /proc/1/comm
+
+uname -r
+docker compose exec app uname -r
+
+docker stats --no-stream
+docker inspect shop-app-1 --format '{{.State.ExitCode}} {{.State.OOMKilled}}'</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="app">
+      <div class="file-head"><span class="chip tone-blue">App</span><span class="name">src/server.ts</span><span class="why">JSON logs to standard output with pino, a request ID on every log line, a <code>/health</code> endpoint, and a clean shutdown on <code>SIGTERM</code> that finishes within 8 seconds, before Docker's 10-second <code>SIGKILL</code>. It listens on <code>0.0.0.0</code> so the published port reaches it.</span></div>
+<pre><code>import { randomUUID } from "node:crypto";
+import express, { type NextFunction, type Request, type Response } from "express";
+import pino from "pino";
+import { Pool } from "pg";
+import { createCacheClient } from "./cache.js";
+
+const logger = pino();
+const port = Number(process.env.PORT ?? 3000);
+const shutdownTimeoutMs = 8_000;
+const database = new Pool({ connectionString: process.env.DATABASE_URL });
+const cache = await createCacheClient(logger);
+
+const app = express();
+
+app.use((req, res, next) =&gt; {
+  const requestId = req.get("x-request-id") ?? randomUUID();
+  const startedAt = performance.now();
+  res.setHeader("x-request-id", requestId);
+  res.locals.logger = logger.child({ requestId });
+
+  res.on("finish", () =&gt; {
+    res.locals.logger.info(
+      { method: req.method, path: req.path, status: res.statusCode, durationMs: Math.round(performance.now() - startedAt) },
+      "request finished",
+    );
+  });
+  next();
+});
+
+app.get("/health", (req, res) =&gt; {
+  res.json({ status: "ok" });
+});
+
+app.get("/orders/:orderId", async (req, res) =&gt; {
+  const cacheKey = `order:${req.params.orderId}`;
+  const cachedOrder = await cache.get(cacheKey);
+  if (cachedOrder) return res.type("application/json").send(cachedOrder);
+
+  const result = await database.query(
+    'SELECT id, customer_id AS "customerId", total FROM orders WHERE id = $1',
+    [req.params.orderId],
+  );
+  if (result.rowCount === 0) return res.status(404).json({ message: "The order does not exist." });
+
+  await cache.setEx(cacheKey, 60, JSON.stringify(result.rows[0]));
+  res.json(result.rows[0]);
+});
+
+app.use((error: Error, req: Request, res: Response, next: NextFunction) =&gt; {
+  res.locals.logger.error({ err: error }, "request failed");
+  res.status(500).json({ message: "Internal server error." });
+});
+
+const server = app.listen(port, "0.0.0.0", () =&gt; {
+  logger.info({ port, nodeVersion: process.version }, "server started");
+});
+
+process.on("SIGTERM", () =&gt; {
+  logger.info("SIGTERM received, finishing open requests");
+
+  setTimeout(() =&gt; {
+    logger.error({ shutdownTimeoutMs }, "open requests did not finish in time, exiting");
+    process.exit(1);
+  }, shutdownTimeoutMs).unref();
+
+  server.close(async () =&gt; {
+    await database.end();
+    await cache.close();
+    logger.info("shutdown complete");
+    process.exit(0);
+  });
+});</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="cache">
+      <div class="file-head"><span class="chip tone-blue">App</span><span class="name">src/cache.ts</span><span class="why">Connects to Redis with the URL from the environment. In Compose that is <code>redis://cache:6379</code>: <code>cache</code> is the service name, which Docker's DNS turns into the cache container's address. Uses the <code>redis</code> package, version 5.</span></div>
+<pre><code>import { createClient } from "redis";
+import type { Logger } from "pino";
+
+export async function createCacheClient(logger: Logger) {
+  const cacheClient = createClient({ url: process.env.REDIS_URL });
+  cacheClient.on("error", (error) =&gt; logger.error({ err: error }, "redis connection error"));
+  await cacheClient.connect();
+  return cacheClient;
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="app">
+      <div class="file-head"><span class="chip tone-blue">App</span><span class="name">Program.cs</span><span class="why">JSON logs to standard output. With <code>IncludeScopes</code>, ASP.NET Core adds <code>RequestId</code> to every log line written during a request, and the middleware returns it as <code>X-Request-Id</code>. .NET handles <code>SIGTERM</code> itself: it stops accepting requests and waits for open ones up to <code>ShutdownTimeout</code>, set below Docker's 10 seconds. The container disposes the database and Redis connections on the way out.</span></div>
+<pre><code>using System.Text.Json;
+using Npgsql;
+using StackExchange.Redis;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(options =&gt; options.IncludeScopes = true);
+builder.Services.Configure&lt;HostOptions&gt;(options =&gt; options.ShutdownTimeout = TimeSpan.FromSeconds(8));
+builder.Services.AddSingleton(NpgsqlDataSource.Create(builder.Configuration.GetConnectionString("Shop")!));
+builder.Services.AddCache(builder.Configuration);
+builder.Services.AddHealthChecks();
+
+var app = builder.Build();
+
+app.Use(async (context, next) =&gt;
+{
+    context.Response.Headers["X-Request-Id"] = context.TraceIdentifier;
+    await next(context);
+});
+
+app.MapHealthChecks("/health");
+
+app.MapGet("/orders/{orderId:guid}", async (Guid orderId, NpgsqlDataSource database, IConnectionMultiplexer cache) =&gt;
+{
+    var cacheKey = $"order:{orderId}";
+    var cachedOrder = await cache.GetDatabase().StringGetAsync(cacheKey);
+    if (cachedOrder.HasValue) return Results.Text(cachedOrder.ToString(), "application/json");
+
+    await using var command = database.CreateCommand("SELECT id, customer_id, total FROM orders WHERE id = $1");
+    command.Parameters.AddWithValue(orderId);
+    await using var reader = await command.ExecuteReaderAsync();
+    if (!await reader.ReadAsync()) return Results.NotFound(new { message = "The order does not exist." });
+
+    var order = new { id = reader.GetGuid(0), customerId = reader.GetString(1), total = reader.GetDecimal(2) };
+    await cache.GetDatabase().StringSetAsync(cacheKey, JsonSerializer.Serialize(order), TimeSpan.FromSeconds(60));
+    return Results.Ok(order);
+});
+
+app.Lifetime.ApplicationStarted.Register(() =&gt;
+    app.Logger.LogInformation("Server started on {Urls}", string.Join(", ", app.Urls)));
+app.Lifetime.ApplicationStopping.Register(() =&gt;
+    app.Logger.LogInformation("SIGTERM received, finishing open requests"));
+app.Lifetime.ApplicationStopped.Register(() =&gt;
+    app.Logger.LogInformation("Shutdown complete"));
+
+app.Run();</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="cache">
+      <div class="file-head"><span class="chip tone-blue">App</span><span class="name">CacheSetup.cs</span><span class="why">Registers one shared Redis connection. In Compose the connection string is <code>cache:6379</code>: <code>cache</code> is the service name, which Docker's DNS turns into the cache container's address. Uses StackExchange.Redis.</span></div>
+<pre><code>using StackExchange.Redis;
+
+public static class CacheSetup
+{
+    public static IServiceCollection AddCache(this IServiceCollection services, IConfiguration configuration)
+    {
+        var cacheConnectionString = configuration.GetConnectionString("Cache")!;
+        return services.AddSingleton&lt;IConnectionMultiplexer&gt;(_ =&gt; ConnectionMultiplexer.Connect(cacheConnectionString));
+    }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-sql">
+    <div class="file" data-lang="any" data-node="db">
+      <div class="file-head"><span class="chip tone-amber">Database</span><span class="name">db/init/001-create-orders.sql</span><span class="why">Compose bind-mounts <code>db/init</code> into <code>/docker-entrypoint-initdb.d</code>. The postgres image runs these files only when its data folder is empty: on the first start with a new volume. After <code>docker compose down -v</code> they run again.</span></div>
+<pre><code>CREATE TABLE orders (
+  id uuid PRIMARY KEY,
+  customer_id text NOT NULL,
+  total numeric(10, 2) NOT NULL
+);
+
+INSERT INTO orders (id, customer_id, total)
+VALUES ('0b6f4c1e-8a52-4a8e-9a0e-2f4d6c1b7e10', 'customer-1', 49.90);</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-docker.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-ignore.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
