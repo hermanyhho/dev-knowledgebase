@@ -425,4 +425,13 @@ window.glossaryTerms = [
   { forms: ["model binding"], definition: "In ASP.NET Core, the step that reads route values, query strings and the body and turns them into the action method's parameters." },
   { forms: ["ProblemDetails"], definition: "A standard JSON format for HTTP error responses (RFC 9457), with fields such as status, title and detail. ASP.NET Core can produce it." },
   { forms: ["minimal APIs", "minimal API"], definition: "The ASP.NET Core style that maps routes to functions in Program.cs, such as app.MapGet(...), without controller classes." },
+  { forms: ["JSX"], definition: "Syntax that looks like HTML inside JavaScript, such as <button onClick={save}>Save</button>. A build step turns it into function calls that create React elements." },
+  { forms: ["React Compiler"], definition: "A build step from the React team that adds memoization to components and hooks automatically, so manual memo and useMemo are rarely needed." },
+  { forms: ["memoization", "memoized", "memoize"], definition: "Keeping the result of a calculation and reusing it while the inputs stay the same, instead of computing it again." },
+  { forms: ["web vitals", "Core Web Vitals"], definition: "Google's measurements of page experience from real users: loading (LCP), response to input (INP) and layout shifts (CLS)." },
+  { forms: ["Interaction to Next Paint"], definition: "INP: the time from a click, tap or key press until the browser shows the next frame. Good is under 200 ms." },
+  { forms: ["virtualized lists", "virtualized list", "virtualized"], definition: "Lists that render only the rows currently visible, plus a few around them, so a list of 10,000 rows stays fast." },
+  { forms: ["error boundary", "error boundaries"], definition: "A React component that catches errors thrown while rendering its children and shows a fallback instead of an empty page." },
+  { forms: ["p75"], definition: "The 75th percentile: 75% of measurements are at or below this value. Web vitals are judged at p75." },
+  { forms: ["frames per second", "frame"], definition: "How many times per second the screen is redrawn. At 60 frames per second, each frame has about 16 ms.", onlyOn: ["how-react-renders"] },
 ];

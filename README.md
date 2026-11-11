@@ -57,6 +57,14 @@ What each category covers: [typescript/README.md](typescript/README.md)
 | Generics and Utility Types | Type system | [open](https://hermanyhho.github.io/dev-knowledgebase/typescript/type-system/generics-and-utility-types/) | [index.html](typescript/type-system/generics-and-utility-types/index.html) |
 | tsconfig and Module Resolution | Compiling | [open](https://hermanyhho.github.io/dev-knowledgebase/typescript/compiling/tsconfig-and-module-resolution/) | [index.html](typescript/compiling/tsconfig-and-module-resolution/index.html) |
 
+## React
+
+What each category covers: [react/README.md](react/README.md)
+
+| Topic | Category | Page | Source |
+|---|---|---|---|
+| How React Renders | Rendering | [open](https://hermanyhho.github.io/dev-knowledgebase/react/rendering/how-react-renders/) | [index.html](react/rendering/how-react-renders/index.html) |
+
 ## .NET
 
 What each category covers: [dotnet/README.md](dotnet/README.md)

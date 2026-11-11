@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How React Renders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">React</a> / Rendering</div>
+    <h1>How React Renders</h1>
+    <p class="aka">What happens between a state change and new pixels on the screen. Examples use React 19.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A React component is a function that returns a description of the screen, written in JSX. React calls the function, compares the result with the previous result, and changes only the parts of the page that differ.</p>
+    <p>This happens in two phases. In the <strong>render phase</strong>, React calls your components. They must only compute and return JSX: no network calls, no changes to outside variables. In the <strong>commit phase</strong>, React applies the differences to the DOM. After the browser has painted, React runs your <strong>effects</strong>, which is where side effects belong.</p>
+    <p>Comparing the old and new result is <strong>reconciliation</strong>. React walks both trees and compares the element type and the <code>key</code> at each position. If both are the same, the component keeps its state. If either changed, React removes the old component and its state, and creates a new one.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Component</span></td><td>A function that takes props and returns JSX.</td><td><code>CartRow</code></td></tr>
+          <tr><td><span class="chip tone-neutral">React element</span></td><td>The plain object that JSX turns into: a type, props and a key. Cheap to create.</td><td><code>&lt;CartRow item={item} /&gt;</code></td></tr>
+          <tr><td><span class="chip tone-teal">Render</span></td><td>React calling a component function to get its elements. Not the same as changing the screen.</td><td><code>Cart</code> runs again</td></tr>
+          <tr><td><span class="chip tone-teal">Reconciliation</span></td><td>Comparing the new elements with the previous ones, position by position, by type and key.</td><td>Same type: keep state</td></tr>
+          <tr><td><span class="chip tone-blue">Commit</span></td><td>Applying the differences to the DOM.</td><td>One text node changes</td></tr>
+          <tr><td><span class="chip tone-amber">Effect</span></td><td>Code in <code>useEffect</code> that runs after the commit, for work outside React.</td><td>Send an analytics event</td></tr>
+          <tr><td><span class="chip tone-amber"><code>key</code></span></td><td>A prop that identifies an item in a list, so React can match it across renders.</td><td><code>key={item.id}</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Strict Mode</span></td><td>A development-only wrapper that renders twice and runs effects twice to expose impure code.</td><td><code>&lt;StrictMode&gt;</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> keep rendering pure: the same props and state give the same JSX, with no side effects. Give list items a stable <code>key</code> from the data, never the array index when items can move.</div>
+  </section>
+
+  <section>
+    <h2>What causes a render</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Cause</th><th>What renders</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td>The component's state changes</td><td>The component and every component it returns, all the way down</td><td>Setting the same value as before is skipped</td></tr>
+          <tr><td>The parent renders</td><td>The child, even if its props did not change</td><td>Unless the child is wrapped in <code>memo</code> and its props are equal</td></tr>
+          <tr><td>A context value it reads changes</td><td>Every component that calls <code>useContext</code> for that context</td><td>A new object as the value counts as a change</td></tr>
+          <tr><td>Props change</td><td>Only as a result of the parent rendering</td><td>Props never change by themselves</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A render does not mean the screen changes. If the new elements equal the old ones, the commit phase does nothing. Rendering many components is usually fast; it becomes a problem with large lists or slow calculations during render.</p>
+  </section>
+
+  <section>
+    <h2>How reconciliation decides</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>At the same position</th><th>React does</th><th>State</th></tr></thead>
+        <tbody>
+          <tr><td>Same type, same key</td><td>Updates the props of the existing component or DOM node</td><td>Kept</td></tr>
+          <tr><td>Different type, such as <code>&lt;input&gt;</code> becoming <code>&lt;textarea&gt;</code></td><td>Removes the old one and everything inside it, creates the new one</td><td>Lost</td></tr>
+          <tr><td>Same type, different key</td><td>Treats it as a different component</td><td>Lost: a way to reset a form on purpose</td></tr>
+          <tr><td>List items with stable keys</td><td>Matches items by key, so moved items keep their state and DOM node</td><td>Kept with the right item</td></tr>
+          <tr><td>List items keyed by index</td><td>Matches by position. After a delete, item 2 gets item 1's state.</td><td>Kept with the wrong item</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Making rendering cheaper</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Tool</th><th>What it does</th><th>When</th></tr></thead>
+        <tbody>
+          <tr><td>React Compiler</td><td>A build step that adds memoization to components and values for you</td><td>New projects. Most manual <code>memo</code>, <code>useMemo</code> and <code>useCallback</code> are then not needed.</td></tr>
+          <tr><td><code>memo(Component)</code></td><td>Skips rendering a component when its props are equal to last time</td><td>A slow component whose parent renders often</td></tr>
+          <tr><td><code>useMemo</code></td><td>Keeps a computed value until its inputs change</td><td>A slow calculation, or an object passed to a <code>memo</code> child</td></tr>
+          <tr><td>Moving state down</td><td>Keeps state in the small component that uses it, so less renders when it changes</td><td>Always the first thing to try</td></tr>
+          <tr><td>Virtualized lists</td><td>Renders only the rows on screen</td><td>Lists with thousands of rows</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td><code>createRoot</code> error options</td><td><code>onUncaughtError</code> and <code>onCaughtError</code> receive every render error with the component stack. Send them to your error service with the page URL and release version.</td><td>error, alert on rate</td></tr>
+          <tr><td>Error boundary</td><td>Shows a fallback for one part of the page instead of a blank screen. The error reaches <code>onCaughtError</code>.</td><td></td></tr>
+          <tr><td><code>&lt;Profiler&gt;</code></td><td>Render duration of a part of the tree. Report renders over 16 ms, one frame at 60 frames per second.</td><td>Metric</td></tr>
+          <tr><td>Web vitals</td><td>Interaction to Next Paint (INP) from real users shows slow renders after clicks</td><td>Alert if p75 over 200 ms</td></tr>
+          <tr><td>Never</td><td>Form values, tokens or full props in error reports. Props can hold personal data.</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 400" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A state change starts a render: React calls the components and gets a new element tree, compares it with the previous tree by type and key, commits the differences to the DOM, the browser paints, and then effects run. Errors and render times go to monitoring.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="200" y="15" width="400" height="250" rx="10"/>
+        <text class="t-label" x="400" y="34">RENDER PHASE: PURE, NO DOM CHANGES</text>
+        <rect class="frame" x="620" y="15" width="290" height="370" rx="10"/>
+        <text class="t-label" x="765" y="34">COMMIT PHASE AND AFTER</text>
+
+        <g class="node" id="n-trigger" tabindex="0" role="button" aria-label="Show the state update" data-title="Trigger: a state update" data-node="trigger">
+          <rect class="shape tone-neutral" x="15" y="50" width="160" height="80" rx="6"/>
+          <text class="t-name" x="95" y="76">Trigger</text>
+          <text class="t-item" x="95" y="98">setQuantities(...)</text>
+          <text class="t-kind" x="95" y="116">in a click handler</text>
+        </g>
+        <g class="node" id="n-render" tabindex="0" role="button" aria-label="Show pure and impure components" data-title="Render: calling components" data-node="render">
+          <rect class="shape tone-teal" x="220" y="50" width="170" height="80" rx="6"/>
+          <text class="t-name" x="305" y="76">Render</text>
+          <text class="t-kind" x="305" y="96">call Cart, then</text>
+          <text class="t-kind" x="305" y="112">each CartRow</text>
+        </g>
+        <g class="node" id="n-tree" tabindex="0" role="button" aria-label="Show what JSX compiles to" data-title="New element tree: what JSX becomes" data-node="tree">
+          <rect class="shape tone-teal" x="410" y="50" width="170" height="80" rx="6"/>
+          <text class="t-name" x="495" y="76">Element tree</text>
+          <text class="t-kind" x="495" y="96">plain objects:</text>
+          <text class="t-kind" x="495" y="112">type, props, key</text>
+        </g>
+        <g class="node" id="n-diff" tabindex="0" role="button" aria-label="Show list keys" data-title="Reconciliation: type and key" data-node="diff">
+          <rect class="shape tone-teal" x="220" y="160" width="360" height="85" rx="6"/>
+          <text class="t-name" x="400" y="186">Reconciliation</text>
+          <text class="t-kind" x="400" y="206">compare with the previous tree, position by position:</text>
+          <text class="t-kind" x="400" y="222">same type and key keeps state</text>
+        </g>
+        <g class="node" id="n-commit" tabindex="0" role="button" aria-label="Show the commit and layout effects" data-title="Commit: changing the DOM" data-node="commit">
+          <rect class="shape tone-blue" x="640" y="50" width="250" height="80" rx="6"/>
+          <text class="t-name" x="765" y="76">Commit</text>
+          <text class="t-kind" x="765" y="96">change only what differs</text>
+          <text class="t-kind" x="765" y="112">in the DOM</text>
+        </g>
+        <g id="p-paint">
+          <rect class="shape tone-neutral" x="640" y="160" width="250" height="55" rx="6"/>
+          <text class="t-name" x="765" y="183">Browser paints</text>
+          <text class="t-kind" x="765" y="201">the user sees the change</text>
+        </g>
+        <g class="node" id="n-effects" tabindex="0" role="button" aria-label="Show effects" data-title="Effects: after the paint" data-node="effects">
+          <rect class="shape tone-amber" x="640" y="245" width="250" height="60" rx="6"/>
+          <text class="t-name" x="765" y="270">Effects</text>
+          <text class="t-kind" x="765" y="288">cleanup of the old, then setup</text>
+        </g>
+        <g class="node" id="n-monitor" tabindex="0" role="button" aria-label="Show error and render monitoring" data-title="Monitoring: errors and render time" data-node="monitor">
+          <rect class="shape tone-neutral" x="640" y="325" width="250" height="50" rx="6"/>
+          <text class="t-name" x="765" y="345">Monitoring</text>
+          <text class="t-kind" x="765" y="362">render errors, Profiler timings</text>
+        </g>
+
+        <g class="state-item" id="s-index-bug"><rect class="slot tone-amber" x="230" y="282" width="340" height="28" rx="4"/><text class="t-item" x="400" y="300">key=0: "bread" with the "2 kg" typed for apples</text></g>
+        <g class="state-item" id="s-id-ok"><rect class="slot tone-teal" x="230" y="318" width="340" height="28" rx="4"/><text class="t-item" x="400" y="336">key="bread": "bread" with its own empty input</text></g>
+        <g class="state-item" id="s-strict"><rect class="slot tone-neutral" x="230" y="282" width="340" height="28" rx="4"/><text class="t-item" x="400" y="300">dev: render, render, setup, cleanup, setup</text></g>
+
+        <path class="flow" id="a-trigger-render" d="M175,90 L218,90" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-render-tree" d="M390,90 L408,90" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-tree-diff" d="M495,130 L495,158" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-diff-commit" d="M580,200 L610,200 L610,90 L638,90" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-commit-paint" d="M765,130 L765,158" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-paint-effects" d="M765,215 L765,243" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-effects-trigger" d="M640,295 L95,295 L95,132" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-effects-monitor" d="M765,305 L765,323" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-one-render" x="305" y="150">TWO UPDATES, ONE RENDER</text>
+        <text class="ghost-label" id="t-reset" x="400" y="258">TYPE OR KEY CHANGED: STATE RESET</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="click" aria-pressed="true">A click changes state</button>
+        <button type="button" data-flow="batch" aria-pressed="false">Two updates in one click</button>
+        <button type="button" data-flow="keys" aria-pressed="false">Deleting a row keyed by index</button>
+        <button type="button" data-flow="reset" aria-pressed="false">Resetting state with a key</button>
+        <button type="button" data-flow="strict" aria-pressed="false">Strict Mode in development</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="click" hidden>
+        <li data-highlight="n-trigger">The user clicks "+" on a cart row. The handler in <code>Cart</code> calls <code>setQuantities</code>. React schedules a render; the variable does not change yet.</li>
+        <li data-highlight="n-trigger a-trigger-render n-render">React calls <code>Cart</code> again, and <code>useState</code> returns the new quantities. Every <code>CartRow</code> that <code>Cart</code> returns is called too.</li>
+        <li data-highlight="n-render a-render-tree n-tree">The components return JSX, which is a tree of plain objects. Creating it changes nothing on screen.</li>
+        <li data-highlight="n-tree a-tree-diff n-diff">React compares the tree with the previous one. Same types and keys everywhere; only the quantity text and the total differ.</li>
+        <li data-highlight="n-diff a-diff-commit n-commit a-commit-paint p-paint">React changes those two text nodes in the DOM. The browser paints.</li>
+        <li data-highlight="p-paint a-paint-effects n-effects">Effects whose dependencies changed run: first the cleanup from the last render, then the new setup.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="batch" hidden>
+        <li data-highlight="n-trigger">One click calls <code>setQuantities(...)</code> and <code>setLastChangedItemId(itemId)</code>.</li>
+        <li data-highlight="n-trigger a-trigger-render n-render t-one-render">React collects both updates and renders once, with both new values. This is automatic batching, in event handlers, timeouts and promises alike.</li>
+        <li data-highlight="n-render a-render-tree n-tree a-tree-diff n-diff a-diff-commit n-commit">One reconciliation and one commit. Measured in React 19: two updates in one click gave one render of the component.</li>
+        <li data-highlight="n-trigger">Reading <code>quantities</code> right after <code>setQuantities</code> in the handler still gives the old value. The new value arrives with the next render.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="keys" hidden>
+        <li data-highlight="n-render">A shopping list renders rows with <code>key={index}</code>. Each row has its own input state. The user types "2 kg" in the apples row.</li>
+        <li data-highlight="n-render a-render-tree n-tree">The user deletes apples. The new list is just bread, and it now has index 0.</li>
+        <li data-highlight="n-tree a-tree-diff n-diff" data-show="s-index-bug">React sees key 0 in both trees and keeps that component and its state. The bread row now shows "2 kg", the text typed for apples. Measured in React 19.</li>
+        <li data-highlight="n-diff" data-show="s-index-bug s-id-ok">With <code>key={item.id}</code>, React sees that the apples key is gone, removes that row with its state, and keeps bread's own empty input.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="reset" hidden>
+        <li data-highlight="n-render">An edit form shows customer A. Its inputs keep their own state. The user picks customer B in a list.</li>
+        <li data-highlight="n-render a-render-tree n-tree a-tree-diff n-diff">Same component at the same position: React keeps the state, so the form still shows A's values.</li>
+        <li data-highlight="n-diff t-reset">Render it as <code>&lt;CustomerForm key={customer.id} /&gt;</code>. A different key means a different component, so React creates a new one with fresh state.</li>
+        <li data-highlight="n-diff a-diff-commit n-commit">The old form's DOM is removed and a new one is created. This also happens, without asking, when the element type at a position changes.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="strict" hidden>
+        <li data-highlight="n-render" data-show="s-strict">In development, <code>&lt;StrictMode&gt;</code> calls each component twice and keeps one result.</li>
+        <li data-highlight="n-render" data-show="s-strict">A component that pushes to an outside array or counts renders in a module variable gives different results each time. Strict Mode makes that visible.</li>
+        <li data-highlight="n-effects" data-show="s-strict">On mount it also runs every effect as setup, cleanup, setup. An effect that subscribes without unsubscribing now has two subscriptions, and the bug shows at once.</li>
+        <li data-highlight="n-effects n-monitor" data-show="s-strict">None of this happens in a production build. Measured in React 19: mount logged render, render, setup, cleanup, setup.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Your code and the browser</span>
+      <span class="chip tone-teal">Render phase</span>
+      <span class="chip tone-blue">Commit</span>
+      <span class="chip tone-amber">Effects</span>
+      <span>Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">shop-web/</div>
+      <button type="button" class="tree-row" data-file="src/main.tsx"><span class="path">├─ src/main.tsx</span><span class="chip tone-neutral">Monitoring</span></button>
+      <button type="button" class="tree-row" data-file="src/cart/Cart.tsx"><span class="path">├─ src/cart/Cart.tsx</span><span class="chip tone-neutral">Trigger</span></button>
+      <button type="button" class="tree-row" data-file="src/cart/CartRow.tsx"><span class="path">├─ src/cart/CartRow.tsx</span><span class="chip tone-teal">Render</span></button>
+      <button type="button" class="tree-row" data-file="compiled/CartRow.js"><span class="path">├─ compiled/CartRow.js</span><span class="chip tone-teal">Elements</span></button>
+      <button type="button" class="tree-row" data-file="src/shopping/ShoppingList.tsx"><span class="path">├─ src/shopping/ShoppingList.tsx</span><span class="chip tone-teal">Keys</span></button>
+      <button type="button" class="tree-row" data-file="src/cart/StickyTotal.tsx"><span class="path">├─ src/cart/StickyTotal.tsx</span><span class="chip tone-blue">Commit</span></button>
+      <button type="button" class="tree-row" data-file="src/cart/useCartAnalytics.ts"><span class="path">└─ src/cart/useCartAnalytics.ts</span><span class="chip tone-amber">Effects</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Updating the page by hand</strong><span>You describe the result for the current state. React works out which DOM nodes to change.</span></li>
+        <li><strong>Screens out of step with data</strong><span>Every state change produces the whole description again, so nothing is forgotten.</span></li>
+        <li><strong>Slow DOM work</strong><span>Only the differences reach the DOM, in one commit.</span></li>
+        <li><strong>Hidden side effects</strong><span>Pure render and separate effects make the order of work predictable, and Strict Mode finds violations.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>More renders than needed</strong><span>A state change at the top renders every component below, unless memoized.</span></li>
+        <li><strong>State tied to position</strong><span>Wrong keys or a changed element type move or reset state without any error.</span></li>
+        <li><strong>State is not updated at once</strong><span>The new value appears only in the next render, which surprises code that reads it right after setting it.</span></li>
+        <li><strong>Development and production differ</strong><span>Strict Mode's double calls confuse logging and counting during development.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-tsx">
+    <div class="file" data-lang="any" data-node="render">
+      <div class="file-head"><span class="chip tone-teal">Render</span><span class="name">src/cart/CartRow.tsx</span><span class="why">A pure component: the same props always give the same JSX, and it changes nothing outside itself. An impure version would, for example, add 1 to a module-level <code>renderCount</code> variable while rendering. In Strict Mode that count doubles, and in production it depends on how often React happens to render.</span></div>
+<pre><code>export type CartItem = { id: string; name: string; unitPrice: number };
+
+type CartRowProps = {
+  item: CartItem;
+  quantity: number;
+  isLastChanged: boolean;
+  onIncrease: (itemId: string) =&gt; void;
+};
+
+export function CartRow({ item, quantity, isLastChanged, onIncrease }: CartRowProps) {
+  return (
+    &lt;li className={isLastChanged ? "highlight" : undefined}&gt;
+      {item.name} x {quantity} = {(item.unitPrice * quantity).toFixed(2)}
+      &lt;button onClick={() =&gt; onIncrease(item.id)}&gt;+&lt;/button&gt;
+    &lt;/li&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="trigger">
+      <div class="file-head"><span class="chip tone-neutral">Trigger</span><span class="name">src/cart/Cart.tsx</span><span class="why">Calling a state setter does not change <code>quantities</code> in this call; it asks React for a new render. The updater form <code>current =&gt; ...</code> uses the latest value, so two quick clicks add 2. Both setters in <code>increase</code> are batched into one render.</span></div>
+<pre><code>import { useState } from "react";
+import { CartRow, type CartItem } from "./CartRow";
+
+export function Cart({ items }: { items: CartItem[] }) {
+  const [quantities, setQuantities] = useState&lt;Record&lt;string, number&gt;&gt;({});
+  const [lastChangedItemId, setLastChangedItemId] = useState&lt;string | null&gt;(null);
+
+  function increase(itemId: string) {
+    setQuantities((current) =&gt; ({ ...current, [itemId]: (current[itemId] ?? 1) + 1 }));
+    setLastChangedItemId(itemId);
+  }
+
+  const quantityOf = (item: CartItem) =&gt; quantities[item.id] ?? 1;
+  const total = items.reduce((sum, item) =&gt; sum + item.unitPrice * quantityOf(item), 0);
+
+  return (
+    &lt;section&gt;
+      &lt;ul&gt;
+        {items.map((item) =&gt; (
+          &lt;CartRow
+            key={item.id}
+            item={item}
+            quantity={quantityOf(item)}
+            isLastChanged={item.id === lastChangedItemId}
+            onIncrease={increase}
+          /&gt;
+        ))}
+      &lt;/ul&gt;
+      &lt;p&gt;Total: {total.toFixed(2)}&lt;/p&gt;
+    &lt;/section&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="diff">
+      <div class="file-head"><span class="chip tone-teal">Keys</span><span class="name">src/shopping/ShoppingList.tsx</span><span class="why">Each row keeps the amount you type in its own state. With <code>key={index}</code>, deleting the first row gave the second row the first row's typed text, measured in React 19. With <code>key={item.id}</code>, every row keeps its own state.</span></div>
+<pre><code>import { useState } from "react";
+
+type ShoppingItem = { id: string; name: string };
+
+function ShoppingRow({ item, onDelete }: { item: ShoppingItem; onDelete: () =&gt; void }) {
+  const [amount, setAmount] = useState("");
+  return (
+    &lt;li&gt;
+      {item.name}
+      &lt;input value={amount} onChange={(event) =&gt; setAmount(event.target.value)} placeholder="amount" /&gt;
+      &lt;button onClick={onDelete}&gt;Delete&lt;/button&gt;
+    &lt;/li&gt;
+  );
+}
+
+export function ShoppingList({ initialItems }: { initialItems: ShoppingItem[] }) {
+  const [items, setItems] = useState(initialItems);
+  const remove = (itemId: string) =&gt; setItems((current) =&gt; current.filter((item) =&gt; item.id !== itemId));
+
+  return (
+    &lt;ul&gt;
+      {items.map((item) =&gt; (
+        &lt;ShoppingRow key={item.id} item={item} onDelete={() =&gt; remove(item.id)} /&gt;
+      ))}
+    &lt;/ul&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="commit">
+      <div class="file-head"><span class="chip tone-blue">Commit</span><span class="name">src/cart/StickyTotal.tsx</span><span class="why">During the commit, React sets <code>ref.current</code> to the DOM node. <code>useLayoutEffect</code> runs after the DOM changes but before the browser paints, so measuring and adjusting here does not flicker. Use it only for measuring; it delays the paint.</span></div>
+<pre><code>import { useLayoutEffect, useRef, useState } from "react";
+
+export function StickyTotal({ total }: { total: number }) {
+  const totalRef = useRef&lt;HTMLDivElement&gt;(null);
+  const [height, setHeight] = useState(0);
+
+  useLayoutEffect(() =&gt; {
+    setHeight(totalRef.current?.getBoundingClientRect().height ?? 0);
+  }, [total]);
+
+  return (
+    &lt;&gt;
+      &lt;div style={{ height }} /&gt;
+      &lt;div ref={totalRef} className="sticky-total"&gt;Total: {total.toFixed(2)}&lt;/div&gt;
+    &lt;/&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="monitor">
+      <div class="file-head"><span class="chip tone-neutral">Monitoring</span><span class="name">src/main.tsx</span><span class="why"><code>createRoot</code> takes error callbacks in React 19: <code>onCaughtError</code> for errors an error boundary handled, <code>onUncaughtError</code> for the rest. <code>reportError</code> is your error service's client. <code>&lt;Profiler&gt;</code> reports how long the cart took to render; only slow renders are sent.</span></div>
+<pre><code>import { Profiler, StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { App } from "./App";
+import { reportError, reportMetric } from "./monitoring";
+
+const errorContext = { release: import.meta.env.VITE_RELEASE, url: location.pathname };
+
+createRoot(document.getElementById("root")!, {
+  onCaughtError: (error, info) =&gt; reportError(error, { ...errorContext, handled: true, componentStack: info.componentStack }),
+  onUncaughtError: (error, info) =&gt; reportError(error, { ...errorContext, handled: false, componentStack: info.componentStack }),
+}).render(
+  &lt;StrictMode&gt;
+    &lt;Profiler
+      id="cart"
+      onRender={(id, phase, actualDuration) =&gt; {
+        if (actualDuration &gt; 16) reportMetric("slow_render", { id, phase, durationMs: Math.round(actualDuration) });
+      }}
+    &gt;
+      &lt;App /&gt;
+    &lt;/Profiler&gt;
+  &lt;/StrictMode&gt;,
+);</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="effects">
+      <div class="file-head"><span class="chip tone-amber">Effects</span><span class="name">src/cart/useCartAnalytics.ts</span><span class="why">An effect for work outside React: sending an event when the cart total changes. The cleanup cancels a pending send, so a quick series of changes sends only the last one. In Strict Mode, setup, cleanup and setup run on mount, which this code handles correctly.</span></div>
+<pre><code>import { useEffect } from "react";
+import { sendAnalyticsEvent } from "../analytics";
+
+export function useCartAnalytics(cartId: string, total: number) {
+  useEffect(() =&gt; {
+    const timer = setTimeout(() =&gt; {
+      sendAnalyticsEvent("cart_total_changed", { cartId, total });
+    }, 500);
+
+    return () =&gt; clearTimeout(timer);
+  }, [cartId, total]);
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="tree">
+      <div class="file-head"><span class="chip tone-teal">Elements</span><span class="name">compiled/CartRow.js</span><span class="why">What the JSX in <code>CartRow</code> becomes after the build: calls to <code>jsx</code> and <code>jsxs</code> from <code>react/jsx-runtime</code>. Each call returns a plain object, roughly <code>{ type: "button", key: null, props: { onClick, children: "+" } }</code>. Reconciliation compares these objects. Shortened.</span></div>
+<pre><code>import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+
+export function CartRow({ item, quantity, isLastChanged, onIncrease }) {
+  return _jsxs("li", {
+    className: isLastChanged ? "highlight" : undefined,
+    children: [
+      item.name, " x ", quantity, " = ", (item.unitPrice * quantity).toFixed(2),
+      _jsx("button", { onClick: () =&gt; onIncrease(item.id), children: "+" }),
+    ],
+  });
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
