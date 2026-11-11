@@ -414,4 +414,9 @@ window.glossaryTerms = [
   { forms: ["DTO", "DTOs"], definition: "Data transfer object: a class or type that only carries data between layers or over the network, with no behaviour." },
   { forms: ["lib.es5.d.ts"], definition: "A declaration file that ships with TypeScript and describes the built-in JavaScript objects and utility types." },
   { forms: ["signature", "signatures"], definition: "A function's name, parameter types and return type, without its body." },
+  { forms: ["Next.js"], definition: "A React framework that renders pages on the server and in the browser, with routing, data loading and API routes built in." },
+  { forms: ["React"], definition: "A JavaScript library for building user interfaces from components, functions that return what to show for the current data." },
+  { forms: ["linter", "linters"], definition: "A tool, such as ESLint, that reads code and reports likely mistakes and style problems without running it." },
+  { forms: ["test runner", "test runners"], definition: "A tool, such as Vitest or node --test, that finds test files, runs them and reports which tests failed." },
+  { forms: ["source map", "source maps"], definition: "A file that maps positions in generated JavaScript back to the original source lines, so errors point at the code you wrote." },
 ];

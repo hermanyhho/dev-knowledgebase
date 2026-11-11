@@ -21,3 +21,4 @@ typescript/<category>/<topic>/
 - [Compile Time and Runtime](compiling/compile-time-and-runtime/index.html) - compiling
 - [Structural Typing and Narrowing](type-system/structural-typing-and-narrowing/index.html) - type system
 - [Generics and Utility Types](type-system/generics-and-utility-types/index.html) - type system
+- [tsconfig and Module Resolution](compiling/tsconfig-and-module-resolution/index.html) - compiling

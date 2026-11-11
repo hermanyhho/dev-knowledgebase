@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tsconfig and Module Resolution</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">TypeScript</a> / Compiling</div>
+    <h1>tsconfig and Module Resolution</h1>
+    <p class="aka">The settings file that tells the compiler what to check and what to output, and how it finds the file behind each import.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p><code>tsconfig.json</code> sits in the project root. It tells <code>tsc</code> which files belong to the project, how strict the checks are, which JavaScript version to write, and how to find the file behind each <code>import</code>.</p>
+    <p>Finding that file is <strong>module resolution</strong>. It happens twice: <code>tsc</code> does it at compile time to find types, and Node.js or a bundler does it again at runtime to find code. <code>tsc</code> does not change the import strings it writes to the output. So the setting <code>"module": "nodenext"</code> makes <code>tsc</code> follow the same rules as Node.js, and an import that compiles also works when the program runs.</p>
+    <p>That is why a Node.js project writes <code>import { orders } from "./orders.js"</code> in a <code>.ts</code> file: <code>.js</code> is the name the file has when Node.js loads it. See <a href="../../../javascript/modules/commonjs-and-es-modules/">CommonJS and ES modules</a> for the two module systems.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Module specifier</span></td><td>The string after <code>from</code> in an import.</td><td><code>"./orders.js"</code>, <code>"zod"</code></td></tr>
+          <tr><td><span class="chip tone-teal">Module resolution</span></td><td>The rules that turn a specifier into a file.</td><td><code>"nodenext"</code></td></tr>
+          <tr><td><span class="chip tone-teal">Relative import</span></td><td>A specifier that starts with <code>./</code> or <code>../</code>: a file in your project.</td><td><code>"./orders.js"</code></td></tr>
+          <tr><td><span class="chip tone-blue">Package import</span></td><td>A bare name: a package in <code>node_modules</code>.</td><td><code>"zod"</code></td></tr>
+          <tr><td><span class="chip tone-blue"><code>exports</code> field</span></td><td>The part of a package's <code>package.json</code> that lists which files can be imported, with separate entries for types and code.</td><td><code>"types"</code>, <code>"import"</code></td></tr>
+          <tr><td><span class="chip tone-amber">Path alias</span></td><td>A short specifier that maps to a folder in your project.</td><td><code>"#app/orders.js"</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Declaration file</span></td><td>A <code>.d.ts</code> file with only types, shipped next to JavaScript code.</td><td><code>node_modules/zod/index.d.ts</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> for code that Node.js runs, use <code>"module": "nodenext"</code> and write imports as Node.js will load them. For code that a bundler builds, use <code>"module": "preserve"</code> with <code>"moduleResolution": "bundler"</code>.</div>
+  </section>
+
+  <section>
+    <h2>Settings that matter most</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Setting</th><th>What it does</th><th>Recommended</th></tr></thead>
+        <tbody>
+          <tr><td><code>strict</code></td><td>Turns on the main checks, such as <code>strictNullChecks</code> and <code>noImplicitAny</code></td><td><code>true</code> in every new project</td></tr>
+          <tr><td><code>module</code></td><td>Which module system to output, and which resolution rules to follow</td><td><code>"nodenext"</code> for Node.js, <code>"preserve"</code> for bundlers</td></tr>
+          <tr><td><code>target</code></td><td>Which JavaScript version to output. Newer syntax is rewritten for older targets.</td><td><code>"es2024"</code> for Node.js 24</td></tr>
+          <tr><td><code>rootDir</code>, <code>outDir</code></td><td>Where source files are, and where the JavaScript goes</td><td><code>"src"</code>, <code>"dist"</code></td></tr>
+          <tr><td><code>noEmit</code></td><td>Check only, write nothing</td><td>When a bundler or Node.js runs the source</td></tr>
+          <tr><td><code>noUncheckedIndexedAccess</code></td><td><code>orders[0]</code> has the type <code>Order | undefined</code></td><td><code>true</code>. Not part of <code>strict</code>.</td></tr>
+          <tr><td><code>verbatimModuleSyntax</code></td><td>Type-only imports must say <code>import type</code>, so the output keeps exactly the imports that exist at runtime</td><td><code>true</code></td></tr>
+          <tr><td><code>erasableSyntaxOnly</code></td><td>Reports syntax that a type-stripping tool cannot remove</td><td><code>true</code> when Node.js runs <code>.ts</code> files</td></tr>
+          <tr><td><code>rewriteRelativeImportExtensions</code></td><td>Lets you write <code>"./orders.ts"</code> and rewrites it to <code>"./orders.js"</code> in the output (TypeScript 5.7 and later)</td><td>When the same code runs with Node.js directly and after a build</td></tr>
+          <tr><td><code>sourceMap</code></td><td>Writes <code>.js.map</code> files, so stack traces can point at <code>.ts</code> lines</td><td><code>true</code>, and run Node.js with <code>--enable-source-maps</code></td></tr>
+          <tr><td><code>skipLibCheck</code></td><td>Skips checking <code>.d.ts</code> files from packages</td><td><code>true</code>: faster builds</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How each kind of import is found</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Import</th><th>At compile time, <code>tsc</code> finds</th><th>At runtime, Node.js finds</th></tr></thead>
+        <tbody>
+          <tr><td><code>"./orders.js"</code></td><td><code>src/orders.ts</code>: it maps <code>.js</code> back to the source file</td><td><code>dist/orders.js</code></td></tr>
+          <tr><td><code>"./orders"</code></td><td>Error <code>TS2835</code> under <code>nodenext</code></td><td>Error: ES modules need the full file name</td></tr>
+          <tr><td><code>"zod"</code></td><td>The <code>"types"</code> entry of <code>exports</code> in <code>node_modules/zod/package.json</code></td><td>The <code>"import"</code> or <code>"default"</code> entry</td></tr>
+          <tr><td>A package without types</td><td>Types from <code>@types/package-name</code>, if installed</td><td>The package's JavaScript</td></tr>
+          <tr><td><code>"@app/orders.js"</code> from <code>paths</code></td><td><code>src/orders.ts</code></td><td><code>ERR_MODULE_NOT_FOUND</code>: <code>paths</code> exists only in <code>tsconfig.json</code></td></tr>
+          <tr><td><code>"#app/orders.js"</code> from <code>imports</code></td><td><code>src/orders.ts</code></td><td><code>dist/orders.js</code>: <code>imports</code> is in <code>package.json</code>, which Node.js reads</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Node.js project or bundled frontend</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th></th><th>Node.js service</th><th>Frontend built by Vite or Next.js</th></tr></thead>
+        <tbody>
+          <tr><td><code>module</code></td><td><code>"nodenext"</code></td><td><code>"preserve"</code></td></tr>
+          <tr><td><code>moduleResolution</code></td><td><code>"nodenext"</code> (set by <code>module</code>)</td><td><code>"bundler"</code></td></tr>
+          <tr><td>File extensions in imports</td><td>Required</td><td>Not needed: the bundler finds the file</td></tr>
+          <tr><td>Who writes the JavaScript</td><td><code>tsc</code>, or Node.js strips types</td><td>The bundler. <code>tsc</code> runs with <code>noEmit</code> to check.</td></tr>
+          <tr><td><code>lib</code></td><td>Default for the target, plus <code>"types": ["node"]</code></td><td>Add <code>"dom"</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>CI</td><td><code>tsc --noEmit</code> output. A type error fails the pipeline.</td><td>Build fails</td></tr>
+          <tr><td>App startup</td><td>An <code>ERR_MODULE_NOT_FOUND</code> crash means an import works in <code>tsc</code> but not in Node.js. It shows on the first start, so run the built app once in CI.</td><td>fatal</td></tr>
+          <tr><td>Error stack traces</td><td>With <code>sourceMap</code> and <code>--enable-source-maps</code>, logged stacks show <code>src/orders.ts:12</code> instead of <code>dist/orders.js:9</code></td><td></td></tr>
+          <tr><td>Startup log</td><td>Node.js version and app version, so a resolution error can be matched to a release</td><td>info</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 420" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">src/server.ts has three kinds of imports. Guided by tsconfig.json, tsc resolves a relative import, a package import and a path alias to find types. It writes dist/server.js with the import strings unchanged, and Node.js resolves the same strings again at runtime.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="270" y="15" width="370" height="290" rx="10"/>
+        <text class="t-label" x="455" y="34">COMPILE TIME: tsc FINDS TYPES</text>
+        <rect class="frame" x="660" y="15" width="250" height="390" rx="10"/>
+        <text class="t-label" x="785" y="34">RUNTIME</text>
+
+        <g class="node" id="n-source" tabindex="0" role="button" aria-label="Show the imports" data-title="src/server.ts: three kinds of imports" data-node="source">
+          <rect class="shape tone-neutral" x="20" y="45" width="220" height="90" rx="6"/>
+          <text class="t-name" x="130" y="70">src/server.ts</text>
+          <text class="t-item" x="130" y="92">"./orders.js"</text>
+          <text class="t-item" x="130" y="108">"zod"</text>
+          <text class="t-item" x="130" y="124">"#app/config.js"</text>
+        </g>
+        <g class="node" id="n-tsconfig" tabindex="0" role="button" aria-label="Show tsconfig.json" data-title="tsconfig.json" data-node="tsconfig">
+          <rect class="shape tone-teal" x="20" y="175" width="220" height="80" rx="6"/>
+          <text class="t-name" x="130" y="200">tsconfig.json</text>
+          <text class="t-item" x="130" y="222">module: nodenext</text>
+          <text class="t-item" x="130" y="240">strict: true</text>
+        </g>
+        <g class="node" id="n-strict" tabindex="0" role="button" aria-label="Show the extra checks" data-title="Extra checks" data-node="strict">
+          <rect class="shape tone-teal" x="20" y="300" width="220" height="90" rx="6"/>
+          <text class="t-name" x="130" y="325">Extra checks</text>
+          <text class="t-item" x="130" y="347">noUncheckedIndexedAccess</text>
+          <text class="t-item" x="130" y="365">verbatimModuleSyntax</text>
+        </g>
+
+        <g class="node" id="n-relative" tabindex="0" role="button" aria-label="Show a relative import" data-title="Relative import" data-node="relative">
+          <rect class="shape tone-teal" x="290" y="50" width="330" height="65" rx="6"/>
+          <text class="t-name" x="455" y="75">Relative import</text>
+          <text class="t-kind" x="455" y="95">"./orders.js" finds src/orders.ts</text>
+        </g>
+        <g class="node" id="n-package" tabindex="0" role="button" aria-label="Show a package's exports field" data-title="Package import: exports" data-node="package">
+          <rect class="shape tone-blue" x="290" y="130" width="330" height="65" rx="6"/>
+          <text class="t-name" x="455" y="155">Package import</text>
+          <text class="t-kind" x="455" y="175">"zod": exports "types" gives .d.ts</text>
+        </g>
+        <g class="node" id="n-alias" tabindex="0" role="button" aria-label="Show path aliases" data-title="Path alias: paths or imports" data-node="alias">
+          <rect class="shape tone-amber" x="290" y="210" width="330" height="65" rx="6"/>
+          <text class="t-name" x="455" y="235">Path alias</text>
+          <text class="t-kind" x="455" y="255">"#app/*" from package.json imports</text>
+        </g>
+
+        <g class="node" id="n-output" tabindex="0" role="button" aria-label="Show the compiled output" data-title="dist/server.js: imports unchanged" data-node="output">
+          <rect class="shape tone-neutral" x="680" y="50" width="210" height="80" rx="6"/>
+          <text class="t-name" x="785" y="75">dist/server.js</text>
+          <text class="t-kind" x="785" y="95">import strings</text>
+          <text class="t-kind" x="785" y="111">unchanged</text>
+        </g>
+        <g class="node" id="n-node" tabindex="0" role="button" aria-label="Show what Node.js reports" data-title="Node.js: resolving again" data-node="node">
+          <rect class="shape tone-neutral" x="680" y="200" width="210" height="90" rx="6"/>
+          <text class="t-name" x="785" y="225">Node.js</text>
+          <text class="t-kind" x="785" y="245">resolves the same</text>
+          <text class="t-kind" x="785" y="261">strings, finds .js files</text>
+        </g>
+
+        <path class="flow" id="a-source-relative" d="M240,70 L288,80" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-source-package" d="M240,95 L288,160" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-source-alias" d="M240,120 L288,240" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-tsconfig-frame" d="M240,215 L255,215 L255,290 L268,290" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-tsconfig-strict" d="M130,255 L130,298" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-relative-output" d="M620,82 L678,88" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-output-node" d="M785,130 L785,198" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-ts2835" x="455" y="295">"./orders": TS2835</text>
+        <text class="ghost-label" id="t-not-found" x="785" y="315">ERR_MODULE_NOT_FOUND</text>
+        <text class="ghost-label" id="t-strict-error" x="130" y="410">TS2532 AND TS1484</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="relative" aria-pressed="true">Import without an extension</button>
+        <button type="button" data-flow="package" aria-pressed="false">Import a package</button>
+        <button type="button" data-flow="alias" aria-pressed="false">Path alias with paths</button>
+        <button type="button" data-flow="strict" aria-pressed="false">Turn on stricter checks</button>
+        <button type="button" data-flow="bundler" aria-pressed="false">A frontend built with Vite</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="relative" hidden>
+        <li data-highlight="n-source a-source-relative n-relative">You write <code>import { orders } from "./orders"</code>, without an extension, in a project with <code>"type": "module"</code>.</li>
+        <li data-highlight="n-tsconfig a-tsconfig-frame n-relative t-ts2835">With <code>"module": "nodenext"</code>, <code>tsc</code> applies Node.js rules and stops: <code>TS2835: Relative import paths need explicit file extensions ... Did you mean './orders.js'?</code></li>
+        <li data-highlight="n-source a-source-relative n-relative">You write <code>"./orders.js"</code>. <code>tsc</code> knows this is the output name and reads the types from <code>src/orders.ts</code>.</li>
+        <li data-highlight="n-relative a-relative-output n-output"><code>tsc</code> writes <code>dist/server.js</code> with the import string unchanged: <code>"./orders.js"</code>.</li>
+        <li data-highlight="n-output a-output-node n-node">Node.js loads <code>dist/orders.js</code>, which exists. The import works at compile time and at runtime.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="package" hidden>
+        <li data-highlight="n-source a-source-package n-package">You write <code>import { z } from "zod"</code>. A bare name means a package.</li>
+        <li data-highlight="n-package"><code>tsc</code> opens <code>node_modules/zod/package.json</code> and reads its <code>exports</code> field. It picks the <code>"types"</code> entry and reads that <code>.d.ts</code> file.</li>
+        <li data-highlight="n-package">If a package has no types, <code>tsc</code> looks in <code>node_modules/@types/</code>. Without either, the import has the type <code>any</code>, or an error under <code>strict</code>.</li>
+        <li data-highlight="n-output a-output-node n-node">At runtime Node.js reads the same <code>exports</code> field, but picks the <code>"import"</code> or <code>"default"</code> entry: the JavaScript.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="alias" hidden>
+        <li data-highlight="n-tsconfig n-alias">To avoid <code>"../../../config.js"</code>, someone adds <code>"paths": { "@app/*": ["src/*"] }</code> to <code>tsconfig.json</code>.</li>
+        <li data-highlight="n-source a-source-alias n-alias"><code>import { config } from "@app/config.js"</code> compiles: <code>tsc</code> uses <code>paths</code> to find the file.</li>
+        <li data-highlight="n-output a-output-node n-node t-not-found">The output still says <code>"@app/config.js"</code>. Node.js does not read <code>tsconfig.json</code>, looks for a package named <code>@app/config.js</code>, and fails at startup with <code>ERR_MODULE_NOT_FOUND</code>.</li>
+        <li data-highlight="n-alias">Use the <code>imports</code> field in <code>package.json</code> instead: <code>"#app/*": "./dist/*"</code>. Node.js reads it at runtime, and <code>tsc</code> maps it back to <code>src</code>.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="strict" hidden>
+        <li data-highlight="n-tsconfig a-tsconfig-strict n-strict">You add <code>noUncheckedIndexedAccess</code> and <code>verbatimModuleSyntax</code> to <code>tsconfig.json</code>.</li>
+        <li data-highlight="n-strict t-strict-error"><code>orders[0].total</code> now fails with <code>TS2532: Object is possibly 'undefined'</code>. An empty list has no first item, and before this setting the compiler ignored that.</li>
+        <li data-highlight="n-strict t-strict-error"><code>import { Order, orders }</code> fails with <code>TS1484: 'Order' is a type and must be imported using a type-only import</code>.</li>
+        <li data-highlight="n-strict n-output">You write <code>import { type Order, orders }</code>. The output keeps <code>orders</code> and drops <code>Order</code>, and every tool that compiles one file at a time gets the same result.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="bundler" hidden>
+        <li data-highlight="n-tsconfig">A React app is built by Vite. Its <code>tsconfig.json</code> uses <code>"module": "preserve"</code>, <code>"moduleResolution": "bundler"</code> and <code>"noEmit": true</code>.</li>
+        <li data-highlight="n-source a-source-relative n-relative"><code>import { Button } from "./button"</code> compiles without an extension, because a bundler finds <code>button.tsx</code> by itself.</li>
+        <li data-highlight="n-tsconfig">Vite reads the imports and builds the JavaScript. <code>tsc</code> only checks types, in the editor and in CI.</li>
+        <li data-highlight="n-node">The browser never sees the original import strings: the bundler replaced them. That is why the bundler rules can be looser than the Node.js rules.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Files</span>
+      <span class="chip tone-teal">Settings and relative imports</span>
+      <span class="chip tone-blue">Packages</span>
+      <span class="chip tone-amber">Aliases</span>
+      <span>Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">orders-api/</div>
+      <button type="button" class="tree-row" data-file="tsconfig.json"><span class="path">├─ tsconfig.json</span><span class="chip tone-teal">Settings</span></button>
+      <button type="button" class="tree-row" data-file="web/tsconfig.json"><span class="path">├─ web/tsconfig.json</span><span class="chip tone-teal">Settings</span></button>
+      <button type="button" class="tree-row" data-file="package.json"><span class="path">├─ package.json</span><span class="chip tone-amber">Aliases</span></button>
+      <button type="button" class="tree-row" data-file="src/server.ts"><span class="path">├─ src/server.ts</span><span class="chip tone-neutral">Source</span></button>
+      <button type="button" class="tree-row" data-file="src/orders.ts"><span class="path">├─ src/orders.ts</span><span class="chip tone-teal">Relative</span></button>
+      <button type="button" class="tree-row" data-file="src/strict-checks.ts"><span class="path">├─ src/strict-checks.ts</span><span class="chip tone-teal">Checks</span></button>
+      <button type="button" class="tree-row" data-file="node_modules/zod/package.json"><span class="path">├─ node_modules/zod/package.json</span><span class="chip tone-blue">Package</span></button>
+      <button type="button" class="tree-row" data-file="dist/server.js"><span class="path">├─ dist/server.js</span><span class="chip tone-neutral">Output</span></button>
+      <button type="button" class="tree-row" data-file="build-and-run.txt"><span class="path">└─ build-and-run.txt</span><span class="chip tone-neutral">Output</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Imports that compile but fail at runtime</strong><span><code>nodenext</code> applies the Node.js rules at compile time, so most of these fail the build instead.</span></li>
+        <li><strong>One project, many tools</strong><span>The editor, <code>tsc</code>, test runners and linters all read the same settings.</span></li>
+        <li><strong>Choosing how strict to be</strong><span>A project can turn on checks one by one while fixing old code.</span></li>
+        <li><strong>Types for packages</strong><span>The <code>exports</code> field lets a package ship types and code side by side.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Many settings that interact</strong><span><code>module</code>, <code>moduleResolution</code>, <code>target</code> and <code>lib</code> depend on each other.</span></li>
+        <li><strong>The <code>.js</code> extension in <code>.ts</code> files</strong><span>Correct, but surprising until you know why.</span></li>
+        <li><strong>Settings that only <code>tsc</code> knows</strong><span><code>paths</code> compiles but breaks at runtime unless another tool repeats it.</span></li>
+        <li><strong>Different setups for server and frontend</strong><span>Code shared between them must follow the stricter Node.js rules.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-json">
+    <div class="file" data-lang="any" data-node="tsconfig">
+      <div class="file-head"><span class="chip tone-teal">Settings</span><span class="name">tsconfig.json</span><span class="why">A setup for a Node.js 24 service built with <code>tsc</code>. <code>"module": "nodenext"</code> also sets <code>moduleResolution</code>, and reads <code>"type"</code> in <code>package.json</code> to decide between ES modules and CommonJS. <code>types</code> limits global types to Node.js, so test or browser globals do not leak in.</span></div>
+<pre><code>{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="tsconfig">
+      <div class="file-head"><span class="chip tone-teal">Settings</span><span class="name">web/tsconfig.json</span><span class="why">A setup for a React app built by Vite. The bundler resolves imports and writes the JavaScript, so <code>tsc</code> only checks. <code>"dom"</code> adds browser types such as <code>document</code>. <code>"jsx": "react-jsx"</code> makes <code>.tsx</code> files compile.</span></div>
+<pre><code>{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="alias">
+      <div class="file-head"><span class="chip tone-amber">Aliases</span><span class="name">package.json</span><span class="why">The <code>imports</code> field is part of Node.js, so the alias works at runtime too. Its names must start with <code>#</code>. It points at <code>dist</code>, where the running code is, and <code>tsc</code> maps that back to <code>src</code> for types. A <code>paths</code> entry in <code>tsconfig.json</code> would compile, then fail when Node.js starts.</span></div>
+<pre><code>{
+  "name": "orders-api",
+  "type": "module",
+  "imports": {
+    "#app/*": "./dist/*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node --enable-source-maps dist/server.js",
+    "typecheck": "tsc --noEmit"
+  }
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="package">
+      <div class="file-head"><span class="chip tone-blue">Package</span><span class="name">node_modules/zod/package.json</span><span class="why">A shortened <code>exports</code> field of the kind packages publish. Each entry lists files per condition. <code>tsc</code> picks <code>"types"</code>, Node.js picks <code>"import"</code> for ES modules or <code>"require"</code> for CommonJS. Files that are not listed cannot be imported.</span></div>
+<pre><code>{
+  "name": "zod",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.cjs"
+    },
+    "./package.json": "./package.json"
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-typescript">
+    <div class="file" data-lang="any" data-node="source">
+      <div class="file-head"><span class="chip tone-neutral">Source</span><span class="name">src/server.ts</span><span class="why">Three kinds of imports. The relative one ends in <code>.js</code>, the file name at runtime. <code>import type</code> is removed from the output. The alias starts with <code>#</code> and comes from <code>package.json</code>.</span></div>
+<pre><code>import { z } from "zod";
+import { type Order, orders } from "./orders.js";
+import { config } from "#app/config.js";
+
+const OrderIdSchema = z.string().startsWith("o-");
+
+export function findOrder(orderId: string): Order | undefined {
+  const validOrderId = OrderIdSchema.parse(orderId);
+  return orders.find((order) =&gt; order.id === validOrderId);
+}
+
+console.log({ port: config.port });</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="relative">
+      <div class="file-head"><span class="chip tone-teal">Relative</span><span class="name">src/orders.ts</span><span class="why">The file that <code>"./orders.js"</code> refers to. In the source it is a <code>.ts</code> file; after the build it is <code>dist/orders.js</code>, and that is the name the import uses.</span></div>
+<pre><code>export type Order = { id: string; total: number };
+
+export const orders: Order[] = [];</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="strict">
+      <div class="file-head"><span class="chip tone-teal">Checks</span><span class="name">src/strict-checks.ts</span><span class="why">The two lines marked by the compiler. With <code>noUncheckedIndexedAccess</code>, <code>orders[0]</code> may be <code>undefined</code>. With <code>verbatimModuleSyntax</code>, a type must be imported with <code>type</code>, because a plain import is kept in the output and <code>Order</code> does not exist in JavaScript.</span></div>
+<pre><code>import { Order, orders } from "./orders.js";
+
+const firstTotal = orders[0].total;
+
+const firstOrder: Order | undefined = orders[0];
+const safeTotal = orders[0]?.total ?? 0;</code></pre>
+    </div>
+  </div>
+
+  <div class="language-javascript">
+    <div class="file" data-lang="any" data-node="output">
+      <div class="file-head"><span class="chip tone-neutral">Output</span><span class="name">dist/server.js</span><span class="why">What <code>tsc</code> writes for <code>src/server.ts</code>. The types are gone, <code>type Order</code> is gone from the import, and every import string is exactly as written. Node.js resolves these strings itself.</span></div>
+<pre><code>import { z } from "zod";
+import { orders } from "./orders.js";
+import { config } from "#app/config.js";
+const OrderIdSchema = z.string().startsWith("o-");
+export function findOrder(orderId) {
+    const validOrderId = OrderIdSchema.parse(orderId);
+    return orders.find((order) =&gt; order.id === validOrderId);
+}
+console.log({ port: config.port });
+//# sourceMappingURL=server.js.map</code></pre>
+    </div>
+  </div>
+
+  <div class="language-none">
+    <div class="file" data-lang="any" data-node="node">
+      <div class="file-head"><span class="chip tone-neutral">Output</span><span class="name">build-and-run.txt</span><span class="why">Real output, with long lines wrapped. The first error comes from <code>src/server.ts</code> when its import was still <code>"./orders"</code>, without an extension. The two in the middle are the extra checks. The last run used a <code>paths</code> alias: it compiled, and Node.js failed when it started.</span></div>
+<pre><code>$ npx tsc
+src/server.ts(2,36): error TS2835: Relative import paths need explicit file extensions in
+  ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './orders.js'?
+
+src/strict-checks.ts(1,10): error TS1484: 'Order' is a type and must be imported using a
+  type-only import when 'verbatimModuleSyntax' is enabled.
+src/strict-checks.ts(3,20): error TS2532: Object is possibly 'undefined'.
+
+$ node dist/server.js
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@app/config.js' imported from /app/dist/server.js</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
