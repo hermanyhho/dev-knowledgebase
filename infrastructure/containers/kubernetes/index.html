@@ -1,0 +1,953 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kubernetes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">Infrastructure</a> / Containers</div>
+    <h1>Kubernetes</h1>
+    <p class="aka">Also called <strong>K8s</strong>. Runs containers on a group of machines and keeps them in the state you describe.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>Kubernetes runs containers on a group of machines called a <strong>cluster</strong>. You do not start or stop containers yourself. You write down the state you want, for example "3 copies of the orders image, version 1.4.0, each with 256 MiB of memory", and send it to the cluster.</p>
+    <p>Kubernetes stores that <strong>desired state</strong>. Programs called <strong>controllers</strong> compare it with what is running and fix every difference: they start missing containers, replace lost ones and remove extra ones. They repeat this check all the time, so the cluster returns to the desired state after a failure.</p>
+    <p>It runs container images, for example images built with <a href="../docker/">Docker</a>. Google started the project in 2014. The Cloud Native Computing Foundation runs it now.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-neutral">Cluster</span></td><td>The control plane plus the machines that run your containers.</td><td>One cluster for production</td></tr>
+          <tr><td><span class="chip tone-blue">Control plane</span></td><td>The programs that store the desired state and decide what runs where.</td><td>API server, etcd, scheduler, controllers</td></tr>
+          <tr><td><span class="chip tone-blue">Node</span></td><td>One machine, virtual or physical, that runs pods.</td><td>Node A, node B</td></tr>
+          <tr><td><span class="chip tone-teal">Pod</span></td><td>The smallest unit Kubernetes runs: one or more containers that share an IP address.</td><td>One copy of the orders app</td></tr>
+          <tr><td><span class="chip tone-amber">Manifest</span></td><td>A YAML file that describes an object you want.</td><td><code>deployment.yaml</code></td></tr>
+          <tr><td><span class="chip tone-blue">Controller</span></td><td>A loop that compares desired and actual state and acts on the difference.</td><td>The ReplicaSet controller keeps 3 pods running</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> you describe the desired state, and Kubernetes keeps the actual state equal to it. To change something, change the YAML and apply it again. Changes made by hand to a running pod are lost when the pod is replaced.</div>
+  </section>
+
+  <section>
+    <h2>Control plane and worker nodes</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Component</th><th>Runs on</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>API server</td><td>Control plane</td><td>The only way in. kubectl, controllers and kubelets all read and write objects through it. It checks permissions and validates each object.</td></tr>
+          <tr><td>etcd</td><td>Control plane</td><td>A key-value database that stores every object. If it is lost, the cluster's state is lost, so it must be backed up.</td></tr>
+          <tr><td>Scheduler</td><td>Control plane</td><td>Picks a node for each new pod, based on free CPU and memory and your placement rules.</td></tr>
+          <tr><td>Controller manager</td><td>Control plane</td><td>Runs the built-in controllers: Deployment, ReplicaSet, Node, Job, EndpointSlice and more.</td></tr>
+          <tr><td>kubelet</td><td>Every node</td><td>Starts the pods assigned to its node, runs their probes and reports their status to the API server.</td></tr>
+          <tr><td>Container runtime</td><td>Every node</td><td>Pulls images and runs containers. Usually containerd.</td></tr>
+          <tr><td>kube-proxy</td><td>Every node</td><td>Sets network rules so traffic to a Service IP reaches one of its pods. Some network plugins, such as Cilium, replace it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Only the API server talks to etcd. Every other component watches the API server for changes and writes its results back to it. In a managed cluster such as EKS, AKS or GKE, the cloud provider runs the control plane, and you see only the nodes.</p>
+  </section>
+
+  <section>
+    <h2>Core objects</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Object</th><th>What it does</th><th>Use it for</th></tr></thead>
+        <tbody>
+          <tr><td><code>Pod</code></td><td>One or more containers that share an IP address and volumes. You rarely create pods directly.</td><td>Created for you by a Deployment, StatefulSet or Job</td></tr>
+          <tr><td><code>Deployment</code></td><td>Keeps a number of identical pods running. Replaces them a few at a time when the pod template changes.</td><td>Web APIs and workers that keep no data on disk</td></tr>
+          <tr><td><code>ReplicaSet</code></td><td>Keeps an exact number of pods from one pod template. A Deployment creates one per version.</td><td>Not written by hand</td></tr>
+          <tr><td><code>Service</code></td><td>A stable name and IP in front of a changing set of pods, chosen by labels. <strong>ClusterIP</strong> (default): reachable inside the cluster only. <strong>NodePort</strong>: a fixed port on every node. <strong>LoadBalancer</strong>: asks the cloud for an external load balancer.</td><td>Letting other pods call <code>orders</code></td></tr>
+          <tr><td><code>Gateway API</code>, <code>Ingress</code></td><td>Route HTTP requests from outside the cluster to Services by host name and path. Gateway API is the newer API. Ingress is older and still supported.</td><td><code>shop.example.com/orders</code> to the orders Service</td></tr>
+          <tr><td><code>ConfigMap</code></td><td>Key-value settings, passed to pods as environment variables or files.</td><td>The payments service URL</td></tr>
+          <tr><td><code>Secret</code></td><td>Like a ConfigMap, for passwords and keys. Values are base64-encoded, not encrypted, unless encryption at rest is turned on. Anyone allowed to read the Secret can decode it.</td><td>The database password</td></tr>
+          <tr><td><code>Namespace</code></td><td>A named group of objects inside one cluster. Names, permissions and quotas apply per namespace.</td><td><code>shop</code>, <code>payments</code></td></tr>
+          <tr><td><code>PersistentVolumeClaim</code></td><td>A request for disk storage that stays when the pod is replaced.</td><td>A database's data directory</td></tr>
+          <tr><td><code>StatefulSet</code></td><td>Like a Deployment, but each pod keeps a fixed name, such as <code>postgres-0</code>, and its own volume.</td><td>Databases, Kafka, Redis</td></tr>
+          <tr><td><code>Job</code>, <code>CronJob</code></td><td>A Job runs pods until they finish successfully. A CronJob creates a Job on a schedule.</td><td>A database migration, a nightly report</td></tr>
+          <tr><td><code>HorizontalPodAutoscaler</code></td><td>Changes a Deployment's number of pods based on CPU use or other metrics.</td><td>3 to 10 pods, aiming for 70% CPU</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Declarative YAML and the reconciliation loop</h2>
+    <p>You keep manifests in Git and run <code>kubectl apply -f k8s/</code>. kubectl sends each file to the API server, which stores it. Applying the same files again changes nothing. Applying a changed file updates only the changed fields. <code>kubectl diff -f k8s/</code> shows the change before you apply it.</p>
+    <p>Commands such as <code>kubectl scale</code> or <code>kubectl edit</code> change the cluster directly. The next apply from Git overwrites those changes, so use them only in an emergency, then update Git.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step of the loop</th><th>What the controller does</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>1. Watch</td><td>Gets a notice from the API server when an object it handles changes.</td><td>A pod of the ReplicaSet was deleted</td></tr>
+          <tr><td>2. Compare</td><td>Reads the desired state and the actual state.</td><td>Desired 3 pods, existing 2</td></tr>
+          <tr><td>3. Act</td><td>Writes the change to the API server.</td><td>Creates 1 pod</td></tr>
+          <tr><td>4. Repeat</td><td>Also runs again on a timer, so a missed notice is corrected later.</td><td>Every few minutes</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Controllers do not call each other. The Deployment controller creates a ReplicaSet object, and the ReplicaSet controller notices it and creates pods. Each one only reads and writes objects through the API server.</p>
+  </section>
+
+  <section>
+    <h2>Rolling updates and rollbacks</h2>
+    <p>When you change the pod template of a Deployment, for example the image tag, Kubernetes replaces pods a few at a time. It creates a new ReplicaSet for the new version, scales it up and scales the old one down. A new pod counts only after its readiness probe passes.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Setting</th><th>Meaning</th><th>Default</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><code>maxSurge</code></td><td>How many pods above <code>replicas</code> may exist during the update</td><td>25%</td><td>1: up to 4 pods</td></tr>
+          <tr><td><code>maxUnavailable</code></td><td>How many pods below <code>replicas</code> may be not ready during the update</td><td>25%</td><td>0: never fewer than 3 ready</td></tr>
+          <tr><td><code>progressDeadlineSeconds</code></td><td>Time without progress before the rollout is marked failed</td><td>600</td><td>Default</td></tr>
+          <tr><td><code>revisionHistoryLimit</code></td><td>Old ReplicaSets kept for rollback</td><td>10</td><td>Default</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>kubectl rollout status deployment/orders -n shop</code> waits until the update finishes or fails. A failed rollout does not roll back by itself. It stops, and the old pods keep serving. <code>kubectl rollout undo deployment/orders -n shop</code> switches back to the previous ReplicaSet with the same rolling steps.</p>
+    <p>A rollback restores the pod template only. It does not undo database migrations or changes inside a ConfigMap. After a rollback, also change the image tag in Git, or the next apply rolls forward again.</p>
+  </section>
+
+  <section>
+    <h2>Health probes</h2>
+    <p>The kubelet calls each probe on a timer, by default every 10 seconds, and acts after 3 failures in a row. The app code for these endpoints is in the diagram: click a pod.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Probe</th><th>Question it answers</th><th>When it fails</th><th>What to check</th></tr></thead>
+        <tbody>
+          <tr><td>Startup</td><td>Has the app finished starting?</td><td>Liveness and readiness wait. After <code>failureThreshold</code> times <code>periodSeconds</code>, the container is restarted.</td><td>The liveness endpoint. It gives slow starters time without a long liveness delay.</td></tr>
+          <tr><td>Liveness</td><td>Is the process stuck?</td><td>The kubelet restarts the container.</td><td>Only the process itself: can it answer HTTP?</td></tr>
+          <tr><td>Readiness</td><td>Can this pod take requests now?</td><td>The pod is removed from the Service endpoints. It is not restarted.</td><td>Startup work is finished. The pod is not overloaded.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>Common mistake:</strong> checking the database in the liveness probe. When the database is down, every pod fails liveness and is restarted, again and again. Restarts do not fix the database, and the restart loop slows recovery. Keep liveness to the process. A shared database in readiness causes a similar problem: all pods leave the Service at once, and callers get connection errors instead of a clear error from your app.</p>
+    <p>When a container exits, the kubelet restarts it in the same pod, with a growing delay of up to 5 minutes. <code>kubectl get pods</code> shows this as <code>CrashLoopBackOff</code>.</p>
+  </section>
+
+  <section>
+    <h2>Resource requests and limits</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Setting</th><th>Used by</th><th>When the container goes over it</th></tr></thead>
+        <tbody>
+          <tr><td><code>requests.cpu</code></td><td>The scheduler: the node must have this much CPU free. Also sets the pod's share when CPU is short.</td><td>Nothing. The pod can use spare CPU on the node.</td></tr>
+          <tr><td><code>limits.cpu</code></td><td>The Linux CPU quota, counted per 100 ms period</td><td>The container is throttled: it waits for the next period. Requests get slower. Nothing restarts.</td></tr>
+          <tr><td><code>requests.memory</code></td><td>The scheduler</td><td>Nothing at once. When the node runs low on memory, pods above their request are evicted first.</td></tr>
+          <tr><td><code>limits.memory</code></td><td>The Linux kernel</td><td>The kernel kills the container. Status <code>OOMKilled</code>, exit code 137. The kubelet restarts it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A common setup: memory limit equal to the memory request, a CPU request, and no CPU limit or a high one. CPU throttling is hard to see: the pod stays healthy, but its p99 latency rises. .NET reads the memory limit and keeps its heap below 75% of it. For Node.js, set <code>--max-old-space-size</code> below the limit, as the <a href="../../../javascript/node/how-nodejs-works/">Node.js</a> page explains.</p>
+  </section>
+
+  <section>
+    <h2>Pod shutdown sequence</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Step</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>1. Terminating</td><td>The pod is marked for deletion, because of a rollout, a scale-down, a node drain or <code>kubectl delete</code>. The grace period starts: <code>terminationGracePeriodSeconds</code>, 30 by default.</td></tr>
+          <tr><td>2. Removed from the Service</td><td>The pod is removed from the Service endpoints. Every kube-proxy and the Gateway need a moment to stop sending it traffic. Steps 2 and 3 start at the same time.</td></tr>
+          <tr><td>3. preStop hook</td><td>The kubelet runs the <code>preStop</code> hook, for example a 5 second sleep. The app keeps serving the late requests during that time.</td></tr>
+          <tr><td>4. SIGTERM</td><td>The kubelet sends <code>SIGTERM</code> to the main process (PID 1) of each container.</td></tr>
+          <tr><td>5. App exits</td><td>The app stops accepting connections, finishes requests in progress, closes database connections and exits.</td></tr>
+          <tr><td>6. SIGKILL</td><td>If the container still runs when the grace period ends, the kubelet sends <code>SIGKILL</code>. Requests in progress fail.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The grace period covers the preStop hook and the SIGTERM handling together. With 30 seconds and a 5 second preStop, the app has 25 seconds. The example app gives itself 20. The <code>sleep</code> action in preStop needs Kubernetes 1.30 or newer.</p>
+    <p>Start the app process directly, for example <code>CMD ["node", "dist/server.js"]</code>. With <code>npm start</code> or a shell script, that program is PID 1 and may not pass <code>SIGTERM</code> on to Node.js.</p>
+  </section>
+
+  <section>
+    <h2>Configuration and secrets</h2>
+    <p>The Deployment passes ConfigMap and Secret values to the container as environment variables with <code>envFrom</code>. The app reads them once at startup and stops with a clear error if one is missing. Changing a ConfigMap does not change running pods. Run <code>kubectl rollout restart deployment/orders -n shop</code> to start new pods that read the new values.</p>
+    <p>A base64 value can be decoded by anyone who can read it. To protect Secrets: turn on encryption at rest for etcd, let few people read Secrets, and keep the real values in a secret store such as AWS Secrets Manager or Azure Key Vault. A tool such as the External Secrets Operator copies them into Kubernetes Secrets. Never commit real secret values to Git.</p>
+  </section>
+
+  <section>
+    <h2>Service discovery with DNS</h2>
+    <p>Every Service gets a DNS name inside the cluster. A pod looks it up like any host name and connects to the Service IP. Pod IPs change each time a pod is replaced, so config holds names, never pod IPs.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Name</th><th>Works from</th></tr></thead>
+        <tbody>
+          <tr><td><code>orders</code></td><td>Pods in the same namespace, <code>shop</code></td></tr>
+          <tr><td><code>orders.shop</code></td><td>Pods in any namespace</td></tr>
+          <tr><td><code>orders.shop.svc.cluster.local</code></td><td>Any pod. This is the full name.</td></tr>
+          <tr><td><code>postgres-0.postgres.shop.svc.cluster.local</code></td><td>One pod of a StatefulSet, through a headless Service (<code>clusterIP: None</code>)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The orders app calls the payments service at <code>http://payments.shop.svc.cluster.local:8080</code>. This URL is set in its ConfigMap.</p>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>App output</td><td>One JSON object per line to standard output. No log files inside the container: they are lost when the pod is replaced.</td><td>info and above</td></tr>
+          <tr><td>Node log agent</td><td>The container runtime writes standard output to files on the node. A log agent on every node, such as Fluent Bit or the OpenTelemetry Collector, reads them, adds namespace, pod name, container and pod labels, and sends them to the log store.</td><td></td></tr>
+          <tr><td>Request and trace IDs</td><td>Read the W3C <code>traceparent</code> header, write its trace ID on every log line, and send it on to the next service. One search then shows a request across all services.</td><td></td></tr>
+          <tr><td><code>kubectl logs</code></td><td><code>kubectl logs deployment/orders -n shop</code> for a quick look. Add <code>--previous</code> to see the container that crashed. It shows only logs still on the node.</td><td></td></tr>
+          <tr><td>Events</td><td><code>kubectl describe pod</code> and <code>kubectl get events -n shop</code> show scheduling failures, probe failures, OOM kills and image pull errors. Events are kept for 1 hour by default.</td><td></td></tr>
+          <tr><td>Metrics</td><td>Restarts, ready pods compared to desired, CPU throttling, memory close to the limit, the autoscaler at its maximum</td><td>Alert on CrashLoopBackOff, and on ready pods below desired for 5 minutes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>When Kubernetes is too much</h2>
+    <p>A cluster needs people who understand its networking, upgrades and security settings. It also needs add-ons: a Gateway controller, a log agent, metrics and certificate management. For a small team with a few services, that work can cost more than it saves.</p>
+    <p>A managed container service runs your image with scaling, rolling deploys and health checks, with no cluster to maintain: Azure Container Apps, Google Cloud Run or AWS ECS with Fargate. Move to Kubernetes when you need what it adds, such as many <a href="../../../architecture/system-topology/microservices/">microservices</a>, custom controllers or the same setup on several clouds.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Managed Kubernetes</th><th>Cloud</th><th>Nodes</th></tr></thead>
+        <tbody>
+          <tr><td>EKS</td><td>AWS</td><td>You manage node groups, or EKS Auto Mode manages them for you.</td></tr>
+          <tr><td>AKS</td><td>Azure</td><td>You manage node pools, or AKS Automatic manages them for you.</td></tr>
+          <tr><td>GKE</td><td>Google Cloud</td><td>You manage node pools, or Autopilot manages them and bills per pod request.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>In all three, the provider runs the API server and etcd, backs them up and offers version upgrades. You still choose when to upgrade, install add-ons and secure your workloads.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+      <div class="lang-switch" role="group" aria-label="Code language">
+        <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+        <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+      </div>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 540" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">kubectl sends manifests to the API server, which stores them in etcd. The scheduler and controllers watch the API server. Two worker nodes each run a kubelet, kube-proxy and orders pods. A Service sends requests to ready pods. A Gateway passes requests from the internet to the Service.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="150" y="12" width="490" height="174" rx="8"/>
+        <text class="t-label" x="395" y="32">CONTROL PLANE</text>
+        <rect class="frame" x="12" y="210" width="440" height="162" rx="8"/>
+        <text class="t-label" x="232" y="228">WORKER NODE A</text>
+        <rect class="frame" x="468" y="210" width="440" height="162" rx="8"/>
+        <text class="t-label" x="688" y="228">WORKER NODE B</text>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show kubectl commands" data-title="kubectl: common commands" data-node="kubectl" id="n-kubectl">
+          <rect class="shape tone-neutral" x="12" y="80" width="120" height="50" rx="6"/>
+          <text class="t-name" x="72" y="101">kubectl</text>
+          <text class="t-kind" x="72" y="118">you or CI</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show what the scheduler reports" data-title="Scheduler: placing pods" data-node="scheduler" id="n-sched">
+          <rect class="shape tone-blue" x="166" y="44" width="128" height="46" rx="6"/>
+          <text class="t-name" x="230" y="63">Scheduler</text>
+          <text class="t-kind" x="230" y="80">picks a node</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show the ReplicaSets the controllers manage" data-title="Controllers: Deployment and ReplicaSet" data-node="controllers" id="n-ctrl">
+          <rect class="shape tone-blue" x="166" y="128" width="128" height="46" rx="6"/>
+          <text class="t-name" x="230" y="147">Controllers</text>
+          <text class="t-kind" x="230" y="164">controller manager</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show the Deployment as the API server returns it" data-title="API server: stored object and status" data-node="api" id="n-api">
+          <rect class="shape tone-blue" x="316" y="80" width="160" height="50" rx="6"/>
+          <text class="t-name" x="396" y="101">API server</text>
+          <text class="t-kind" x="396" y="118">the only way in</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show the keys stored in etcd" data-title="etcd: stored keys" data-node="etcd" id="n-etcd">
+          <rect class="shape tone-blue" x="500" y="80" width="124" height="50" rx="6"/>
+          <text class="t-name" x="562" y="101">etcd</text>
+          <text class="t-kind" x="562" y="118">stores all objects</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show the Deployment manifest" data-title="Deployment: orders" data-node="deployment" id="n-deploy">
+          <rect class="shape tone-amber" x="656" y="12" width="252" height="174" rx="6"/>
+          <text class="t-name" x="782" y="36">Deployment: orders</text>
+          <text class="t-kind" x="782" y="53">the desired state you wrote</text>
+          <text class="t-item t-console" x="678" y="86">replicas wanted: 3</text>
+          <text class="t-item t-console" x="678" y="116">pods ready: 3 of 3</text>
+          <text class="t-item t-console" x="678" y="146">image: orders:1.4.0</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show what the kubelet reports about a pod" data-title="kubelet: pod status and events" data-node="kubelet" id="n-kubelet-a">
+          <rect class="shape tone-blue" x="28" y="238" width="196" height="42" rx="6"/>
+          <text class="t-name" x="126" y="256">kubelet</text>
+          <text class="t-kind" x="126" y="272">starts pods, runs probes</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show the endpoints kube-proxy routes to" data-title="kube-proxy: Service endpoints" data-node="kube-proxy" id="n-kube-proxy-a">
+          <rect class="shape tone-blue" x="240" y="238" width="196" height="42" rx="6"/>
+          <text class="t-name" x="338" y="256">kube-proxy</text>
+          <text class="t-kind" x="338" y="272">routes Service traffic</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show what the kubelet reports about a pod" data-title="kubelet: pod status and events" data-node="kubelet" id="n-kubelet-b">
+          <rect class="shape tone-blue" x="484" y="238" width="196" height="42" rx="6"/>
+          <text class="t-name" x="582" y="256">kubelet</text>
+          <text class="t-kind" x="582" y="272">starts pods, runs probes</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show the endpoints kube-proxy routes to" data-title="kube-proxy: Service endpoints" data-node="kube-proxy" id="n-kube-proxy-b">
+          <rect class="shape tone-blue" x="696" y="238" width="196" height="42" rx="6"/>
+          <text class="t-name" x="794" y="256">kube-proxy</text>
+          <text class="t-kind" x="794" y="272">routes Service traffic</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show the app code for health checks, shutdown and config" data-title="Pod: orders app" data-node="app" id="n-pod-a1">
+          <rect class="shape tone-teal" x="28" y="294" width="128" height="64" rx="6"/>
+          <text class="t-name" x="92" y="316">orders pod</text>
+          <text class="t-kind" x="92" y="341">v1.4.0, ready</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show the app code for health checks, shutdown and config" data-title="Pod: orders app" data-node="app" id="n-pod-a2">
+          <rect class="shape tone-teal" x="168" y="294" width="128" height="64" rx="6"/>
+          <text class="t-name" x="232" y="316">orders pod</text>
+          <text class="t-kind" x="232" y="341">v1.4.0, ready</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show the app code for health checks, shutdown and config" data-title="Pod: orders app" data-node="app" id="n-pod-b1">
+          <rect class="shape tone-teal" x="484" y="294" width="128" height="64" rx="6"/>
+          <text class="t-name" x="548" y="316">orders pod</text>
+          <text class="t-kind" x="548" y="341">v1.4.0, ready</text>
+        </g>
+
+        <g class="node" tabindex="0" role="button" aria-label="Show the Service manifest" data-title="Service: orders" data-node="service" id="n-svc">
+          <rect class="shape tone-amber" x="28" y="406" width="864" height="40" rx="6"/>
+          <text class="t-name" x="460" y="423">Service: orders</text>
+          <text class="t-kind" x="460" y="439">ClusterIP: sends each request to one ready pod</text>
+        </g>
+        <g class="node" tabindex="0" role="button" aria-label="Show the HTTPRoute manifest" data-title="Gateway: HTTPRoute for orders" data-node="gateway" id="n-gw">
+          <rect class="shape tone-amber" x="380" y="480" width="200" height="46" rx="6"/>
+          <text class="t-name" x="480" y="499">Gateway or Ingress</text>
+          <text class="t-kind" x="480" y="516">routes by host and path</text>
+        </g>
+        <g id="n-internet">
+          <rect class="shape tone-neutral" x="160" y="480" width="160" height="46" rx="6"/>
+          <text class="t-name" x="240" y="499">Internet</text>
+          <text class="t-kind" x="240" y="516">users, over HTTPS</text>
+        </g>
+
+        <path class="flow" id="a-kubectl-api" d="M132,105 L314,105" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-api-etcd" d="M476,105 L498,105" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-sched-api" d="M294,67 L340,67 L340,78" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-ctrl-api" d="M294,151 L340,151 L340,132" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-api-kubelet-a" d="M380,130 L380,198 L126,198 L126,236" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-api-kubelet-b" d="M440,130 L440,198 L582,198 L582,236" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-net-gw" d="M320,503 L378,503" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-gw-svc" d="M480,480 L480,448" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-svc-a1" d="M92,406 L92,360" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-svc-a2" d="M232,406 L232,360" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-svc-b1" d="M548,406 L548,360" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-svc-a3" d="M372,406 L372,360" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-svc-b2" d="M688,406 L688,360" marker-end="url(#arrow)"/>
+        <path class="flow ghost" id="a-svc-b3" d="M828,406 L828,360" marker-end="url(#arrow)"/>
+
+        <text class="ghost-label" id="t-node-down" x="688" y="394">NODE B: NO HEARTBEAT</text>
+
+        <g class="state-item" id="d-ready0"><rect class="slot tone-amber" x="668" y="100" width="228" height="24" rx="4"/><text class="t-item t-console" x="678" y="116">pods ready: 0 of 3</text></g>
+        <g class="state-item" id="d-ready2"><rect class="slot tone-amber" x="668" y="100" width="228" height="24" rx="4"/><text class="t-item t-console" x="678" y="116">pods ready: 2 of 3</text></g>
+        <g class="state-item" id="d-img15"><rect class="slot tone-amber" x="668" y="130" width="228" height="24" rx="4"/><text class="t-item t-console" x="678" y="146">image: orders:1.5.0</text></g>
+        <g class="state-item" id="d-mix30"><rect class="slot tone-amber" x="668" y="158" width="228" height="24" rx="4"/><text class="t-item t-console" x="678" y="174">old pods: 3, new pods: 0</text></g>
+        <g class="state-item" id="d-mix31"><rect class="slot tone-amber" x="668" y="158" width="228" height="24" rx="4"/><text class="t-item t-console" x="678" y="174">old pods: 3, new pods: 1</text></g>
+        <g class="state-item" id="d-mix21"><rect class="slot tone-amber" x="668" y="158" width="228" height="24" rx="4"/><text class="t-item t-console" x="678" y="174">old pods: 2, new pods: 1</text></g>
+        <g class="state-item" id="d-mix03"><rect class="slot tone-amber" x="668" y="158" width="228" height="24" rx="4"/><text class="t-item t-console" x="678" y="174">old pods: 0, new pods: 3</text></g>
+
+        <g class="state-item" id="s-a1-start"><rect class="slot tone-teal" x="34" y="326" width="116" height="24" rx="4"/><text class="t-item" x="92" y="342">starting</text></g>
+        <g class="state-item" id="s-a2-start"><rect class="slot tone-teal" x="174" y="326" width="116" height="24" rx="4"/><text class="t-item" x="232" y="342">starting</text></g>
+        <g class="state-item" id="s-b1-start"><rect class="slot tone-teal" x="490" y="326" width="116" height="24" rx="4"/><text class="t-item" x="548" y="342">starting</text></g>
+        <g class="state-item" id="s-a1-term"><rect class="slot tone-teal" x="34" y="326" width="116" height="24" rx="4"/><text class="t-item" x="92" y="342">terminating</text></g>
+        <g class="state-item" id="s-b1-term"><rect class="slot tone-teal" x="490" y="326" width="116" height="24" rx="4"/><text class="t-item" x="548" y="342">terminating</text></g>
+        <g class="state-item" id="s-b1-lost"><rect class="slot tone-teal" x="490" y="326" width="116" height="24" rx="4"/><text class="t-item" x="548" y="342">no contact</text></g>
+        <g class="state-item" id="s-b1-prestop"><rect class="slot tone-teal" x="490" y="326" width="116" height="24" rx="4"/><text class="t-item" x="548" y="342">preStop: sleep 5</text></g>
+        <g class="state-item" id="s-b1-sigterm"><rect class="slot tone-teal" x="490" y="326" width="116" height="24" rx="4"/><text class="t-item" x="548" y="342">got SIGTERM</text></g>
+
+        <g class="state-item" id="e-a1"><rect class="slot" x="28" y="294" width="128" height="64" rx="6"/><text class="t-item" x="92" y="330">no pod</text></g>
+        <g class="state-item" id="e-a2"><rect class="slot" x="168" y="294" width="128" height="64" rx="6"/><text class="t-item" x="232" y="330">no pod</text></g>
+        <g class="state-item" id="e-b1"><rect class="slot" x="484" y="294" width="128" height="64" rx="6"/><text class="t-item" x="548" y="330">no pod</text></g>
+
+        <g class="state-item" id="p-a3-ready"><rect class="slot tone-teal" x="308" y="294" width="128" height="64" rx="6"/><text class="t-item" x="372" y="318">orders pod</text><text class="t-item" x="372" y="340">v1.5.0, ready</text></g>
+        <g class="state-item" id="p-b2-start"><rect class="slot tone-teal" x="624" y="294" width="128" height="64" rx="6"/><text class="t-item" x="688" y="318">orders pod</text><text class="t-item" x="688" y="340">v1.5.0, starting</text></g>
+        <g class="state-item" id="p-b2-ready"><rect class="slot tone-teal" x="624" y="294" width="128" height="64" rx="6"/><text class="t-item" x="688" y="318">orders pod</text><text class="t-item" x="688" y="340">v1.5.0, ready</text></g>
+        <g class="state-item" id="p-b3-ready"><rect class="slot tone-teal" x="764" y="294" width="128" height="64" rx="6"/><text class="t-item" x="828" y="318">orders pod</text><text class="t-item" x="828" y="340">v1.5.0, ready</text></g>
+        <g class="state-item" id="p-a3-r-start"><rect class="slot tone-teal" x="308" y="294" width="128" height="64" rx="6"/><text class="t-item" x="372" y="318">orders pod</text><text class="t-item" x="372" y="340">v1.4.0, starting</text></g>
+        <g class="state-item" id="p-a3-r-ready"><rect class="slot tone-teal" x="308" y="294" width="128" height="64" rx="6"/><text class="t-item" x="372" y="318">orders pod</text><text class="t-item" x="372" y="340">v1.4.0, ready</text></g>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="apply" aria-pressed="true">kubectl apply</button>
+        <button type="button" data-flow="request" aria-pressed="false">A request from the internet</button>
+        <button type="button" data-flow="rollout" aria-pressed="false">Rolling update</button>
+        <button type="button" data-flow="node-failure" aria-pressed="false">A node fails</button>
+        <button type="button" data-flow="shutdown" aria-pressed="false">Pod shutdown</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="apply" hidden>
+        <li data-highlight="n-kubectl a-kubectl-api n-api" data-show="e-a1 e-a2 e-b1 d-ready0">You run <code>kubectl apply -f k8s/</code>. kubectl sends <code>deployment.yaml</code> to the API server. The API server checks that you may create Deployments and that the YAML is valid.</li>
+        <li data-highlight="n-api a-api-etcd n-etcd" data-show="e-a1 e-a2 e-b1 d-ready0">The API server saves the Deployment in etcd and answers "created". No container runs yet: only the desired state is stored.</li>
+        <li data-highlight="n-ctrl a-ctrl-api n-api n-deploy" data-show="e-a1 e-a2 e-b1 d-ready0">The Deployment controller sees a Deployment without a ReplicaSet and creates one. The ReplicaSet controller sees 0 of 3 pods and creates 3 Pod objects. They have no node yet, so their status is Pending.</li>
+        <li data-highlight="n-sched a-sched-api n-api" data-show="e-a1 e-a2 e-b1 d-ready0">The scheduler sees 3 pods without a node. It compares their CPU and memory requests with each node's free capacity, spreads them out and writes a node name into each pod: 2 on node A, 1 on node B.</li>
+        <li data-highlight="n-api a-api-kubelet-a a-api-kubelet-b n-kubelet-a n-kubelet-b n-pod-a1 n-pod-a2 n-pod-b1" data-show="s-a1-start s-a2-start s-b1-start d-ready0">Each kubelet sees the pods assigned to its node. It tells the container runtime to pull the image and start the container, and starts the probes.</li>
+        <li data-highlight="n-pod-a1 n-pod-a2 n-pod-b1 a-svc-a1 a-svc-a2 a-svc-b1 n-svc n-deploy">Each pod answers <code>200</code> on <code>/health/ready</code>, so it is marked ready and added to the Service endpoints. The Deployment reports 3 of 3 ready.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="request" hidden>
+        <li data-highlight="n-internet a-net-gw n-gw">A browser sends <code>GET https://shop.example.com/orders/42</code>. The cloud load balancer passes it to the Gateway controller running in the cluster.</li>
+        <li data-highlight="n-gw a-gw-svc n-svc">The HTTPRoute matches the host <code>shop.example.com</code> and the path prefix <code>/orders</code>, so the Gateway sends the request to the orders Service.</li>
+        <li data-highlight="n-svc n-kube-proxy-b a-svc-b1 n-pod-b1">The Service sends the request to one ready pod from its endpoints, here the pod on node B. The rules that do this are kept up to date by kube-proxy on each node.</li>
+        <li data-highlight="n-pod-b1">The app handles the request. It writes one JSON log line to standard output with the trace ID from the <code>traceparent</code> header. The node's log agent sends that line to the log store with the pod name added.</li>
+        <li data-highlight="n-pod-b1 n-svc n-gw n-internet">The response goes back the same way. When the app calls another service, it uses a DNS name such as <code>payments.shop.svc.cluster.local</code> and sends the same trace ID along.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="rollout" hidden>
+        <li data-highlight="n-kubectl a-kubectl-api n-api a-api-etcd n-etcd n-deploy" data-show="d-img15 d-mix30">You change the image tag to <code>1.5.0</code> and run <code>kubectl apply</code>. The API server stores the new pod template.</li>
+        <li data-highlight="n-ctrl a-ctrl-api n-api n-sched n-kubelet-b" data-show="d-img15 d-mix31 p-b2-start">The Deployment controller creates a new ReplicaSet for 1.5.0 with 1 pod. <code>maxSurge: 1</code> allows 4 pods for now. The scheduler places it on node B, and the kubelet starts it.</li>
+        <li data-highlight="n-kubelet-b a-svc-b2 n-svc" data-show="d-img15 d-mix31 p-b2-ready">The new pod passes its readiness probe and joins the Service. 4 pods now take requests.</li>
+        <li data-highlight="n-ctrl n-pod-a1" data-show="d-img15 d-mix21 p-b2-ready s-a1-term"><code>maxUnavailable: 0</code> means an old pod is removed only after a new one is ready. The controller scales the old ReplicaSet to 2, and one old pod shuts down. The "Pod shutdown" flow shows those steps.</li>
+        <li data-highlight="n-svc a-svc-a3 a-svc-b2 a-svc-b3" data-show="d-img15 d-mix03 e-a1 e-a2 e-b1 p-a3-ready p-b2-ready p-b3-ready">The same steps repeat twice more. Then 3 new pods serve, and the old ReplicaSet has 0 pods. It is kept so you can roll back.</li>
+        <li data-highlight="n-kubectl a-kubectl-api n-api" data-show="d-img15 d-mix03 e-a1 e-a2 e-b1 p-a3-ready p-b2-ready p-b3-ready">If a new pod never becomes ready, the rollout stops and the old pods keep serving. <code>kubectl rollout undo</code> scales the old ReplicaSet up again with the same steps.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="node-failure" hidden>
+        <li data-highlight="n-kubelet-b t-node-down n-pod-b1" data-show="s-b1-lost">Node B loses power. Its kubelet stops sending heartbeats, the regular status updates it sends to the API server.</li>
+        <li data-highlight="n-ctrl a-ctrl-api n-api n-svc" data-show="s-b1-lost d-ready2">After a grace period of less than a minute, the node controller marks node B NotReady. Its pod is marked not ready and removed from the Service, so new requests go only to node A.</li>
+        <li data-highlight="n-ctrl a-ctrl-api n-api" data-show="e-b1 d-ready2">After 5 more minutes by default, the pod on node B is evicted. The ReplicaSet controller now counts 2 of 3 pods and creates a new Pod object.</li>
+        <li data-highlight="n-sched a-sched-api n-api a-api-kubelet-a n-kubelet-a" data-show="e-b1 d-ready2 p-a3-r-start">The scheduler places the new pod on node A, the only ready node with room. Node A's kubelet starts it.</li>
+        <li data-highlight="n-kubelet-a a-svc-a3 n-svc n-deploy" data-show="e-b1 p-a3-r-ready">The new pod passes readiness and joins the Service. The Deployment has 3 of 3 ready again, and no person had to act.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="shutdown" hidden>
+        <li data-highlight="n-kubectl a-kubectl-api n-api n-pod-b1" data-show="s-b1-term">A rollout, a scale-down or <code>kubectl delete pod</code> asks the API server to delete the pod on node B. It is marked Terminating, and its 30 second grace period starts.</li>
+        <li data-highlight="n-ctrl n-svc n-kube-proxy-a n-kube-proxy-b n-gw" data-show="s-b1-term">The EndpointSlice controller removes the pod from the Service. Every kube-proxy and the Gateway must update their rules, which takes a moment. A few requests can still arrive.</li>
+        <li data-highlight="n-kubelet-b n-pod-b1" data-show="s-b1-prestop">At the same time, the kubelet runs the <code>preStop</code> hook: sleep 5 seconds. The app keeps serving, so those late requests still succeed.</li>
+        <li data-highlight="n-kubelet-b n-pod-b1" data-show="s-b1-sigterm">The kubelet sends <code>SIGTERM</code> to the app. The app stops accepting connections, finishes the requests in progress and closes its database pool.</li>
+        <li data-highlight="n-pod-b1" data-show="e-b1">The app exits with code 0, usually within a few seconds. If it still ran 30 seconds after step 1, the kubelet would send <code>SIGKILL</code> and stop it at once.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-neutral">Outside the cluster</span>
+      <span class="chip tone-blue">Kubernetes component</span>
+      <span class="chip tone-amber">Object you write</span>
+      <span class="chip tone-teal">Your app</span>
+      <span>Click a box to see its manifest, command output or app code.</span>
+    </div>
+    <p class="caption">The language switch changes only the app code inside the pods. The YAML and the kubectl commands are the same for both apps.</p>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Kubernetes manifests">
+      <div class="tree-root">k8s/</div>
+      <button type="button" class="tree-row" data-file="k8s/deployment.yaml"><span class="path">├─ deployment.yaml</span><span class="chip tone-amber">Deployment</span></button>
+      <button type="button" class="tree-row" data-file="k8s/hpa.yaml"><span class="path">├─ hpa.yaml</span><span class="chip tone-amber">Autoscaler</span></button>
+      <button type="button" class="tree-row" data-file="k8s/service.yaml"><span class="path">├─ service.yaml</span><span class="chip tone-amber">Service</span></button>
+      <button type="button" class="tree-row" data-file="k8s/httproute.yaml"><span class="path">├─ httproute.yaml</span><span class="chip tone-amber">Gateway API</span></button>
+      <button type="button" class="tree-row" data-file="k8s/configmap.yaml"><span class="path">├─ configmap.yaml</span><span class="chip tone-amber">Config</span></button>
+      <button type="button" class="tree-row" data-file="k8s/secret.yaml"><span class="path">└─ secret.yaml</span><span class="chip tone-amber">Secret</span></button>
+    </div>
+    <div class="tree" data-lang="ts" aria-label="TypeScript app files">
+      <div class="tree-root">src/</div>
+      <button type="button" class="tree-row" data-file="src/config.ts"><span class="path">├─ config.ts</span><span class="chip tone-teal">Env vars</span></button>
+      <button type="button" class="tree-row" data-file="src/server.ts"><span class="path">└─ server.ts</span><span class="chip tone-teal">Probes, SIGTERM</span></button>
+    </div>
+    <div class="tree" data-lang="cs" aria-label="C# app files">
+      <div class="tree-root">src/Orders/</div>
+      <button type="button" class="tree-row" data-file="src/Orders/OrdersSettings.cs"><span class="path">├─ OrdersSettings.cs</span><span class="chip tone-teal">Env vars</span></button>
+      <button type="button" class="tree-row" data-file="src/Orders/StartupWork.cs"><span class="path">├─ StartupWork.cs</span><span class="chip tone-teal">Readiness</span></button>
+      <button type="button" class="tree-row" data-file="src/Orders/Program.cs"><span class="path">└─ Program.cs</span><span class="chip tone-teal">Probes, SIGTERM</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>Manual restarts</strong><span>Crashed containers and lost nodes are replaced without a person acting.</span></li>
+        <li><strong>Downtime during deploys</strong><span>Rolling updates with readiness probes keep enough pods serving. A rollback is one command.</span></li>
+        <li><strong>Badly used servers</strong><span>The scheduler fills nodes based on requests, and the autoscaler adds pods under load.</span></li>
+        <li><strong>Different setup per environment</strong><span>The same YAML runs in every cluster, on any cloud or in your own data center.</span></li>
+        <li><strong>Hard-coded addresses</strong><span>Services and DNS give each app a stable name while pods come and go.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Much to learn</strong><span>Objects, networking, probes, permissions and add-ons. A small team can spend more time on the cluster than on the product.</span></li>
+        <li><strong>Regular upgrades</strong><span>Kubernetes has 3 minor releases a year, each supported for about 14 months, so every cluster needs an upgrade at least once a year.</span></li>
+        <li><strong>Harder debugging</strong><span>A failed request can come from the Gateway, the Service, a probe, a network policy or the app. You check each layer in turn.</span></li>
+        <li><strong>Rules for the app</strong><span>The app must answer probes, handle SIGTERM, log to standard output and keep no data on local disk.</span></li>
+        <li><strong>A lot of YAML</strong><span>One small service needs 5 or more manifests. Teams add Helm or Kustomize to manage them, which is one more tool.</span></li>
+        <li><strong>Idle capacity costs money</strong><span>System pods, spare room on nodes for rescheduling and the control plane fee are paid even with no traffic.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-typescript">
+    <div class="file" data-lang="ts" data-node="app">
+      <div class="file-head"><span class="chip tone-teal">Your app</span><span class="name">src/server.ts</span><span class="why">Liveness only checks that the process answers. Readiness waits for startup work. On SIGTERM the server stops taking connections, finishes open requests, then exits. Node.js 24, Express 5.</span></div>
+<pre><code>import express from "express";
+import pino from "pino";
+import pg from "pg";
+import { config } from "./config.js";
+import { ordersRouter } from "./orders/ordersRouter.js";
+
+const shutdownTimeoutMs = 20_000;
+const logger = pino();
+const database = new pg.Pool(config.database);
+const app = express();
+let hasFinishedStartup = false;
+
+app.get("/health/live", (req, res) =&gt; {
+  res.sendStatus(200);
+});
+
+app.get("/health/ready", (req, res) =&gt; {
+  res.sendStatus(hasFinishedStartup ? 200 : 503);
+});
+
+app.use("/orders", ordersRouter(database, config.paymentsBaseUrl));
+
+const server = app.listen(config.port, () =&gt; {
+  logger.info({ port: config.port }, "listening");
+});
+
+process.on("SIGTERM", () =&gt; {
+  logger.info("SIGTERM received, finishing requests in progress");
+  setTimeout(() =&gt; process.exit(1), shutdownTimeoutMs).unref();
+
+  server.close(async () =&gt; {
+    await database.end();
+    logger.info("shutdown finished");
+    process.exit(0);
+  });
+});
+
+await database.query("SELECT 1");
+hasFinishedStartup = true;
+logger.info("startup finished, ready for traffic");</code></pre>
+    </div>
+
+    <div class="file" data-lang="ts" data-node="app">
+      <div class="file-head"><span class="chip tone-teal">Your app</span><span class="name">src/config.ts</span><span class="why">Reads the environment variables that the ConfigMap and the Secret provide. A missing value stops the app at startup with a clear message, instead of failing on the first request.</span></div>
+<pre><code>function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Environment variable ${name} is not set.`);
+  }
+  return value;
+}
+
+export const config = {
+  port: Number(process.env.PORT ?? 8080),
+  paymentsBaseUrl: requireEnv("PAYMENTS_BASE_URL"),
+  database: {
+    host: requireEnv("DB_HOST"),
+    database: requireEnv("DB_NAME"),
+    user: requireEnv("DB_USER"),
+    password: requireEnv("DB_PASSWORD"),
+  },
+};</code></pre>
+    </div>
+  </div>
+
+  <div class="language-csharp">
+    <div class="file" data-lang="cs" data-node="app">
+      <div class="file-head"><span class="chip tone-teal">Your app</span><span class="name">src/Orders/Program.cs</span><span class="why">The liveness endpoint runs no checks, so it fails only when the process cannot answer. The host handles SIGTERM: Kestrel stops taking connections and waits for open requests up to ShutdownTimeout. .NET 10.</span></div>
+<pre><code>using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Npgsql;
+using Orders;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole();
+
+var settings = OrdersSettings.FromConfiguration(builder.Configuration);
+builder.Services.AddSingleton(settings);
+builder.Services.AddSingleton(NpgsqlDataSource.Create(settings.DatabaseConnectionString));
+builder.Services.AddSingleton&lt;StartupWork&gt;();
+builder.Services.AddHostedService(services =&gt; services.GetRequiredService&lt;StartupWork&gt;());
+builder.Services.AddHealthChecks().AddCheck&lt;StartupWork&gt;("startup", tags: ["ready"]);
+builder.Services.Configure&lt;HostOptions&gt;(options =&gt; options.ShutdownTimeout = TimeSpan.FromSeconds(20));
+
+var app = builder.Build();
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ =&gt; false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check =&gt; check.Tags.Contains("ready") });
+app.MapOrderEndpoints();
+
+app.Lifetime.ApplicationStopping.Register(() =&gt;
+    app.Logger.LogInformation("SIGTERM received, finishing requests in progress"));
+
+app.Run();</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="app">
+      <div class="file-head"><span class="chip tone-teal">Your app</span><span class="name">src/Orders/StartupWork.cs</span><span class="why">Runs once at startup and reports not ready until it has finished. If the database cannot be reached, the exception stops the host and Kubernetes restarts the container.</span></div>
+<pre><code>using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Npgsql;
+
+namespace Orders;
+
+public class StartupWork(NpgsqlDataSource database) : BackgroundService, IHealthCheck
+{
+    private volatile bool _hasFinished;
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await using var command = database.CreateCommand("SELECT 1");
+        await command.ExecuteScalarAsync(stoppingToken);
+        _hasFinished = true;
+    }
+
+    public Task&lt;HealthCheckResult&gt; CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default) =&gt;
+        Task.FromResult(_hasFinished
+            ? HealthCheckResult.Healthy()
+            : HealthCheckResult.Unhealthy("Startup work has not finished."));
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="cs" data-node="app">
+      <div class="file-head"><span class="chip tone-teal">Your app</span><span class="name">src/Orders/OrdersSettings.cs</span><span class="why">Environment variables are part of IConfiguration, so the same names as in the ConfigMap work. A missing value stops the app at startup.</span></div>
+<pre><code>using Npgsql;
+
+namespace Orders;
+
+public record OrdersSettings(string PaymentsBaseUrl, string DatabaseConnectionString)
+{
+    public static OrdersSettings FromConfiguration(IConfiguration configuration)
+    {
+        var connectionString = new NpgsqlConnectionStringBuilder
+        {
+            Host = Require(configuration, "DB_HOST"),
+            Database = Require(configuration, "DB_NAME"),
+            Username = Require(configuration, "DB_USER"),
+            Password = Require(configuration, "DB_PASSWORD"),
+        };
+
+        return new OrdersSettings(Require(configuration, "PAYMENTS_BASE_URL"), connectionString.ConnectionString);
+    }
+
+    private static string Require(IConfiguration configuration, string key) =&gt;
+        configuration[key] ?? throw new InvalidOperationException($"Environment variable {key} is not set.");
+}</code></pre>
+    </div>
+  </div>
+
+  <div class="language-yaml">
+    <div class="file" data-lang="any" data-node="app">
+      <div class="file-head"><span class="chip tone-amber">ConfigMap</span><span class="name">k8s/configmap.yaml</span><span class="why">Settings that are not secret. The payments URL uses the payments Service's DNS name.</span></div>
+<pre><code>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-config
+  namespace: shop
+data:
+  PAYMENTS_BASE_URL: http://payments.shop.svc.cluster.local:8080
+  DB_HOST: orders-db.internal.example.com
+  DB_NAME: orders
+  DB_USER: orders_app</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="app">
+      <div class="file-head"><span class="chip tone-amber">Secret</span><span class="name">k8s/secret.yaml</span><span class="why">The value is base64 for "replace-me". Anyone can decode it. In a real setup, a tool such as the External Secrets Operator creates this Secret from a secret store, and this file is not in Git.</span></div>
+<pre><code>apiVersion: v1
+kind: Secret
+metadata:
+  name: orders-db
+  namespace: shop
+type: Opaque
+data:
+  DB_PASSWORD: cmVwbGFjZS1tZQ==</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="deployment">
+      <div class="file-head"><span class="chip tone-amber">Deployment</span><span class="name">k8s/deployment.yaml</span><span class="why">3 pods, rolled out one at a time with no drop in ready pods. Probes, resources, config and the preStop sleep are all set on the container.</span></div>
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+  namespace: shop
+  labels:
+    app: orders
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: orders
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: orders
+    spec:
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: orders
+      containers:
+        - name: orders
+          image: registry.example.com/shop/orders:1.4.0
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: orders-config
+            - secretRef:
+                name: orders-db
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 256Mi
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="deployment">
+      <div class="file-head"><span class="chip tone-amber">Autoscaler</span><span class="name">k8s/hpa.yaml</span><span class="why">Keeps average CPU use near 70% of the CPU request, with 3 to 10 pods. Once the autoscaler owns the count, remove replicas from deployment.yaml, or each apply resets it to 3.</span></div>
+<pre><code>apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: orders
+  namespace: shop
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: orders
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="service">
+      <div class="file-head"><span class="chip tone-amber">Service</span><span class="name">k8s/service.yaml</span><span class="why">Selects pods by the label app: orders. Other pods call http://orders.shop.svc.cluster.local on port 80, and the Service forwards to port 8080 on a ready pod.</span></div>
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+  namespace: shop
+spec:
+  type: ClusterIP
+  selector:
+    app: orders
+  ports:
+    - name: http
+      port: 80
+      targetPort: http</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="gateway">
+      <div class="file-head"><span class="chip tone-amber">Gateway API</span><span class="name">k8s/httproute.yaml</span><span class="why">Attaches a route to a shared Gateway that the platform team runs. Requests for shop.example.com/orders go to the orders Service. The Gateway must allow routes from the shop namespace.</span></div>
+<pre><code>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: orders
+  namespace: shop
+spec:
+  parentRefs:
+    - name: public-gateway
+      namespace: gateway-system
+  hostnames:
+    - shop.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /orders
+      backendRefs:
+        - name: orders
+          port: 80</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="api">
+      <div class="file-head"><span class="chip tone-blue">API server</span><span class="name">kubectl get deployment orders -n shop -o yaml</span><span class="why">Trimmed output. You write spec. Controllers write status. When observedGeneration equals generation, the controller has seen your latest change.</span></div>
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+  namespace: shop
+  generation: 7
+  resourceVersion: "481516"
+spec:
+  replicas: 3
+status:
+  observedGeneration: 7
+  replicas: 3
+  updatedReplicas: 3
+  readyReplicas: 3
+  availableReplicas: 3
+  conditions:
+    - type: Available
+      status: "True"
+    - type: Progressing
+      status: "True"
+      reason: NewReplicaSetAvailable</code></pre>
+    </div>
+  </div>
+
+  <div class="language-bash">
+    <div class="file" data-lang="any" data-node="kubectl">
+      <div class="file-head"><span class="chip tone-neutral">kubectl</span><span class="name">kubectl-commands.sh</span><span class="why">In order: apply, preview, list pods, follow a rollout, list and undo rollouts, read logs, inspect a pod, list recent events, show CPU and memory use.</span></div>
+<pre><code>kubectl apply -f k8s/
+kubectl diff -f k8s/
+kubectl get pods -n shop -l app=orders -o wide
+
+kubectl rollout status deployment/orders -n shop
+kubectl rollout history deployment/orders -n shop
+kubectl rollout undo deployment/orders -n shop
+kubectl rollout restart deployment/orders -n shop
+
+kubectl logs deployment/orders -n shop --since=10m
+kubectl logs orders-7c9d8f6b5-x2k4p -n shop --previous
+kubectl describe pod orders-7c9d8f6b5-x2k4p -n shop
+kubectl get events -n shop --sort-by=.lastTimestamp
+kubectl top pods -n shop</code></pre>
+    </div>
+  </div>
+
+  <div class="language-none">
+    <div class="file" data-lang="any" data-node="etcd">
+      <div class="file-head"><span class="chip tone-blue">etcd</span><span class="name">etcdctl get /registry/ --prefix --keys-only</span><span class="why">Every object is one key. Only the API server reads and writes these. In a managed cluster you cannot reach etcd at all.</span></div>
+<pre><code>/registry/configmaps/shop/orders-config
+/registry/deployments/shop/orders
+/registry/endpointslices/shop/orders-8xk2p
+/registry/pods/shop/orders-7c9d8f6b5-2mwq9
+/registry/pods/shop/orders-7c9d8f6b5-h7lzt
+/registry/pods/shop/orders-7c9d8f6b5-x2k4p
+/registry/replicasets/shop/orders-7c9d8f6b5
+/registry/secrets/shop/orders-db
+/registry/services/specs/shop/orders</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="scheduler">
+      <div class="file-head"><span class="chip tone-blue">Scheduler</span><span class="name">kubectl describe pod orders-7c9d8f6b5-x2k4p -n shop (events)</span><span class="why">The first event shows a pod that waited because no node had 256 MiB of memory free. When a node was added, the scheduler placed it.</span></div>
+<pre><code>Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  2m    default-scheduler  0/2 nodes are available: 2 Insufficient memory.
+  Normal   Scheduled         20s   default-scheduler  Successfully assigned shop/orders-7c9d8f6b5-x2k4p to node-b</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="controllers">
+      <div class="file-head"><span class="chip tone-blue">Controllers</span><span class="name">kubectl get deployment,replicaset -n shop -l app=orders</span><span class="why">During a rolling update: the old ReplicaSet still has 3 ready pods, and the new one has 1 pod that is not ready yet.</span></div>
+<pre><code>NAME                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/orders   3/3     1            3           5d
+
+NAME                               DESIRED   CURRENT   READY   AGE
+replicaset.apps/orders-7c9d8f6b5   3         3         3       5d
+replicaset.apps/orders-5f8b9d4c7   1         1         0       10s</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="kubelet">
+      <div class="file-head"><span class="chip tone-blue">kubelet</span><span class="name">kubectl describe pod orders-7c9d8f6b5-x2k4p -n shop</span><span class="why">Trimmed output. Last State shows the container went over its memory limit once and was restarted. The event shows a readiness probe that failed during startup.</span></div>
+<pre><code>Name:         orders-7c9d8f6b5-x2k4p
+Namespace:    shop
+Node:         node-b/10.0.2.15
+Status:       Running
+Containers:
+  orders:
+    Image:          registry.example.com/shop/orders:1.4.0
+    State:          Running
+    Last State:     Terminated
+      Reason:       OOMKilled
+      Exit Code:    137
+    Ready:          True
+    Restart Count:  1
+    Limits:
+      memory:  256Mi
+    Requests:
+      cpu:     250m
+      memory:  256Mi
+    Liveness:   http-get http://:http/health/live delay=0s timeout=1s period=10s #success=1 #failure=3
+    Readiness:  http-get http://:http/health/ready delay=0s timeout=1s period=5s #success=1 #failure=2
+Events:
+  Type     Reason     Age   From     Message
+  ----     ------     ----  ----     -------
+  Normal   Pulled     3m    kubelet  Container image "registry.example.com/shop/orders:1.4.0" already present on machine
+  Normal   Started    3m    kubelet  Started container orders
+  Warning  Unhealthy  3m    kubelet  Readiness probe failed: HTTP probe failed with statuscode: 503</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="kube-proxy">
+      <div class="file-head"><span class="chip tone-blue">kube-proxy</span><span class="name">kubectl get endpointslices -n shop -l kubernetes.io/service-name=orders</span><span class="why">The ready pod IPs behind the orders Service. kube-proxy on every node turns this list into network rules. A pod that fails readiness leaves this list.</span></div>
+<pre><code>NAME           ADDRESSTYPE   PORTS   ENDPOINTS                             AGE
+orders-8xk2p   IPv4          8080    10.244.1.12,10.244.1.13,10.244.2.7    5d</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <div class="lang-switch" role="group" aria-label="Code language">
+      <button type="button" data-lang="ts" aria-pressed="true">TypeScript</button>
+      <button type="button" data-lang="cs" aria-pressed="false">C#</button>
+    </div>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>

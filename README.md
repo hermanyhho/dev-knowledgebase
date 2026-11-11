@@ -42,6 +42,7 @@ What each category covers: [javascript/README.md](javascript/README.md)
 | Node Streams | Node | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/node/streams/) | [index.html](javascript/node/streams/index.html) |
 | Express | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/express/) | [index.html](javascript/web/express/index.html) |
 | Fastify | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/web/fastify/) | [index.html](javascript/web/fastify/index.html) |
+| CommonJS and ES Modules | Modules | [open](https://hermanyhho.github.io/dev-knowledgebase/javascript/modules/commonjs-and-es-modules/) | [index.html](javascript/modules/commonjs-and-es-modules/index.html) |
 
 ## .NET
 
@@ -51,3 +52,12 @@ What each category covers: [dotnet/README.md](dotnet/README.md)
 |---|---|---|---|
 | .NET | Runtime | [open](https://hermanyhho.github.io/dev-knowledgebase/dotnet/runtime/how-dotnet-works/) | [index.html](dotnet/runtime/how-dotnet-works/index.html) |
 | ASP.NET Core | Web | [open](https://hermanyhho.github.io/dev-knowledgebase/dotnet/web/aspnet-core/) | [index.html](dotnet/web/aspnet-core/index.html) |
+
+## Infrastructure
+
+What each category covers: [infrastructure/README.md](infrastructure/README.md)
+
+| Topic | Category | Page | Source |
+|---|---|---|---|
+| Docker | Containers | [open](https://hermanyhho.github.io/dev-knowledgebase/infrastructure/containers/docker/) | [index.html](infrastructure/containers/docker/index.html) |
+| Kubernetes | Containers | [open](https://hermanyhho.github.io/dev-knowledgebase/infrastructure/containers/kubernetes/) | [index.html](infrastructure/containers/kubernetes/index.html) |
