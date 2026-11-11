@@ -434,4 +434,9 @@ window.glossaryTerms = [
   { forms: ["error boundary", "error boundaries"], definition: "A React component that catches errors thrown while rendering its children and shows a fallback instead of an empty page." },
   { forms: ["p75"], definition: "The 75th percentile: 75% of measurements are at or below this value. Web vitals are judged at p75." },
   { forms: ["frames per second", "frame"], definition: "How many times per second the screen is redrawn. At 60 frames per second, each frame has about 16 ms.", onlyOn: ["how-react-renders"] },
+  { forms: ["TanStack Query"], definition: "A library for loading server data in React. It caches responses, removes duplicate requests, retries and refreshes data in the background." },
+  { forms: ["Object.is"], definition: "A JavaScript comparison like ===, except that NaN equals NaN and +0 differs from -0. Two different objects are never equal, even with the same content." },
+  { forms: ["AbortController"], definition: "A built-in object whose signal is passed to fetch. Calling abort() cancels the request, and the fetch rejects with an AbortError." },
+  { forms: ["subscription", "subscriptions"], definition: "A registration to be notified of events, such as messages from a WebSocket. It must be removed when no longer needed." },
+  { forms: ["custom hook", "custom hooks"], definition: "Your own function whose name starts with use and that calls other hooks, so several components can share the same stateful logic." },
 ];

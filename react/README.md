@@ -21,3 +21,4 @@ react/<category>/<topic>/
 ## Topics
 
 - [How React Renders](rendering/how-react-renders/index.html) - rendering
+- [React State and Effects](hooks/state-and-effects/index.html) - hooks

@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>React State and Effects</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="../../../assets/topic.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow"><a href="../../">React</a> / Hooks</div>
+    <h1>React State and Effects</h1>
+    <p class="aka">How a function component remembers values between renders, and how it works with things outside React. Examples use React 19.</p>
+  </header>
+
+  <section>
+    <h2>What it is</h2>
+    <p>A component is a function, and React calls it again on every render. Its local variables start fresh each time. <strong>Hooks</strong> are functions whose names start with <code>use</code>; they let the component keep data that React stores for it between calls.</p>
+    <p>React stores hook data in a list per component instance, in the order the hooks are called. On the next render, the first <code>useState</code> call gets the first stored value, the second gets the second, and so on. That is why hooks must be called in the same order on every render: never inside an <code>if</code>, a loop or after an early <code>return</code>.</p>
+    <p><code>useEffect</code> is for working with systems outside React: a network request, a timer, a browser API, a subscription. React runs it after the screen is updated, and runs its cleanup before the next run and when the component is removed.</p>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Term</th><th>Meaning</th><th>In the example</th></tr></thead>
+        <tbody>
+          <tr><td><span class="chip tone-teal"><code>useState</code></span></td><td>A value that React keeps between renders. Changing it with the setter causes a render.</td><td><code>[query, setQuery]</code></td></tr>
+          <tr><td><span class="chip tone-teal"><code>useReducer</code></span></td><td>Like <code>useState</code>, but all changes go through one function that takes an action.</td><td>A form with many fields</td></tr>
+          <tr><td><span class="chip tone-blue"><code>useRef</code></span></td><td>A box whose <code>.current</code> value is kept between renders. Changing it does not cause a render.</td><td>The last request's start time</td></tr>
+          <tr><td><span class="chip tone-amber"><code>useEffect</code></span></td><td>Code that runs after a render, to sync with something outside React. It can return a cleanup function.</td><td>Fetch search results</td></tr>
+          <tr><td><span class="chip tone-amber">Dependency array</span></td><td>The values an effect uses. React runs the effect again only when one of them changed since the last render.</td><td><code>[query]</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Derived value</span></td><td>A value computed from props or state during render. It needs no state of its own.</td><td><code>resultCountText</code></td></tr>
+          <tr><td><span class="chip tone-neutral">Stale closure</span></td><td>A function that still sees variables from the render in which it was created.</td><td>An interval that always reads <code>count = 0</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rule"><strong>Main rule:</strong> compute what you can during render, change state in event handlers, and use effects only to sync with something outside React. Every effect that starts something must clean it up.</div>
+  </section>
+
+  <section>
+    <h2>Hooks you will use most</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Hook</th><th>Use it for</th><th>Causes a render?</th></tr></thead>
+        <tbody>
+          <tr><td><code>useState</code></td><td>Values the screen shows that change: input text, open or closed, selected item</td><td>Yes, when set to a different value</td></tr>
+          <tr><td><code>useReducer</code></td><td>State with many related fields or many kinds of change</td><td>Yes</td></tr>
+          <tr><td><code>useRef</code></td><td>DOM nodes, timer IDs, values you need later but never show</td><td>No</td></tr>
+          <tr><td><code>useEffect</code></td><td>Subscriptions, timers, browser APIs, sending analytics</td><td>Only if it sets state</td></tr>
+          <tr><td><code>useContext</code></td><td>Reading a value provided higher in the tree, such as the current user</td><td>When the provided value changes</td></tr>
+          <tr><td><code>useMemo</code>, <code>useCallback</code></td><td>Keeping a slow calculation or a function between renders. The React Compiler adds these for you.</td><td>No</td></tr>
+          <tr><td><code>useTransition</code></td><td>Marking an update as not urgent, so typing stays responsive while a large list renders</td><td>Yes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>When you do not need an effect</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Goal</th><th>With an effect</th><th>Without one</th></tr></thead>
+        <tbody>
+          <tr><td>Show a value computed from state</td><td>State plus an effect that updates it: an extra render with the old value first</td><td>Compute it during render</td></tr>
+          <tr><td>Reset a form when a different customer is selected</td><td>An effect that clears every field</td><td>Give the form <code>key={customer.id}</code></td></tr>
+          <tr><td>Send a request after the user clicks Save</td><td>A flag in state and an effect that watches it</td><td>Send it in the click handler</td></tr>
+          <tr><td>Load data for a page</td><td>A fetch in an effect, with its own loading, error and race handling</td><td>A data library such as TanStack Query, or the framework's server rendering</td></tr>
+          <tr><td>Connect to a chat server while the room is open</td><td colspan="2">This is what effects are for: connect in the setup, disconnect in the cleanup</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How the dependency array works</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Written as</th><th>Effect runs</th><th>Risk</th></tr></thead>
+        <tbody>
+          <tr><td><code>useEffect(fn)</code></td><td>After every render</td><td>Runs far more often than expected</td></tr>
+          <tr><td><code>useEffect(fn, [])</code></td><td>After the first render only (twice in Strict Mode in development)</td><td>The function sees the first render's values forever</td></tr>
+          <tr><td><code>useEffect(fn, [query])</code></td><td>After the first render, and after any render where <code>query</code> changed</td><td>Leaving out a value the effect reads gives stale values</td></tr>
+          <tr><td>An object or array created during render in the list</td><td>After every render, because it is a new object each time</td><td>If the effect sets state: an endless loop. React stops it with <code>Maximum update depth exceeded</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>React compares each dependency with <code>Object.is</code>. The <code>react-hooks/exhaustive-deps</code> lint rule lists the values the effect reads, so none are forgotten.</p>
+  </section>
+
+  <section>
+    <h2>Logging and monitoring</h2>
+    <div class="table-wrap">
+      <table class="terms">
+        <thead><tr><th>Where</th><th>What to log or measure</th><th>Level or alert</th></tr></thead>
+        <tbody>
+          <tr><td>Not in the component body</td><td>Render runs more often than you expect, and twice in Strict Mode. Log lines there are duplicates.</td><td></td></tr>
+          <tr><td>Event handlers</td><td>User actions you want to count, such as "checkout clicked"</td><td>Analytics event</td></tr>
+          <tr><td>Fetch errors</td><td>URL path, status, and the server's <code>x-request-id</code> response header, once per failed request. Not aborted requests: those are expected.</td><td>error to the error service</td></tr>
+          <tr><td>Effects</td><td>Subscriptions opened and closed, if leaks are suspected. Remove after use.</td><td>debug</td></tr>
+          <tr><td>Metric</td><td>Time from typing to results shown</td><td>Alert if p75 over 1 s</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Diagram</h2>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 920 420" role="img" aria-labelledby="diagram-title">
+        <title id="diagram-title">A search page component calls useState for the query, useState for the results, useRef and useEffect, in that order. React stores each hook's data in a list in the same order. The effect fetches from the search API after each render where the query changed, and its cleanup cancels the previous request.</title>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+          <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead-lit"/>
+          </marker>
+        </defs>
+
+        <rect class="frame" x="15" y="15" width="300" height="390" rx="10"/>
+        <text class="t-label" x="165" y="34">COMPONENT, CALLED EACH RENDER</text>
+        <rect class="frame" x="345" y="15" width="260" height="390" rx="10"/>
+        <text class="t-label" x="475" y="34">HOOK LIST REACT KEEPS</text>
+
+        <g class="node" id="n-component" tabindex="0" role="button" aria-label="Show the search page" data-title="SearchPage component" data-node="component">
+          <rect class="shape tone-neutral" x="35" y="50" width="260" height="60" rx="6"/>
+          <text class="t-name" x="165" y="75">SearchPage</text>
+          <text class="t-kind" x="165" y="93">calls its hooks in a fixed order</text>
+        </g>
+        <g class="node" id="n-state" tabindex="0" role="button" aria-label="Show state and derived values" data-title="useState and derived values" data-node="state">
+          <rect class="shape tone-teal" x="35" y="130" width="260" height="80" rx="6"/>
+          <text class="t-name" x="165" y="154">useState</text>
+          <text class="t-item" x="165" y="176">1. query</text>
+          <text class="t-item" x="165" y="194">2. results</text>
+        </g>
+        <g class="node" id="n-ref" tabindex="0" role="button" aria-label="Show useRef" data-title="useRef: a value without renders" data-node="ref">
+          <rect class="shape tone-blue" x="35" y="230" width="260" height="60" rx="6"/>
+          <text class="t-name" x="165" y="254">useRef</text>
+          <text class="t-item" x="165" y="275">3. searchStartedAt</text>
+        </g>
+        <g class="node" id="n-effect" tabindex="0" role="button" aria-label="Show the effect with dependencies" data-title="useEffect: dependencies and cleanup" data-node="effect">
+          <rect class="shape tone-amber" x="35" y="310" width="260" height="80" rx="6"/>
+          <text class="t-name" x="165" y="334">useEffect</text>
+          <text class="t-item" x="165" y="356">4. fetch when query changes</text>
+          <text class="t-kind" x="165" y="374">cleanup: abort the old request</text>
+        </g>
+
+        <g class="node" id="n-hooks" tabindex="0" role="button" aria-label="Show what breaks when hook order changes" data-title="Hook list: order matters" data-node="hooks">
+          <rect class="shape tone-neutral" x="365" y="50" width="220" height="60" rx="6"/>
+          <text class="t-name" x="475" y="75">Hook list</text>
+          <text class="t-kind" x="475" y="93">matched by call order</text>
+        </g>
+        <g id="p-slot-1"><rect class="slot tone-teal" x="375" y="140" width="200" height="30" rx="4"/><text class="t-item" x="475" y="160">slot 1: "rea"</text></g>
+        <g id="p-slot-2"><rect class="slot tone-teal" x="375" y="180" width="200" height="30" rx="4"/><text class="t-item" x="475" y="200">slot 2: 12 results</text></g>
+        <g id="p-slot-3"><rect class="slot tone-blue" x="375" y="245" width="200" height="30" rx="4"/><text class="t-item" x="475" y="265">slot 3: { current: 1712 }</text></g>
+        <g id="p-slot-4"><rect class="slot tone-amber" x="375" y="335" width="200" height="30" rx="4"/><text class="t-item" x="475" y="355">slot 4: deps ["rea"], cleanup</text></g>
+
+        <g class="node" id="n-api" tabindex="0" role="button" aria-label="Show the search client" data-title="Search API: client and error logging" data-node="api">
+          <rect class="shape tone-neutral" x="640" y="130" width="260" height="80" rx="6"/>
+          <text class="t-name" x="770" y="156">Search API</text>
+          <text class="t-kind" x="770" y="174">GET /search?q=rea</text>
+          <text class="t-kind" x="770" y="190">returns x-request-id</text>
+        </g>
+
+        <g class="state-item" id="s-req-re"><rect class="slot tone-neutral" x="650" y="240" width="240" height="28" rx="4"/><text class="t-item" x="770" y="258">"re": slow, 800 ms</text></g>
+        <g class="state-item" id="s-req-rea"><rect class="slot tone-neutral" x="650" y="276" width="240" height="28" rx="4"/><text class="t-item" x="770" y="294">"rea": fast, 200 ms</text></g>
+        <g class="state-item" id="s-aborted"><rect class="slot tone-teal" x="650" y="240" width="240" height="28" rx="4"/><text class="t-item" x="770" y="258">"re": aborted by cleanup</text></g>
+
+        <path class="flow" id="a-state-slots" d="M295,170 L373,170" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-ref-slot" d="M295,260 L373,260" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-effect-slot" d="M295,350 L373,350" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-effect-api" d="M295,330 L620,330 L620,180 L638,180" marker-end="url(#arrow)"/>
+        <path class="flow reply" id="a-api-state" d="M770,130 L770,120 L320,120 L320,190 L297,190" marker-end="url(#arrow)"/>
+        <path class="flow" id="a-component-hooks" d="M295,80 L363,80" marker-end="url(#arrow)"/>
+        <text class="ghost-label" id="t-order" x="475" y="128">ORDER CHANGED: Rendered more hooks</text>
+        <text class="ghost-label" id="t-wrong" x="770" y="325">OLD RESULTS SHOWN LAST</text>
+        <text class="ghost-label" id="t-loop" x="475" y="395">NEW OBJECT EVERY RENDER: LOOP</text>
+      </svg>
+    </div>
+    <div class="flow-player">
+      <div class="flow-picker" role="group" aria-label="Example flow">
+        <span class="flow-picker-label">Example flow:</span>
+        <button type="button" data-flow="search" aria-pressed="true">Typing starts a search</button>
+        <button type="button" data-flow="race" aria-pressed="false">Responses out of order</button>
+        <button type="button" data-flow="order" aria-pressed="false">A hook inside an if</button>
+        <button type="button" data-flow="loop" aria-pressed="false">An object as a dependency</button>
+        <button type="button" data-flow="derived" aria-pressed="false">A value that needs no state</button>
+      </div>
+      <div class="flow-controls">
+        <button type="button" class="flow-play">Play</button>
+        <button type="button" class="flow-back" disabled>Back</button>
+        <button type="button" class="flow-next">Next</button>
+        <button type="button" class="flow-reset" disabled>Reset</button>
+      </div>
+      <p class="flow-caption" aria-live="polite">Pick a flow and press Play to follow it through the diagram, step by step.</p>
+      <ol class="flow-steps" data-flow="search" hidden>
+        <li data-highlight="n-component n-state">The user types "a" after "re". The input's <code>onChange</code> calls <code>setQuery("rea")</code>.</li>
+        <li data-highlight="n-component a-component-hooks n-hooks a-state-slots p-slot-1 p-slot-2">React calls <code>SearchPage</code> again. The first <code>useState</code> call reads slot 1 and gets <code>"rea"</code>; the second reads slot 2 and gets the old results.</li>
+        <li data-highlight="n-effect a-effect-slot p-slot-4">After the screen updates, React compares the effect's dependency <code>[query]</code> with slot 4. <code>"rea"</code> differs from <code>"re"</code>, so the effect will run.</li>
+        <li data-highlight="n-effect" data-show="s-aborted">First React runs the previous cleanup, which aborts the request for "re" if it is still running.</li>
+        <li data-highlight="n-effect a-effect-api n-api" data-show="s-aborted s-req-rea">Then the setup starts <code>GET /search?q=rea</code> with a new <code>AbortController</code>, and notes the start time in the ref.</li>
+        <li data-highlight="n-api a-api-state n-state p-slot-2" data-show="s-aborted s-req-rea">The response arrives. <code>setResults</code> stores it in slot 2 and causes one more render with the new results.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="race" hidden>
+        <li data-highlight="n-effect a-effect-api n-api" data-show="s-req-re">Without a cleanup, typing "re" starts a request that the server answers slowly: 800 ms.</li>
+        <li data-highlight="n-effect a-effect-api n-api" data-show="s-req-re s-req-rea">Typing "a" starts a second request for "rea", which takes 200 ms.</li>
+        <li data-highlight="n-api a-api-state n-state" data-show="s-req-re s-req-rea">The "rea" results arrive first and are shown. 600 ms later the "re" results arrive and replace them.</li>
+        <li data-highlight="n-state t-wrong" data-show="s-req-re s-req-rea">The input says "rea", but the list shows results for "re". No error is reported.</li>
+        <li data-highlight="n-effect" data-show="s-aborted s-req-rea">With the cleanup aborting the old request, the "re" response never arrives. The fetch rejects with an <code>AbortError</code>, which the code ignores.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="order" hidden>
+        <li data-highlight="n-component n-state">A developer adds <code>if (showFilters) { const [category] = useState("all"); }</code> between the two existing <code>useState</code> calls.</li>
+        <li data-highlight="n-component a-component-hooks n-hooks">On the first render <code>showFilters</code> is false, so three hooks are called and three slots are stored.</li>
+        <li data-highlight="n-hooks t-order">When <code>showFilters</code> becomes true, four hooks are called. React throws <code>Rendered more hooks than during the previous render.</code> In development it first warns that the order of hooks changed, with a table of both renders.</li>
+        <li data-highlight="n-state">Call the hook at the top level every time, and use its value only when <code>showFilters</code> is true. The <code>react-hooks/rules-of-hooks</code> lint rule reports this before it runs.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="loop" hidden>
+        <li data-highlight="n-component">The component creates <code>const filters = { category }</code> during render and lists <code>filters</code> as a dependency of the effect.</li>
+        <li data-highlight="n-effect a-effect-slot p-slot-4">Each render creates a new object. <code>Object.is</code> says it differs from the last one, so the effect runs after every render.</li>
+        <li data-highlight="n-effect a-effect-api n-api a-api-state n-state t-loop">The effect calls <code>setResults</code>, which causes a render, which creates a new object, which runs the effect again.</li>
+        <li data-highlight="n-effect">React stops with <code>Maximum update depth exceeded</code>. Measured in React 19. List <code>category</code>, a string, as the dependency instead.</li>
+      </ol>
+      <ol class="flow-steps" data-flow="derived" hidden>
+        <li data-highlight="n-state">The page shows "12 results for rea". A first version keeps this text in its own <code>useState</code>.</li>
+        <li data-highlight="n-effect a-effect-slot p-slot-4">An effect updates the text whenever the results change. It runs after the render, so the screen first shows the old text, then renders again.</li>
+        <li data-highlight="n-component n-state">Computing the text during render, from <code>results</code> and <code>query</code>, gives the right text in the same render, with one fewer hook.</li>
+        <li data-highlight="n-state">Rule of thumb: if a value can be computed from props or state, it is not state.</li>
+      </ol>
+    </div>
+    <div class="legend">
+      <span class="chip tone-teal">State</span>
+      <span class="chip tone-blue">Ref</span>
+      <span class="chip tone-amber">Effect</span>
+      <span class="chip tone-neutral">Component and server</span>
+      <span>Each hook call on the left reads the slot with the same number on the right. Click a box to see its code.</span>
+    </div>
+
+    <h3>Files</h3>
+    <div class="tree" aria-label="Example files">
+      <div class="tree-root">shop-web/</div>
+      <button type="button" class="tree-row" data-file="src/search/SearchPage.tsx"><span class="path">├─ src/search/SearchPage.tsx</span><span class="chip tone-neutral">Component</span></button>
+      <button type="button" class="tree-row" data-file="src/search/useSearchResults.ts"><span class="path">├─ src/search/useSearchResults.ts</span><span class="chip tone-amber">Effect</span></button>
+      <button type="button" class="tree-row" data-file="src/search/searchClient.ts"><span class="path">├─ src/search/searchClient.ts</span><span class="chip tone-neutral">Server</span></button>
+      <button type="button" class="tree-row" data-file="src/search/ResultSummary.tsx"><span class="path">├─ src/search/ResultSummary.tsx</span><span class="chip tone-teal">State</span></button>
+      <button type="button" class="tree-row" data-file="src/search/useElapsedTime.ts"><span class="path">├─ src/search/useElapsedTime.ts</span><span class="chip tone-blue">Ref</span></button>
+      <button type="button" class="tree-row" data-file="src/search/FilterPanel.tsx"><span class="path">└─ src/search/FilterPanel.tsx</span><span class="chip tone-neutral">Hook order</span></button>
+    </div>
+  </section>
+
+  <section class="tradeoffs">
+    <div class="solves">
+      <h2><span class="mark"></span>Problems it solves</h2>
+      <ul>
+        <li><strong>State in plain functions</strong><span>Function components keep values between renders without classes.</span></li>
+        <li><strong>Setup and teardown kept together</strong><span>An effect's subscribe and unsubscribe code sit in one place.</span></li>
+        <li><strong>Reusing stateful logic</strong><span>A custom hook such as <code>useSearchResults</code> packages state and effects for any component.</span></li>
+        <li><strong>Old work cancelled</strong><span>Cleanup runs before the next effect, so outdated requests and timers can be stopped.</span></li>
+      </ul>
+    </div>
+    <div class="introduces">
+      <h2><span class="mark"></span>Problems it introduces</h2>
+      <ul>
+        <li><strong>Order rules</strong><span>Hooks cannot be called conditionally, which feels strange for normal functions.</span></li>
+        <li><strong>Dependency mistakes</strong><span>Missing values give stale data; new objects give effects that run every render.</span></li>
+        <li><strong>Effects used for everything</strong><span>Extra renders and bugs from effects that only copy one state into another.</span></li>
+        <li><strong>Races</strong><span>Network responses can arrive in a different order than requests, unless cleanup handles it.</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<div class="code-store" hidden>
+  <div class="language-tsx">
+    <div class="file" data-lang="any" data-node="component">
+      <div class="file-head"><span class="chip tone-neutral">Component</span><span class="name">src/search/SearchPage.tsx</span><span class="why">The component holds the query and calls a custom hook for the results. The input changes state in its event handler. The summary text is computed from props, not stored.</span></div>
+<pre><code>import { useState } from "react";
+import { ResultSummary } from "./ResultSummary";
+import { useSearchResults } from "./useSearchResults";
+
+export function SearchPage() {
+  const [query, setQuery] = useState("");
+  const { results, isLoading } = useSearchResults(query);
+
+  return (
+    &lt;main&gt;
+      &lt;input value={query} onChange={(event) =&gt; setQuery(event.target.value)} placeholder="Search products" /&gt;
+      &lt;ResultSummary query={query} resultCount={results.length} isLoading={isLoading} /&gt;
+      &lt;ul&gt;
+        {results.map((product) =&gt; (
+          &lt;li key={product.id}&gt;{product.name}&lt;/li&gt;
+        ))}
+      &lt;/ul&gt;
+    &lt;/main&gt;
+  );
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="effect">
+      <div class="file-head"><span class="chip tone-amber">Effect</span><span class="name">src/search/useSearchResults.ts</span><span class="why">The effect depends on <code>query</code>, a string, so it runs only when the text changes. The cleanup aborts the request of the previous query, so an old response can never replace a newer one. An aborted request is expected and not reported. The ref keeps the start time for the duration metric without causing a render. For real apps, TanStack Query does this, plus caching and retries.</span></div>
+<pre><code>import { useEffect, useRef, useState } from "react";
+import { reportMetric } from "../monitoring";
+import { searchProducts, type Product } from "./searchClient";
+
+export function useSearchResults(query: string) {
+  const [results, setResults] = useState&lt;Product[]&gt;([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const searchStartedAt = useRef(0);
+
+  useEffect(() =&gt; {
+    if (query.length &lt; 2) {
+      setResults([]);
+      return;
+    }
+
+    const abortController = new AbortController();
+    searchStartedAt.current = performance.now();
+    setIsLoading(true);
+
+    searchProducts(query, abortController.signal)
+      .then((products) =&gt; {
+        setResults(products);
+        reportMetric("search_results_ms", Math.round(performance.now() - searchStartedAt.current));
+      })
+      .catch(() =&gt; {
+        if (abortController.signal.aborted) return;
+        setResults([]);
+      })
+      .finally(() =&gt; {
+        if (!abortController.signal.aborted) setIsLoading(false);
+      });
+
+    return () =&gt; abortController.abort();
+  }, [query]);
+
+  return { results, isLoading };
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="api">
+      <div class="file-head"><span class="chip tone-neutral">Server</span><span class="name">src/search/searchClient.ts</span><span class="why">The client logs a failed response once, with the server's <code>x-request-id</code>, so the error can be found in the server's logs. The query text is not logged: users type personal data into search boxes. Aborts throw before a response exists, so they never reach the report.</span></div>
+<pre><code>import { reportError } from "../monitoring";
+
+export type Product = { id: string; name: string };
+
+export async function searchProducts(query: string, signal: AbortSignal): Promise&lt;Product[]&gt; {
+  const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal });
+
+  if (!response.ok) {
+    const error = new Error(`Search failed with status ${response.status}.`);
+    reportError(error, { path: "/api/search", status: response.status, requestId: response.headers.get("x-request-id") });
+    throw error;
+  }
+  return (await response.json()) as Product[];
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="state">
+      <div class="file-head"><span class="chip tone-teal">State</span><span class="name">src/search/ResultSummary.tsx</span><span class="why">The summary is derived during render. A common alternative keeps it in <code>useState</code> and updates it in an effect, which shows the old text for one render and adds a hook. Computing it needs neither.</span></div>
+<pre><code>type ResultSummaryProps = { query: string; resultCount: number; isLoading: boolean };
+
+export function ResultSummary({ query, resultCount, isLoading }: ResultSummaryProps) {
+  if (query.length &lt; 2) return &lt;p&gt;Type at least 2 characters.&lt;/p&gt;;
+  if (isLoading) return &lt;p&gt;Searching...&lt;/p&gt;;
+
+  const resultCountText = resultCount === 1 ? "1 result" : `${resultCount} results`;
+  return &lt;p&gt;{resultCountText} for "{query}"&lt;/p&gt;;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="ref">
+      <div class="file-head"><span class="chip tone-blue">Ref</span><span class="name">src/search/useElapsedTime.ts</span><span class="why">The interval ID is kept in a ref: the code needs it to stop the timer, but the screen never shows it. The updater form <code>seconds =&gt; seconds + 1</code> avoids a stale closure: the interval was created in the first render, but always adds to the latest value.</span></div>
+<pre><code>import { useEffect, useRef, useState } from "react";
+
+export function useElapsedTime(isRunning: boolean) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const intervalId = useRef&lt;ReturnType&lt;typeof setInterval&gt; | null&gt;(null);
+
+  useEffect(() =&gt; {
+    if (!isRunning) return;
+    intervalId.current = setInterval(() =&gt; setElapsedSeconds((seconds) =&gt; seconds + 1), 1000);
+    return () =&gt; {
+      if (intervalId.current) clearInterval(intervalId.current);
+    };
+  }, [isRunning]);
+
+  return elapsedSeconds;
+}</code></pre>
+    </div>
+
+    <div class="file" data-lang="any" data-node="hooks">
+      <div class="file-head"><span class="chip tone-neutral">Hook order</span><span class="name">src/search/FilterPanel.tsx</span><span class="why">The hook is called on every render, before any condition, so the hook list always has the same length. Only the use of its value depends on <code>showFilters</code>. Putting <code>useState</code> inside the <code>if</code> threw <code>Rendered more hooks than during the previous render.</code> in React 19.</span></div>
+<pre><code>import { useState } from "react";
+
+export function FilterPanel({ showFilters }: { showFilters: boolean }) {
+  const [sortOrder, setSortOrder] = useState("relevance");
+  const [category, setCategory] = useState("all");
+
+  return (
+    &lt;div&gt;
+      &lt;select value={sortOrder} onChange={(event) =&gt; setSortOrder(event.target.value)}&gt;
+        &lt;option value="relevance"&gt;Relevance&lt;/option&gt;
+        &lt;option value="price"&gt;Price&lt;/option&gt;
+      &lt;/select&gt;
+      {showFilters &amp;&amp; (
+        &lt;select value={category} onChange={(event) =&gt; setCategory(event.target.value)}&gt;
+          &lt;option value="all"&gt;All&lt;/option&gt;
+          &lt;option value="books"&gt;Books&lt;/option&gt;
+        &lt;/select&gt;
+      )}
+    &lt;/div&gt;
+  );
+}</code></pre>
+    </div>
+  </div>
+</div>
+
+<dialog id="code-dialog" aria-labelledby="code-dialog-title">
+  <div class="dialog-head">
+    <h3 id="code-dialog-title"></h3>
+    <button id="code-dialog-close" class="close-button" type="button">Close</button>
+  </div>
+  <div class="dialog-files"></div>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-jsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-tsx.min.js"></script>
+<script src="../../../assets/topic.js"></script>
+</body>
+</html>
